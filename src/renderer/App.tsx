@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ThreadRow } from '../core/types';
 import type { CoreClient } from './core-client';
+import { AccountBar, EmptyState, useAccounts } from './AccountBar';
 import { ThreadList } from './ThreadList';
 import { useKeys } from './useKeys';
 
@@ -9,6 +10,7 @@ export function App({ core }: { core: CoreClient }) {
   const [selected, setSelected] = useState(0);
   const selectedKey = useRef<string | undefined>(undefined);
   const reported = useRef(false);
+  const accounts = useAccounts();
 
   // Rows for the visible Split live here, in renderer memory. Refreshed when the core says they changed.
   useEffect(() => {
@@ -35,12 +37,14 @@ export function App({ core }: { core: CoreClient }) {
     selectedKey.current = rows[selected]?.key;
   }, [rows, selected]);
 
+  const empty = !window.normie.fake && accounts !== null && accounts.length === 0 && rows.length === 0;
+
+  // Tell main the first useful screen is up (used by smoke runs and, later, the cold-start budget).
   useEffect(() => {
-    if (rows.length && !reported.current) {
-      reported.current = true;
-      requestAnimationFrame(() => window.normie.ready({ rows: rows.length }));
-    }
-  }, [rows]);
+    if (reported.current || (!rows.length && !empty)) return;
+    reported.current = true;
+    requestAnimationFrame(() => window.normie.ready({ rows: rows.length, view: rows.length ? 'list' : 'empty' }));
+  }, [rows, empty]);
 
   const move = useCallback(
     (to: (s: number) => number) => setSelected((s) => Math.max(0, Math.min(rows.length - 1, to(s)))),
@@ -60,8 +64,9 @@ export function App({ core }: { core: CoreClient }) {
       <header className="split-bar">
         <span className="split active">Inbox</span>
         <span className="count">{rows.length}</span>
+        {accounts && <AccountBar accounts={accounts} />}
       </header>
-      <ThreadList rows={rows} selected={selected} />
+      {empty ? <EmptyState /> : <ThreadList rows={rows} selected={selected} />}
     </main>
   );
 }

@@ -1,12 +1,19 @@
 // The main process: windows, process wiring and (later) sign-in and secrets.
 import { app, BrowserWindow, ipcMain, MessageChannelMain, shell, utilityProcess, type UtilityProcess } from 'electron';
 import { rmSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
+import { mainPortChannel, serve } from '../core/rpc';
 import type { AccountConfig } from '../sync/index';
+import { Accounts, type AccountRecord } from './auth/accounts';
+import { JsonAccountList, SafeStorageSecrets } from './auth/electron-stores';
+import { loadGoogleClient } from './auth/google-oauth';
 
 const smoke = process.env.NORMIE_SMOKE === '1';
 const useFake = process.env.NORMIE_PROVIDER === 'fake';
 const launchedAt = performance.now();
+// Smoke runs never touch the real Accounts or mail database.
+if (smoke) app.setPath('userData', path.join(app.getPath('temp'), `normie-smoke-${process.pid}`));
 
 let dataProc: UtilityProcess | undefined;
 let syncProc: UtilityProcess | undefined;
@@ -19,10 +26,28 @@ function dbPath() {
   return p;
 }
 
-function accounts(): AccountConfig[] {
-  // Milestone 1, ticket #4: only the fake provider exists. Gmail arrives in #6 and #8.
-  const seed = Number(process.env.NORMIE_FAKE_SEED) || undefined;
-  return [{ kind: 'fake', accountId: 'fake-1', email: 'me@example.com', seed }];
+/** The Desktop OAuth client from Google Cloud. It lives outside the repo. */
+const googleClientPath = () => process.env.NORMIE_GOOGLE_CLIENT ?? path.join(homedir(), '.config/normie/google-oauth-client.json');
+
+let accounts: Accounts;
+
+function initAccounts() {
+  const dir = app.getPath('userData');
+  accounts = new Accounts({
+    secrets: new SafeStorageSecrets(path.join(dir, 'secrets')),
+    list: new JsonAccountList(path.join(dir, 'accounts.json')),
+    googleClient: () => loadGoogleClient(googleClientPath()),
+    openUrl: (url) => shell.openExternal(url),
+  });
+  accounts.onChange((list) => win?.webContents.send('accounts:changed', list));
+}
+
+function syncAccounts(): AccountConfig[] {
+  if (useFake) {
+    const seed = Number(process.env.NORMIE_FAKE_SEED) || undefined;
+    return [{ kind: 'fake', accountId: 'fake-1', email: 'me@example.com', seed }];
+  }
+  return accounts.list().map((a) => ({ kind: a.kind, accountId: a.id, email: a.email }));
 }
 
 function startCore() {
@@ -33,7 +58,11 @@ function startCore() {
   const dataSync = new MessageChannelMain();
   dataProc.postMessage({ type: 'sync-port' }, [dataSync.port1]);
   syncProc.postMessage({ type: 'data-port' }, [dataSync.port2]);
-  syncProc.postMessage({ type: 'init', accounts: accounts() });
+  // Sync asks main for access tokens; main holds the secrets and refreshes them.
+  const mainSync = new MessageChannelMain();
+  serve(mainPortChannel(mainSync.port1), { accessToken: (id: string) => accounts.accessToken(id) });
+  syncProc.postMessage({ type: 'main-port' }, [mainSync.port2]);
+  syncProc.postMessage({ type: 'init', accounts: syncAccounts() });
 
   for (const [name, proc] of [['data', dataProc], ['sync', syncProc]] as const) {
     proc.on('exit', (code) => {
@@ -61,6 +90,7 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      additionalArguments: useFake ? ['--normie-fake'] : [],
     },
   });
   const w = win;
@@ -79,13 +109,14 @@ function createWindow() {
 
 let quitting = false;
 
-ipcMain.on('renderer-ready', async (_e, info: { rows: number }) => {
+ipcMain.on('renderer-ready', async (_e, info: { rows: number; view: 'list' | 'empty' }) => {
   if (!smoke || !win) return;
   const msSinceLaunch = Math.round(performance.now() - launchedAt);
-  const keys = await smokeKeys(win);
+  const keys = info.view === 'list' ? await smokeKeys(win) : undefined;
   console.log(`[smoke] ${JSON.stringify({ ...info, msSinceLaunch, packaged: app.isPackaged, keys })}`);
   quitting = true;
-  app.exit(info.rows > 0 && keys.ok ? 0 : 1);
+  const ok = info.view === 'list' ? info.rows > 0 && keys!.ok : !useFake && info.view === 'empty';
+  app.exit(ok ? 0 : 1);
 });
 
 /** Smoke check: real key presses move the selection through the registry. */
@@ -114,7 +145,17 @@ async function smokeKeys(w: BrowserWindow) {
   return { ok: start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0, start, afterJ, afterK, afterGG };
 }
 
+ipcMain.handle('accounts:list', () => accounts.list());
+ipcMain.handle('accounts:add-gmail', async (_e, loginHint?: string): Promise<AccountRecord> => {
+  const acct = await accounts.addGmail(loginHint);
+  app.focus({ steal: true });
+  win?.focus();
+  return acct;
+});
+ipcMain.handle('accounts:remove', (_e, id: string) => accounts.remove(id));
+
 app.whenReady().then(() => {
+  initAccounts();
   startCore();
   createWindow();
   if (smoke) setTimeout(() => {
