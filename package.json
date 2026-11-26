@@ -9,7 +9,7 @@
     "build": "node scripts/build.mjs",
     "start": "npm run build && electron .",
     "start:fake": "npm run build && NORMIE_PROVIDER=fake electron .",
-    "smoke": "npm run build && NORMIE_PROVIDER=fake NORMIE_SMOKE=1 electron .",
+    "smoke": "npm run build && NORMIE_PROVIDER=fake NORMIE_SMOKE=1 electron . && NORMIE_SMOKE=1 electron .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "package": "npm run build && electron-builder --mac dir",

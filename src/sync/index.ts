@@ -2,11 +2,13 @@
 import type { MessagePortMain } from 'electron';
 import { DATA_PORT_METHODS, type DataPort } from '../core/data-service';
 import { FakeProvider, fakeExtractText, seedDemo } from '../core/fake-provider';
-import { connect, mainPortChannel, proxy } from '../core/rpc';
+import { connect, mainPortChannel, proxy, type Client } from '../core/rpc';
 import { SyncEngine } from '../core/sync-engine';
 import type { MailProvider } from '../core/types';
 
-export type AccountConfig = { kind: 'fake'; accountId: string; email: string; seed?: number };
+export type AccountConfig =
+  | { kind: 'fake'; accountId: string; email: string; seed?: number }
+  | { kind: 'gmail'; accountId: string; email: string };
 
 type InitMessage = { type: 'init'; accounts: AccountConfig[] };
 
@@ -15,7 +17,13 @@ let dataPortMain: MessagePortMain | undefined;
 let accounts: AccountConfig[] | undefined;
 const engines = new Map<string, SyncEngine>();
 
-function providerFor(a: AccountConfig): { provider: MailProvider; extractText: (raw: Uint8Array) => Promise<string> } {
+let mainClient: Client | undefined;
+
+/** Access tokens come from main, which holds the secrets. */
+export const accessToken = (accountId: string) => mainClient!.call<string>('accessToken', accountId);
+
+function providerFor(a: AccountConfig): { provider: MailProvider; extractText: (raw: Uint8Array) => Promise<string> } | undefined {
+  if (a.kind === 'gmail') return undefined; // The Gmail provider arrives in #8.
   const p = new FakeProvider();
   seedDemo(p, a.seed ?? 40);
   return { provider: p, extractText: fakeExtractText };
@@ -33,7 +41,9 @@ async function run() {
     engines.get(loc.accountId)?.fetchBodies(loc.mailbox, [loc.uid]).catch((e) => log(`body fetch failed: ${e.message}`));
   });
   for (const a of accounts) {
-    const { provider, extractText } = providerFor(a);
+    const made = providerFor(a);
+    if (!made) continue;
+    const { provider, extractText } = made;
     const engine = new SyncEngine({ accountId: a.accountId, kind: a.kind, email: a.email, provider, data, extractText, log });
     engines.set(a.accountId, engine);
     try {
@@ -46,8 +56,9 @@ async function run() {
 }
 
 process.parentPort.on('message', (e) => {
-  const msg = e.data as InitMessage | { type: 'data-port' };
+  const msg = e.data as InitMessage | { type: 'data-port' } | { type: 'main-port' };
   if (msg.type === 'init') accounts = msg.accounts;
   else if (msg.type === 'data-port') dataPortMain = e.ports[0];
+  else if (msg.type === 'main-port' && e.ports[0]) mainClient = connect(mainPortChannel(e.ports[0]));
   void run();
 });
