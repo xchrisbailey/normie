@@ -1,0 +1,3 @@
+# No server backend: scheduled features run on the desktop
+
+Normie has no cloud service. Snooze wake-ups, Reminders and Send Later are stored and fired by the desktop app, so they only happen while Normie is running. To cover that, Normie keeps running in the tray or menu bar after its window closes and starts at login by default. A backend would make these reliable when the computer is off, but it would also put the user's mail credentials on a server we would have to run and secure. Snoozed Threads are still moved to a Snoozed mailbox or label on the server, so other devices hide them, but they wake only when Normie wakes them.
