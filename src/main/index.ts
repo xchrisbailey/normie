@@ -107,6 +107,8 @@ function createWindow() {
   });
   const w = win;
   w.webContents.on('did-finish-load', () => connectRenderer(w));
+  // Coming back to the window is a good moment to check for changes.
+  w.on('focus', () => syncProc?.postMessage({ type: 'poll' }));
   // Links never navigate the app window: http, https and mailto go to the system, everything else is dropped.
   w.webContents.setWindowOpenHandler(({ url }) => {
     if (/^(https?|mailto):/i.test(url)) void shell.openExternal(url);

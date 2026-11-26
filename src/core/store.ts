@@ -161,6 +161,9 @@ export class Store {
   ): boolean {
     const touched = new Set<string>();
     let inboxChanged = false;
+    // On folder servers, being in the Inbox mailbox is what puts a message in the Inbox; on Gmail it's the \Inbox label.
+    const isInboxMailbox = this.db.prepare('select role from mailboxes where account_id = ? and path = ?').pluck().get(accountId, mailbox) === 'inbox';
+    const inInbox = (labels: string[]) => (isInboxMailbox || labels.includes(INBOX_LABEL) ? 1 : 0);
     const threadOf = this.db.prepare('select thread_key from messages where account_id = ? and mailbox = ? and uid = ?').pluck();
     const insert = this.db.prepare(`
       insert into messages(account_id, mailbox, uid, remote_id, thread_key, message_id, subject, from_json, to_json, date,
@@ -191,7 +194,7 @@ export class Store {
           accountId, mailbox, uid: h.uid, remoteId: h.remoteId, threadKey, messageId: h.messageId ?? null,
           subject: h.subject, fromJson: h.from ? JSON.stringify(h.from) : null, toJson: JSON.stringify(h.to), date: h.date,
           flagsJson: JSON.stringify(h.flags), labelsJson: JSON.stringify(h.labels),
-          inInbox: h.labels.includes(INBOX_LABEL) ? 1 : 0, unread: h.flags.includes('\\Seen') ? 0 : 1,
+          inInbox: inInbox(h.labels), unread: h.flags.includes('\\Seen') ? 0 : 1,
         });
       }
       for (const f of batch.flagChanges ?? []) {
@@ -200,7 +203,7 @@ export class Store {
         touched.add(key);
         updateFlags.run(
           JSON.stringify(f.flags), f.flags.includes('\\Seen') ? 0 : 1,
-          f.labels ? JSON.stringify(f.labels) : null, f.labels ? (f.labels.includes(INBOX_LABEL) ? 1 : 0) : null,
+          f.labels ? JSON.stringify(f.labels) : null, f.labels ? inInbox(f.labels) : null,
           accountId, mailbox, f.uid,
         );
       }

@@ -63,4 +63,14 @@ describe.skipIf(!user)('Gmail provider against the real server', () => {
     expect(raw).toBeDefined();
     expect((await extractText(raw!.raw)).length).toBeGreaterThan(0);
   });
+
+  it('holds an IDLE connection on INBOX and closes it cleanly', async () => {
+    const ac = new AbortController();
+    const it = p.watch('INBOX', ac.signal)[Symbol.asyncIterator]();
+    const nextEvent = it.next();
+    await new Promise((r) => setTimeout(r, 3000));
+    ac.abort();
+    const res = await nextEvent;
+    expect(res.done).toBe(true);
+  });
 });

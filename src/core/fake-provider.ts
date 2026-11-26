@@ -42,7 +42,7 @@ export const ICLOUD_CAPS: Caps = { condstore: true, qresync: true, move: false, 
 export class FakeProvider implements MailProvider {
   readonly caps: Caps;
   private boxes = new Map<string, FakeBox>();
-  private watchers = new Set<(e: MailEvent) => void>();
+  private watchers = new Set<(e: MailEvent | 'drop') => void>();
   connected = false;
   /** Set to make the next calls fail, to simulate network trouble. */
   failNext = 0;
@@ -80,8 +80,13 @@ export class FakeProvider implements MailProvider {
     }
   }
 
-  private emit(e: MailEvent) {
+  private emit(e: MailEvent | 'drop', labels?: string[]) {
     for (const w of this.watchers) w(e);
+    // Like Gmail: a change to a message carrying the Inbox label is also an event on INBOX.
+    if (e !== 'drop' && this.caps.labels && labels?.includes('\\Inbox')) {
+      const inbox = [...this.boxes.values()].find((b) => b.mailbox.role === 'inbox')?.mailbox.path;
+      if (inbox && inbox !== e.mailbox) for (const w of this.watchers) w({ ...e, mailbox: inbox });
+    }
   }
 
   // --- Scripting
@@ -103,7 +108,7 @@ export class FakeProvider implements MailProvider {
         date: input.date ?? Date.now(), flags: input.flags ?? [], labels: input.labels ?? (this.caps.labels ? ['\\Inbox'] : [path]),
       },
     });
-    this.emit({ type: 'exists', mailbox: path });
+    this.emit({ type: 'exists', mailbox: path }, b.messages.get(uid)!.header.labels);
     return uid;
   }
 
@@ -116,16 +121,24 @@ export class FakeProvider implements MailProvider {
     m.modseq = b.modseq;
     if (change.flags) m.header.flags = change.flags;
     if (change.labels) m.header.labels = change.labels;
-    this.emit({ type: 'flags', mailbox: path, uid, flags: m.header.flags });
+    this.emit({ type: 'flags', mailbox: path, uid, flags: m.header.flags }, m.header.labels);
   }
 
   /** Delete a message as another device would. */
   expunge(uid: number, path = this.primaryPath) {
     const b = this.box(path);
-    if (!b.messages.delete(uid)) return;
+    const m = b.messages.get(uid);
+    if (!m || !b.messages.delete(uid)) return;
     b.modseq++;
     b.vanished.set(uid, b.modseq);
-    this.emit({ type: 'expunge', mailbox: path, uid });
+    this.emit({ type: 'expunge', mailbox: path, uid }, m.header.labels);
+  }
+
+  /** Simulate a network drop: open IDLE connections fail, and the next `failCalls` calls fail too. */
+  drop(failCalls = 1) {
+    this.connected = false;
+    this.failNext = failCalls;
+    for (const w of this.watchers) w('drop');
   }
 
   /** Simulate the server resetting UIDVALIDITY. */
@@ -214,11 +227,14 @@ export class FakeProvider implements MailProvider {
   }
 
   async *watch(path: string, signal: AbortSignal): AsyncIterable<MailEvent> {
+    this.check('watch');
     const queue: MailEvent[] = [];
+    let dropped = false;
     let wake: (() => void) | undefined;
-    const fn = (e: MailEvent) => {
-      if (e.mailbox !== path) return;
-      queue.push(e);
+    const fn = (e: MailEvent | 'drop') => {
+      if (e === 'drop') dropped = true;
+      else if (e.mailbox === path) queue.push(e);
+      else return;
       wake?.();
     };
     this.watchers.add(fn);
@@ -226,8 +242,9 @@ export class FakeProvider implements MailProvider {
     signal.addEventListener('abort', onAbort);
     try {
       while (!signal.aborted) {
-        if (!queue.length) await new Promise<void>((r) => (wake = r));
+        if (!queue.length && !dropped) await new Promise<void>((r) => (wake = r));
         wake = undefined;
+        if (dropped) throw new Error('fake connection dropped');
         while (queue.length) yield queue.shift()!;
       }
     } finally {

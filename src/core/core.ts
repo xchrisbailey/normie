@@ -33,6 +33,9 @@ export interface CreateCoreOptions {
   email?: string;
   now?: () => number;
   windowDays?: number;
+  pollMs?: number;
+  debounceMs?: number;
+  backoffMs?: (attempt: number) => number;
 }
 
 /** The whole core in one process: store, data service and one Account's sync engine. */
@@ -49,6 +52,9 @@ export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
     extractText: o.extractText,
     now: o.now,
     windowDays: o.windowDays,
+    pollMs: o.pollMs,
+    debounceMs: o.debounceMs,
+    backoffMs: o.backoffMs,
   });
   data.bodyRequester = (loc) => void engine.fetchBodies(loc.mailbox, [loc.uid]).catch(() => {});
   await engine.start();
