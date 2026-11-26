@@ -5,7 +5,8 @@ import { KeyResolver, tokenOf, type Context } from './commands/keys';
 import { ACTIONS, type ActionId } from './commands/registry';
 import { measureToNextFrame } from './perf';
 
-export type Handlers = Partial<Record<ActionId, () => void>>;
+/** A handler may return a promise; the action is measured to the frame after it settles. */
+export type Handlers = Partial<Record<ActionId, () => void | Promise<unknown>>>;
 
 export function useKeys(context: Context, handlers: Handlers) {
   const latest = useRef({ context, handlers });
@@ -24,8 +25,10 @@ export function useKeys(context: Context, handlers: Handlers) {
       if (res.type !== 'action') return;
       const run = latest.current.handlers[res.id as ActionId];
       if (!run) return;
-      run();
-      measureToNextFrame(res.id, e.timeStamp);
+      const result = run();
+      const id = res.id;
+      if (result instanceof Promise) void result.then(() => measureToNextFrame(id, e.timeStamp));
+      else measureToNextFrame(id, e.timeStamp);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);

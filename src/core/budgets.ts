@@ -2,6 +2,8 @@
 export const BUDGETS = {
   /** Move in the list (j, k) and switch Split: one frame. Checked at p95 over many presses. */
   keyMoveMs: 16,
+  /** Open a cached (prefetched) Thread: keydown to the frame that shows it. Checked at p95. */
+  openCachedMs: 50,
   /**
    * Memory of every process with the 100,000-message fixture loaded, as macOS's physical footprint
    * (what Activity Monitor shows). Not the working set: that counts Electron's shared framework pages
