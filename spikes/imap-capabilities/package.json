@@ -1,0 +1,16 @@
+{
+  "name": "spike-imap-capabilities",
+  "private": true,
+  "version": "0.0.0",
+  "description": "PROTOTYPE, throw away: what do Gmail (Workspace, OAuth) and iCloud IMAP/SMTP actually support?",
+  "type": "module",
+  "scripts": {
+    "start": "node gmail.js && node icloud.js",
+    "gmail": "node gmail.js",
+    "icloud": "node icloud.js"
+  },
+  "dependencies": {
+    "imapflow": "^2.12.2",
+    "nodemailer": "^10.6.1"
+  }
+}
