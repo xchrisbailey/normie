@@ -10,7 +10,10 @@ declare global {
 
   interface Window {
     normie: {
-      ready(info: { rows: number; view: 'list' | 'empty' }): void;
+      firstPaint(info: { rows: number; fromSnapshot: boolean }): void;
+      ready(info: { rows: number; view: 'list' | 'empty'; fromSnapshot: boolean }): void;
+      snapshot(): import('../core/types').ThreadRow[];
+      saveSnapshot(rows: import('../core/types').ThreadRow[]): void;
       platform: string;
       fake: boolean;
       accounts: {

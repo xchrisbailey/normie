@@ -1,7 +1,7 @@
 // The main process: windows, process wiring and (later) sign-in and secrets.
 import { app, BrowserWindow, ipcMain, MessageChannelMain, shell, utilityProcess, type UtilityProcess } from 'electron';
 import { execFileSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { mainPortChannel, serve } from '../core/rpc';
@@ -13,13 +13,16 @@ import { BUDGETS } from '../core/budgets';
 
 const smoke = process.env.NORMIE_SMOKE === '1';
 const bench = process.env.NORMIE_BENCH === '1';
+/** One cold launch for the cold-start benchmark: report time to the first useful frame, then quit. */
+const coldStartRun = process.env.NORMIE_BENCH === 'coldstart';
 /** 'fake' runs a fake mailbox; 'none' runs with sync off (the benchmark fixture). Neither uses real Accounts. */
 const provider = process.env.NORMIE_PROVIDER;
 const useFake = provider === 'fake';
 const noRealAccounts = provider === 'fake' || provider === 'none';
 const launchedAt = performance.now();
-// Smoke runs never touch the real Accounts or mail database.
-if (smoke) app.setPath('userData', path.join(app.getPath('temp'), `normie-smoke-${process.pid}`));
+// Smoke runs never touch the real Accounts or mail database; benchmark runs can name their own folder.
+if (process.env.NORMIE_USER_DATA) app.setPath('userData', process.env.NORMIE_USER_DATA);
+else if (smoke) app.setPath('userData', path.join(app.getPath('temp'), `normie-smoke-${process.pid}`));
 
 let dataProc: UtilityProcess | undefined;
 let syncProc: UtilityProcess | undefined;
@@ -61,11 +64,17 @@ function syncAccounts(): AccountConfig[] {
   return accounts.list().map((a) => ({ kind: a.kind, accountId: a.id, email: a.email, status: a.status }));
 }
 
-function startCore() {
+/** The data process starts at once: the first frame needs rows. */
+function startData() {
   dataProc = utilityProcess.fork(path.join(__dirname, '../data/index.js'), [], { serviceName: 'Normie Data', stdio: 'inherit' });
-  syncProc = utilityProcess.fork(path.join(__dirname, '../sync/index.js'), [], { serviceName: 'Normie Sync', stdio: 'inherit' });
   dataProc.postMessage({ type: 'init', dbPath: dbPath() });
+  watchExit('data', dataProc);
+}
 
+/** Sync starts after the first paint, so the network never competes with drawing the inbox. */
+function startSync() {
+  if (syncProc || !dataProc) return;
+  syncProc = utilityProcess.fork(path.join(__dirname, '../sync/index.js'), [], { serviceName: 'Normie Sync', stdio: 'inherit' });
   const dataSync = new MessageChannelMain();
   dataProc.postMessage({ type: 'sync-port' }, [dataSync.port1]);
   syncProc.postMessage({ type: 'data-port' }, [dataSync.port2]);
@@ -74,13 +83,40 @@ function startCore() {
   serve(mainPortChannel(mainSync.port1), { accessToken: (id: string) => accounts.accessToken(id) });
   syncProc.postMessage({ type: 'main-port' }, [mainSync.port2]);
   syncProc.postMessage({ type: 'accounts', accounts: syncAccounts() });
+  watchExit('sync', syncProc);
+}
 
-  for (const [name, proc] of [['data', dataProc], ['sync', syncProc]] as const) {
-    proc.on('exit', (code) => {
-      if (code !== 0 && !quitting) console.error(`[main] ${name} process exited with ${code}`);
-    });
+function watchExit(name: string, proc: UtilityProcess) {
+  proc.on('exit', (code) => {
+    if (code !== 0 && !quitting) console.error(`[main] ${name} process exited with ${code}`);
+  });
+}
+
+// --- Snapshot: the top rows of the last Split, drawn on launch before the core answers.
+
+const snapshotFile = () => path.join(app.getPath('userData'), 'snapshot.json');
+let snapshot: unknown[] = [];
+
+function loadSnapshot() {
+  try {
+    snapshot = JSON.parse(readFileSync(snapshotFile(), 'utf8')) as unknown[];
+  } catch {
+    snapshot = [];
   }
 }
+
+function saveSnapshot() {
+  try {
+    writeFileSync(snapshotFile(), JSON.stringify(snapshot));
+  } catch (e) {
+    console.error(`[main] could not save snapshot: ${(e as Error).message}`);
+  }
+}
+
+ipcMain.on('snapshot:get', (e) => (e.returnValue = snapshot));
+ipcMain.on('snapshot:set', (_e, rows: unknown[]) => {
+  if (Array.isArray(rows)) snapshot = rows.slice(0, 100);
+});
 
 /** Give the renderer a fresh port to the data process. Called on every load, so reloads work. */
 function connectRenderer(w: BrowserWindow) {
@@ -115,16 +151,37 @@ function createWindow() {
     return { action: 'deny' };
   });
   w.webContents.on('will-navigate', (e) => e.preventDefault());
-  w.once('ready-to-show', () => {
-    if (bench) w.showInactive();
-    else if (!smoke) w.show();
-  });
+  // Shown once the first useful frame is painted (see renderer-ready), with a fallback so it always appears.
+  if (!smoke && !bench && !coldStartRun) showTimer = setTimeout(() => showWindow(w), 3000);
   void w.loadFile(path.join(__dirname, '../renderer/index.html'));
 }
 
 let quitting = false;
 
 let readyTimeout: NodeJS.Timeout | undefined;
+let showTimer: NodeJS.Timeout | undefined;
+
+function showWindow(w: BrowserWindow) {
+  clearTimeout(showTimer);
+  if (w.isVisible() || smoke || coldStartRun) return;
+  if (bench) w.showInactive();
+  else w.show();
+}
+
+ipcMain.on('renderer-first-paint', async (_e, info: { rows: number; fromSnapshot: boolean }) => {
+  const msSinceProcessStart = Math.round(process.uptime() * 1000);
+  if (win) showWindow(win);
+  startSync();
+  if (coldStartRun) {
+    clearTimeout(readyTimeout);
+    console.log(`[coldstart] ${JSON.stringify({ ms: msSinceProcessStart, fromSnapshot: info.fromSnapshot, rows: info.rows, budget: BUDGETS.coldStartMs })}`);
+    // Give the renderer a moment to hand over a fresh snapshot for the next launch.
+    await new Promise((r) => setTimeout(r, 1500));
+    saveSnapshot();
+    quitting = true;
+    return void app.exit(0);
+  }
+});
 
 ipcMain.on('renderer-ready', async (_e, info: { rows: number; view: 'list' | 'empty' }) => {
   clearTimeout(readyTimeout);
@@ -246,10 +303,13 @@ ipcMain.handle('accounts:add-gmail', async (_e, loginHint?: string): Promise<Acc
 ipcMain.handle('accounts:remove', (_e, id: string) => accounts.remove(id));
 
 app.whenReady().then(() => {
+  loadSnapshot();
   initAccounts();
-  startCore();
+  startData();
   createWindow();
-  if (smoke || bench) readyTimeout = setTimeout(() => {
+  // If the renderer never reports a first frame, still start sync.
+  setTimeout(startSync, 5000);
+  if (smoke || bench || coldStartRun) readyTimeout = setTimeout(() => {
     console.error('[smoke/bench] renderer never reported ready');
     app.exit(1);
   }, 20_000);
@@ -257,6 +317,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   quitting = true;
+  saveSnapshot();
   dataProc?.kill();
   syncProc?.kill();
 });

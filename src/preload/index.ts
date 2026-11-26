@@ -7,7 +7,12 @@ ipcRenderer.on('core-port', (e) => window.postMessage('normie:core-port', '*', e
 type AccountRecord = { id: string; kind: 'gmail'; email: string; status: 'ok' | 'needs-sign-in' };
 
 contextBridge.exposeInMainWorld('normie', {
-  ready: (info: { rows: number; view: 'list' | 'empty' }) => ipcRenderer.send('renderer-ready', info),
+  /** The first useful frame is painted: from the snapshot, or from the core's first answer (even an empty one). */
+  firstPaint: (info: { rows: number; fromSnapshot: boolean }) => ipcRenderer.send('renderer-first-paint', info),
+  ready: (info: { rows: number; view: 'list' | 'empty'; fromSnapshot: boolean }) => ipcRenderer.send('renderer-ready', info),
+  /** The top rows of the last Split, saved at the end of the previous run. Read once, synchronously, at launch. */
+  snapshot: (): unknown[] => ipcRenderer.sendSync('snapshot:get'),
+  saveSnapshot: (rows: unknown[]) => ipcRenderer.send('snapshot:set', rows),
   platform: process.platform,
   /** Running against the fake provider: there are no real Accounts to add. */
   fake: process.argv.includes('--normie-fake'),
