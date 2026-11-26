@@ -15,6 +15,7 @@ export type AccountConfig =
 
 type Message =
   | { type: 'accounts'; accounts: AccountConfig[] }
+  | { type: 'poll' }
   | { type: 'data-port' }
   | { type: 'main-port' };
 
@@ -47,7 +48,8 @@ async function startAccount(a: AccountConfig) {
     engines.set(a.accountId, engine);
     log(`${a.accountId}: syncing ${engine.primaryMailbox}`);
     await engine.syncOnce();
-    log(`${a.accountId}: first sync done`);
+    log(`${a.accountId}: first sync done; watching for changes`);
+    if (engines.get(a.accountId) === engine) engine.startLive();
   } catch (e) {
     log(`${a.accountId}: ${(e as Error).message}`);
     engines.delete(a.accountId);
@@ -73,6 +75,7 @@ async function reconcile() {
 
 process.parentPort.on('message', (e) => {
   const msg = e.data as Message;
+  if (msg.type === 'poll') return void engines.forEach((engine) => engine.pollNow());
   if (msg.type === 'accounts') wanted = msg.accounts;
   else if (msg.type === 'data-port' && e.ports[0]) {
     dataClient = connect(mainPortChannel(e.ports[0] as MessagePortMain));

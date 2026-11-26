@@ -96,13 +96,19 @@ export class ImapProvider implements MailProvider {
     return this.client;
   }
 
-  async connect() {
+  /** A new connection with fresh credentials (a new access token each time, for OAuth). */
+  private async newClient(): Promise<ImapFlow> {
     const auth = this.cfg.accessToken
       ? { user: this.cfg.user, accessToken: await this.cfg.accessToken() }
       : { user: this.cfg.user, pass: this.cfg.password ?? '' };
     const client = new ImapFlow({ host: this.cfg.host, port: this.cfg.port, secure: true, auth, qresync: true, logger: false });
     client.on('error', (e: Error) => this.cfg.log?.(`imap error: ${e.message}`));
     await client.connect();
+    return client;
+  }
+
+  async connect() {
+    const client = await this.newClient();
     this.client = client;
     this.serverCaps = new Set(client.capabilities.keys());
     this.enabled = new Set(client.enabled ?? []);
@@ -221,9 +227,45 @@ export class ImapProvider implements MailProvider {
     });
   }
 
-  // Live updates over IDLE arrive in #10.
-  // eslint-disable-next-line require-yield
-  async *watch(_path: string, signal: AbortSignal): AsyncIterable<MailEvent> {
-    await new Promise<void>((r) => signal.addEventListener('abort', () => r(), { once: true }));
+  /**
+   * Live events over IDLE, on a second connection of its own, so fetches and writes never wait on it.
+   * ImapFlow idles whenever the selected mailbox has no command running, and restarts IDLE before servers drop it.
+   * Throws when the connection closes, so the engine reconnects with backoff.
+   */
+  async *watch(path: string, signal: AbortSignal): AsyncIterable<MailEvent> {
+    const client = await this.newClient();
+    const queue: MailEvent[] = [];
+    let failed: Error | undefined;
+    let wake: (() => void) | undefined;
+    const push = (e: MailEvent) => {
+      queue.push(e);
+      wake?.();
+    };
+    client.on('exists', (d: { path: string }) => push({ type: 'exists', mailbox: d.path }));
+    client.on('expunge', (d: { path: string; uid?: number }) => push({ type: 'expunge', mailbox: d.path, ...(d.uid !== undefined ? { uid: d.uid } : {}) }));
+    client.on('flags', (d: { path: string; uid?: number; flags: Set<string> }) => push({ type: 'flags', mailbox: d.path, uid: d.uid ?? 0, flags: [...d.flags] }));
+    client.on('close', () => {
+      failed ??= new Error('IDLE connection closed');
+      wake?.();
+    });
+    client.on('error', (e: Error) => {
+      failed ??= e;
+      wake?.();
+    });
+    const onAbort = () => wake?.();
+    signal.addEventListener('abort', onAbort);
+    const lock = await client.getMailboxLock(path, { readOnly: true });
+    try {
+      while (!signal.aborted) {
+        if (!queue.length && !failed) await new Promise<void>((r) => (wake = r));
+        wake = undefined;
+        if (failed && !signal.aborted) throw failed;
+        while (queue.length) yield queue.shift()!;
+      }
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+      lock.release();
+      if (client.usable) await client.logout().catch(() => client.close());
+    }
   }
 }

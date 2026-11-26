@@ -18,9 +18,25 @@ export interface SyncEngineOptions {
   now?: () => number;
   bodyBatch?: number;
   log?: (msg: string) => void;
+  /** How often to check for changes without an IDLE event (other mailboxes, missed events). */
+  pollMs?: number;
+  /** Gather bursts of IDLE events into one sync. */
+  debounceMs?: number;
+  /** Delay before reconnect attempt n (0-based). */
+  backoffMs?: (attempt: number) => number;
 }
 
 const DAY = 86_400_000;
+
+const defaultBackoff = (attempt: number) => Math.min(60_000, 1000 * 2 ** attempt);
+
+function sleep(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    if (signal?.aborted) return resolve();
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => (clearTimeout(t), resolve()), { once: true });
+  });
+}
 
 export class SyncEngine {
   private mailboxes: Mailbox[] = [];
@@ -31,6 +47,14 @@ export class SyncEngine {
   private readonly log: (msg: string) => void;
   /** Serializes work on the provider connection. */
   private queue: Promise<unknown> = Promise.resolve();
+  private live?: AbortController;
+  private pollTimer?: ReturnType<typeof setInterval>;
+  private debounceTimer?: ReturnType<typeof setTimeout>;
+  private syncing?: Promise<void>;
+  private again = false;
+  private inbox?: Mailbox;
+  /** Resolves after the next live sync pass completes; for tests. */
+  private passWaiters: (() => void)[] = [];
 
   constructor(private readonly o: SyncEngineOptions) {
     this.windowDays = o.windowDays ?? 90;
@@ -65,6 +89,95 @@ export class SyncEngine {
       ? this.mailboxes.find((m) => m.role === 'all')
       : this.mailboxes.find((m) => m.role === 'inbox');
     if (!this.primary) throw new Error(`No ${provider.caps.labels ? 'All Mail' : 'Inbox'} mailbox found by special-use flag`);
+    this.inbox = this.mailboxes.find((m) => m.role === 'inbox');
+  }
+
+  // --- Live updates
+
+  /** Start live updates: IDLE on the Inbox, a poll timer, reconnects with backoff. */
+  startLive() {
+    if (this.live) return;
+    this.live = new AbortController();
+    void this.watchLoop(this.live.signal);
+    this.pollTimer = setInterval(() => this.syncSoon(0), this.o.pollMs ?? 120_000);
+  }
+
+  /** Ask for a sync now, such as when the window gains focus. */
+  pollNow() {
+    this.syncSoon(0);
+  }
+
+  /** Resolves once the next live sync pass finishes. */
+  nextPass(): Promise<void> {
+    return new Promise((r) => this.passWaiters.push(r));
+  }
+
+  private async watchLoop(signal: AbortSignal) {
+    const path = this.inbox?.path ?? this.primary!.path;
+    let attempt = 0;
+    while (!signal.aborted) {
+      try {
+        for await (const _event of this.o.provider.watch(path, signal)) {
+          attempt = 0;
+          this.syncSoon(this.o.debounceMs ?? 250);
+        }
+      } catch (e) {
+        if (signal.aborted) break;
+        this.log(`IDLE on ${path} failed: ${(e as Error).message}`);
+      }
+      if (signal.aborted) break;
+      await sleep((this.o.backoffMs ?? defaultBackoff)(attempt++), signal);
+      // Catch up on whatever happened while the connection was down.
+      this.syncSoon(0);
+    }
+  }
+
+  private syncSoon(delay: number) {
+    if (!this.live || this.live.signal.aborted) return;
+    clearTimeout(this.debounceTimer);
+    this.debounceTimer = setTimeout(() => void this.livePass(), delay);
+  }
+
+  /** One live sync pass. Never runs two at once; a request during a pass runs one more pass after it. */
+  private async livePass() {
+    if (this.syncing) {
+      this.again = true;
+      return this.syncing;
+    }
+    this.syncing = (async () => {
+      do {
+        this.again = false;
+        try {
+          await this.syncHeaders();
+          await this.syncBodies();
+        } catch (e) {
+          this.log(`sync failed, reconnecting: ${(e as Error).message}`);
+          await this.reconnect();
+        }
+      } while (this.again && !this.live?.signal.aborted);
+    })();
+    try {
+      await this.syncing;
+    } finally {
+      this.syncing = undefined;
+      for (const r of this.passWaiters.splice(0)) r();
+    }
+  }
+
+  private async reconnect() {
+    const { provider } = this.o;
+    for (let attempt = 0; !this.live?.signal.aborted; attempt++) {
+      try {
+        await provider.close().catch(() => {});
+        await provider.connect();
+        await this.syncHeaders();
+        await this.syncBodies();
+        return;
+      } catch (e) {
+        this.log(`reconnect failed: ${(e as Error).message}`);
+        await sleep((this.o.backoffMs ?? defaultBackoff)(attempt), this.live?.signal);
+      }
+    }
   }
 
   /** One full sync pass: window headers, then window bodies, then older history as headers only. */
@@ -145,6 +258,10 @@ export class SyncEngine {
   }
 
   async stop() {
+    this.live?.abort();
+    clearInterval(this.pollTimer);
+    clearTimeout(this.debounceTimer);
+    await this.syncing?.catch(() => {});
     await this.queue.catch(() => {});
     await this.o.provider.close();
   }
