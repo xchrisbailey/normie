@@ -11,7 +11,7 @@ One mailbox the user signs into on one mail server, such as a Gmail address or a
 _Avoid_: Mailbox, login, profile
 
 **Identity**:
-A From name and address an **Account** can send as. One **Account** can have several; a reply defaults to the **Identity** the original message was sent to.
+A From name and address an **Account** can send as, which need not match the address the **Account** signs in with. One **Account** can have several; a reply defaults to the **Identity** the original message was sent to.
 _Avoid_: Alias, sender, persona
 
 ### Mail
