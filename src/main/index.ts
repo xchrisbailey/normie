@@ -150,9 +150,22 @@ async function runBench(w: BrowserWindow, info: { rows: number }) {
   for (let i = 0; i < 200; i++) await press('j');
   for (let i = 0; i < 100; i++) await press('k');
   await new Promise((r) => setTimeout(r, 200));
+  // Opening: Enter on the selected Thread, then j through the next 30 in the reader. Each step's Thread
+  // was prefetched while the one before it was open.
+  await press('Enter');
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 150));
+    await press('j');
+  }
+  await new Promise((r) => setTimeout(r, 200));
+  await press('Escape');
   const samples = (await w.webContents.executeJavaScript('window.__normiePerf.samples()')) as { action: string; ms: number }[];
-  const ms = samples.map((s) => s.ms).sort((a, b) => a - b);
-  const pct = (p: number) => ms[Math.min(ms.length - 1, Math.floor((p / 100) * ms.length))] ?? Infinity;
+  const sorted = (xs: { ms: number }[]) => xs.map((s) => s.ms).sort((a, b) => a - b);
+  const pctOf = (xs: number[]) => (p: number) => xs[Math.min(xs.length - 1, Math.floor((p / 100) * xs.length))] ?? Infinity;
+  const ms = sorted(samples.filter((s) => s.action === 'list.down' || s.action === 'list.up'));
+  const pct = pctOf(ms);
+  const opens = sorted(samples.filter((s) => s.action === 'list.open' || s.action === 'reader.next'));
+  const openPct = pctOf(opens);
   // Memory is a steady-state budget: Chromium caches raster tiles while scrolling and frees them once idle
   // (measured: 444 MB right after 300 rapid presses, 271 MB about 7 s later). Report the peak, judge the settled value.
   const peak = measureMemory();
@@ -160,12 +173,13 @@ async function runBench(w: BrowserWindow, info: { rows: number }) {
   const memory = measureMemory();
   const results = [
     { budget: 'keyMoveMs', value: pct(95), limit: budgets.keyMoveMs, detail: `p50 ${pct(50).toFixed(1)}, p95 ${pct(95).toFixed(1)}, max ${(ms.at(-1) ?? 0).toFixed(1)} ms over ${ms.length} presses` },
+    { budget: 'openCachedMs', value: openPct(95), limit: budgets.openCachedMs, detail: `p50 ${openPct(50).toFixed(1)}, p95 ${openPct(95).toFixed(1)}, max ${(opens.at(-1) ?? 0).toFixed(1)} ms over ${opens.length} opens` },
     { budget: 'memoryMb', value: memory.mb, limit: budgets.memoryMb, detail: `settled; ${memory.detail}; peak while scrolling ${peak.mb.toFixed(0)}` },
   ];
-  const pressesOk = ms.length === 300;
+  const pressesOk = ms.length === 300 && opens.length === 31;
   console.log(`\n[bench] fixture: ${info.rows} Inbox rows in the renderer`);
-  for (const r of results) console.log(`[bench] ${r.value <= r.limit ? 'ok  ' : 'FAIL'} ${r.budget.padEnd(10)} ${r.value.toFixed(1).padStart(7)} / ${r.limit}   ${r.detail}`);
-  if (!pressesOk) console.log(`[bench] FAIL expected 300 measured presses, got ${ms.length}`);
+  for (const r of results) console.log(`[bench] ${r.value <= r.limit ? 'ok  ' : 'FAIL'} ${r.budget.padEnd(12)} ${r.value.toFixed(1).padStart(7)} / ${r.limit}   ${r.detail}`);
+  if (!pressesOk) console.log(`[bench] FAIL expected 300 moves and 31 opens, got ${ms.length} and ${opens.length}`);
   quitting = true;
   app.exit(pressesOk && results.every((r) => r.value <= r.limit) ? 0 : 1);
 }
@@ -211,7 +225,13 @@ async function smokeKeys(w: BrowserWindow) {
   await press('g');
   await press('g');
   const afterGG = await selectedIndex();
-  return { ok: start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0, start, afterJ, afterK, afterGG };
+  await press('Enter');
+  await new Promise((r) => setTimeout(r, 300));
+  const readerText = (await w.webContents.executeJavaScript(`document.querySelector('.reader .body')?.textContent ?? null`)) as string | null;
+  await press('Escape');
+  const readerClosed = (await w.webContents.executeJavaScript(`!document.querySelector('.reader')`)) as boolean;
+  const reader = !!readerText && readerClosed;
+  return { ok: start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader, start, afterJ, afterK, afterGG, reader };
 }
 
 ipcMain.handle('accounts:list', () => accounts.list());

@@ -32,3 +32,17 @@ button.primary:disabled { opacity: 0.6; cursor: default; }
 .dev-overlay { position: fixed; right: 12px; bottom: 12px; padding: 6px 10px; border-radius: 6px; background: var(--crust); color: var(--subtext); font: 12px ui-monospace, Menlo, monospace; pointer-events: none; }
 .dev-overlay b { color: #a6e3a1; }
 .dev-overlay.over b { color: #f38ba8; }
+.panes { flex: 1; display: flex; min-height: 0; }
+.panes .thread-list { flex: 1; }
+.panes.reading .thread-list { flex: 0 0 38%; border-right: 1px solid var(--surface0); }
+.panes.reading .row { grid-template-columns: 120px 1fr 56px; }
+.panes.reading .snippet { display: none; }
+.reader { flex: 1; overflow-y: auto; padding: 20px 28px 40px; }
+.reader h1 { font-size: 18px; font-weight: 600; margin: 0 0 16px; color: var(--text); }
+.message { border-top: 1px solid var(--surface0); padding: 14px 0; }
+.message header { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin-bottom: 10px; }
+.message .from { color: var(--text); font-weight: 600; }
+.message time { color: var(--overlay); font-variant-numeric: tabular-nums; }
+.message .to { grid-column: 1 / -1; color: var(--overlay); font-size: 12px; }
+.message .body { margin: 0; white-space: pre-wrap; word-wrap: break-word; font: 14px/1.55 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; color: var(--text); }
+.pending { color: var(--overlay); font-style: italic; }
