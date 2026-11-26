@@ -236,12 +236,13 @@ export function seedDemo(p: FakeProvider, count = 40, now = Date.now()) {
   const topics = ['Quarterly budget', 'Flight to Lisbon', 'Release notes', 'Lunch on Friday', 'Invoice #4821', 'Design review', 'Hotel booking', 'CI is red again'];
   for (let i = 0; i < count; i++) {
     const name = people[i % people.length]!;
-    const subject = topics[i % topics.length]!;
+    const subject = `${topics[Math.floor(i / 3) % topics.length]!}${i >= 3 * topics.length ? ` (${Math.floor(i / 3)})` : ''}`;
     p.deliver({
       subject,
       from: { name, address: `${name.split(' ')[0]!.toLowerCase()}@example.com` },
-      date: now - i * 3_600_000,
-      threadId: `t-${i % (topics.length * 2)}`,
+      // Messages 20 minutes apart, three to a Thread, so thousands of them fit inside the 90-day window.
+      date: now - i * 1_200_000,
+      threadId: `t-${Math.floor(i / 3)}`,
       flags: i % 3 === 0 ? [] : ['\\Seen'],
       text: `Hi,\n\nA note about ${subject.toLowerCase()}.\n\n${name}`,
     });

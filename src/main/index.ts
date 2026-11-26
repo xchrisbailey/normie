@@ -21,7 +21,8 @@ function dbPath() {
 
 function accounts(): AccountConfig[] {
   // Milestone 1, ticket #4: only the fake provider exists. Gmail arrives in #6 and #8.
-  return [{ kind: 'fake', accountId: 'fake-1', email: 'me@example.com' }];
+  const seed = Number(process.env.NORMIE_FAKE_SEED) || undefined;
+  return [{ kind: 'fake', accountId: 'fake-1', email: 'me@example.com', seed }];
 }
 
 function startCore() {
@@ -78,12 +79,40 @@ function createWindow() {
 
 let quitting = false;
 
-ipcMain.on('renderer-ready', (_e, info: { rows: number }) => {
-  if (!smoke) return;
-  console.log(`[smoke] ${JSON.stringify({ ...info, msSinceLaunch: Math.round(performance.now() - launchedAt), packaged: app.isPackaged })}`);
+ipcMain.on('renderer-ready', async (_e, info: { rows: number }) => {
+  if (!smoke || !win) return;
+  const msSinceLaunch = Math.round(performance.now() - launchedAt);
+  const keys = await smokeKeys(win);
+  console.log(`[smoke] ${JSON.stringify({ ...info, msSinceLaunch, packaged: app.isPackaged, keys })}`);
   quitting = true;
-  app.exit(info.rows > 0 ? 0 : 1);
+  app.exit(info.rows > 0 && keys.ok ? 0 : 1);
 });
+
+/** Smoke check: real key presses move the selection through the registry. */
+async function smokeKeys(w: BrowserWindow) {
+  const selectedIndex = () =>
+    w.webContents.executeJavaScript(
+      `(() => { const rows = [...document.querySelectorAll('.row')]; const s = document.querySelector('.row.selected');
+        return s ? Math.round(new DOMMatrix(getComputedStyle(s).transform).m42 / s.offsetHeight) : -1; })()`,
+    ) as Promise<number>;
+  const press = async (keyCode: string, n = 1) => {
+    for (let i = 0; i < n; i++) {
+      w.webContents.sendInputEvent({ type: 'keyDown', keyCode });
+      w.webContents.sendInputEvent({ type: 'char', keyCode });
+      w.webContents.sendInputEvent({ type: 'keyUp', keyCode });
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const start = await selectedIndex();
+  await press('j', 5);
+  const afterJ = await selectedIndex();
+  await press('k', 2);
+  const afterK = await selectedIndex();
+  await press('g');
+  await press('g');
+  const afterGG = await selectedIndex();
+  return { ok: start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0, start, afterJ, afterK, afterGG };
+}
 
 app.whenReady().then(() => {
   startCore();

@@ -13,11 +13,12 @@ body { background: var(--base); color: var(--text); overflow: hidden; -webkit-fo
 .split { color: var(--subtext); font-weight: 500; }
 .split.active { color: var(--text); }
 .count { color: var(--overlay); font-variant-numeric: tabular-nums; }
-.thread-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
-.row { display: grid; grid-template-columns: 180px 1fr 64px; gap: 12px; align-items: center; height: 36px; padding: 0 16px; border-bottom: 1px solid var(--mantle); color: var(--subtext); white-space: nowrap; }
+.thread-list { overflow-y: auto; flex: 1; contain: strict; }
+.row { position: absolute; top: 0; left: 0; right: 0; display: grid; grid-template-columns: 180px 1fr 64px; gap: 12px; align-items: center; height: 36px; padding: 0 16px; border-bottom: 1px solid var(--mantle); color: var(--subtext); white-space: nowrap; }
 .row.unread { color: var(--text); }
 .row.unread .from, .row.unread .subject { font-weight: 600; }
 .from, .subject { overflow: hidden; text-overflow: ellipsis; }
 .subject .n { margin-left: 6px; color: var(--overlay); font-weight: 400; }
 .snippet { margin-left: 10px; color: var(--overlay); font-weight: 400; }
 .date { text-align: right; color: var(--overlay); font-variant-numeric: tabular-nums; }
+.row.selected { background: var(--surface0); box-shadow: inset 2px 0 0 var(--blue); }
