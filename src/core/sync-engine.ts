@@ -1,0 +1,135 @@
+// The sync side of the core: pulls changes from a MailProvider and hands them to the data side.
+// Runs in the sync process. Talks to the store only through DataPort.
+import type { DataPort } from './data-service';
+import type { AccountId, Mailbox, MailProvider } from './types';
+
+export type TextExtractor = (raw: Uint8Array) => Promise<string>;
+
+export interface SyncEngineOptions {
+  accountId: AccountId;
+  kind: string;
+  email: string;
+  provider: MailProvider;
+  data: DataPort;
+  extractText: TextExtractor;
+  /** Days of history kept with full bodies. */
+  windowDays?: number;
+  /** Clock, injectable for tests. */
+  now?: () => number;
+  bodyBatch?: number;
+  log?: (msg: string) => void;
+}
+
+const DAY = 86_400_000;
+
+export class SyncEngine {
+  private mailboxes: Mailbox[] = [];
+  private primary?: Mailbox;
+  private readonly windowDays: number;
+  private readonly now: () => number;
+  private readonly bodyBatch: number;
+  private readonly log: (msg: string) => void;
+  /** Serializes work on the provider connection. */
+  private queue: Promise<unknown> = Promise.resolve();
+
+  constructor(private readonly o: SyncEngineOptions) {
+    this.windowDays = o.windowDays ?? 90;
+    this.now = o.now ?? Date.now;
+    this.bodyBatch = o.bodyBatch ?? 25;
+    this.log = o.log ?? (() => {});
+  }
+
+  get windowStart() {
+    return this.now() - this.windowDays * DAY;
+  }
+
+  /** The mailbox that holds the Account's mail: All Mail on servers with Labels, Inbox elsewhere. */
+  get primaryMailbox(): string | undefined {
+    return this.primary?.path;
+  }
+
+  private serial<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(fn, fn);
+    this.queue = run.catch(() => {});
+    return run;
+  }
+
+  /** Connect, record the Account and its mailboxes, and pick the primary mailbox. */
+  async start() {
+    const { provider, data, accountId } = this.o;
+    await provider.connect();
+    await data.upsertAccount(accountId, this.o.kind, this.o.email);
+    this.mailboxes = await provider.listMailboxes();
+    await data.setMailboxes(accountId, this.mailboxes);
+    this.primary = provider.caps.labels
+      ? this.mailboxes.find((m) => m.role === 'all')
+      : this.mailboxes.find((m) => m.role === 'inbox');
+    if (!this.primary) throw new Error(`No ${provider.caps.labels ? 'All Mail' : 'Inbox'} mailbox found by special-use flag`);
+  }
+
+  /** One full sync pass: headers first, then bodies. */
+  async syncOnce() {
+    await this.syncHeaders();
+    await this.syncBodies();
+  }
+
+  /** Pull header and flag changes for the primary mailbox. */
+  syncHeaders(mailbox = this.primary!.path) {
+    return this.serial(async () => {
+      const { provider, data, accountId } = this.o;
+      const since = await data.mailboxState(accountId, mailbox);
+      const cs = await provider.changes(mailbox, since, { windowStart: this.windowStart });
+      const vanished = [...cs.vanished];
+      // Without QRESYNC the server can't tell us what was deleted: compare UID sets instead.
+      if (since && !cs.reset && !provider.caps.qresync) {
+        const onServer = new Set(await provider.uids(mailbox, { windowStart: this.windowStart }));
+        const newUids = new Set(cs.headers.map((h) => h.uid));
+        for (const uid of await data.knownUids(accountId, mailbox)) {
+          if (!onServer.has(uid) && !newUids.has(uid)) vanished.push(uid);
+        }
+      }
+      // Write headers in chunks so the list fills while a big first sync is still running.
+      const CHUNK = 500;
+      for (let i = 0; i < cs.headers.length; i += CHUNK) {
+        const last = i + CHUNK >= cs.headers.length;
+        await data.applyChanges(accountId, mailbox, {
+          reset: i === 0 && cs.reset,
+          headers: cs.headers.slice(i, i + CHUNK),
+          ...(last ? { flagChanges: cs.flagChanges, vanished, state: cs.state } : {}),
+        });
+      }
+      if (!cs.headers.length) {
+        await data.applyChanges(accountId, mailbox, { reset: cs.reset, flagChanges: cs.flagChanges, vanished, state: cs.state });
+      }
+      this.log(`${mailbox}: ${cs.headers.length} headers, ${cs.flagChanges.length} flag changes, ${vanished.length} gone`);
+    });
+  }
+
+  /** Download bodies for messages in the window that lack one, newest first. */
+  async syncBodies(mailbox = this.primary!.path) {
+    const { data, accountId } = this.o;
+    for (;;) {
+      const uids = await data.uidsNeedingBodies(accountId, mailbox, this.windowStart, this.bodyBatch);
+      if (!uids.length) return;
+      await this.fetchBodies(mailbox, uids);
+    }
+  }
+
+  /** Fetch specific bodies now, such as one the user just opened. */
+  fetchBodies(mailbox: string, uids: number[]) {
+    return this.serial(async () => {
+      const { provider, data, accountId } = this.o;
+      const raws = await provider.fetchBodies(mailbox, uids);
+      const bodies = await Promise.all(raws.map(async (r) => ({ uid: r.uid, raw: r.raw, text: await this.o.extractText(r.raw) })));
+      // A message that vanished between listing and fetching comes back without a body; store an empty one so we don't loop.
+      const got = new Set(bodies.map((b) => b.uid));
+      for (const uid of uids) if (!got.has(uid)) bodies.push({ uid, raw: new Uint8Array(), text: '' });
+      await data.putBodies(accountId, mailbox, bodies);
+    });
+  }
+
+  async stop() {
+    await this.queue.catch(() => {});
+    await this.o.provider.close();
+  }
+}
