@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ThreadRow } from '../core/types';
 import type { CoreClient } from './core-client';
 import { AccountBar, EmptyState, useAccounts } from './AccountBar';
+import { DevOverlay } from './DevOverlay';
 import { ThreadList } from './ThreadList';
 import { useKeys } from './useKeys';
 
@@ -11,6 +12,7 @@ export function App({ core }: { core: CoreClient }) {
   const selectedKey = useRef<string | undefined>(undefined);
   const reported = useRef(false);
   const accounts = useAccounts();
+  const [overlay, setOverlay] = useState(false);
 
   // Rows for the visible Split live here, in renderer memory. Refreshed when the core says they changed.
   useEffect(() => {
@@ -57,6 +59,7 @@ export function App({ core }: { core: CoreClient }) {
     'list.top': () => move(() => 0),
     'list.bottom': () => move(() => rows.length - 1),
     'go.inbox': () => move(() => 0),
+    'dev.overlay': () => setOverlay((o) => !o),
   });
 
   return (
@@ -67,6 +70,7 @@ export function App({ core }: { core: CoreClient }) {
         {accounts && <AccountBar accounts={accounts} />}
       </header>
       {empty ? <EmptyState /> : <ThreadList rows={rows} selected={selected} />}
+      {overlay && <DevOverlay />}
     </main>
   );
 }

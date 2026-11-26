@@ -1,5 +1,6 @@
 // The main process: windows, process wiring and (later) sign-in and secrets.
 import { app, BrowserWindow, ipcMain, MessageChannelMain, shell, utilityProcess, type UtilityProcess } from 'electron';
+import { execFileSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -8,9 +9,14 @@ import type { AccountConfig } from '../sync/index';
 import { Accounts, type AccountRecord } from './auth/accounts';
 import { JsonAccountList, SafeStorageSecrets } from './auth/electron-stores';
 import { loadGoogleClient } from './auth/google-oauth';
+import { BUDGETS } from '../core/budgets';
 
 const smoke = process.env.NORMIE_SMOKE === '1';
-const useFake = process.env.NORMIE_PROVIDER === 'fake';
+const bench = process.env.NORMIE_BENCH === '1';
+/** 'fake' runs a fake mailbox; 'none' runs with sync off (the benchmark fixture). Neither uses real Accounts. */
+const provider = process.env.NORMIE_PROVIDER;
+const useFake = provider === 'fake';
+const noRealAccounts = provider === 'fake' || provider === 'none';
 const launchedAt = performance.now();
 // Smoke runs never touch the real Accounts or mail database.
 if (smoke) app.setPath('userData', path.join(app.getPath('temp'), `normie-smoke-${process.pid}`));
@@ -20,6 +26,7 @@ let syncProc: UtilityProcess | undefined;
 let win: BrowserWindow | undefined;
 
 function dbPath() {
+  if (process.env.NORMIE_DB) return process.env.NORMIE_DB;
   const name = useFake ? 'normie-fake.sqlite' : 'normie.sqlite';
   const p = path.join(app.getPath('userData'), name);
   if (smoke) for (const ext of ['', '-wal', '-shm']) rmSync(p + ext, { force: true });
@@ -46,6 +53,7 @@ function initAccounts() {
 }
 
 function syncAccounts(): AccountConfig[] {
+  if (provider === 'none') return [];
   if (useFake) {
     const seed = Number(process.env.NORMIE_FAKE_SEED) || undefined;
     return [{ kind: 'fake', accountId: 'fake-1', email: 'me@example.com', seed }];
@@ -93,7 +101,8 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
-      additionalArguments: useFake ? ['--normie-fake'] : [],
+      additionalArguments: noRealAccounts ? ['--normie-fake'] : [],
+      backgroundThrottling: !bench,
     },
   });
   const w = win;
@@ -105,29 +114,86 @@ function createWindow() {
   });
   w.webContents.on('will-navigate', (e) => e.preventDefault());
   w.once('ready-to-show', () => {
-    if (!smoke) w.show();
+    if (bench) w.showInactive();
+    else if (!smoke) w.show();
   });
   void w.loadFile(path.join(__dirname, '../renderer/index.html'));
 }
 
 let quitting = false;
 
+let readyTimeout: NodeJS.Timeout | undefined;
+
 ipcMain.on('renderer-ready', async (_e, info: { rows: number; view: 'list' | 'empty' }) => {
+  clearTimeout(readyTimeout);
+  if (bench && win) return void runBench(win, info);
   if (!smoke || !win) return;
   const msSinceLaunch = Math.round(performance.now() - launchedAt);
   const keys = info.view === 'list' ? await smokeKeys(win) : undefined;
   console.log(`[smoke] ${JSON.stringify({ ...info, msSinceLaunch, packaged: app.isPackaged, keys })}`);
   quitting = true;
-  const ok = info.view === 'list' ? info.rows > 0 && keys!.ok : !useFake && info.view === 'empty';
+  const ok = info.view === 'list' ? info.rows > 0 && keys!.ok : !noRealAccounts && info.view === 'empty';
   app.exit(ok ? 0 : 1);
 });
+
+/** The benchmark: real key presses against the 100,000-message fixture, checked against the budgets. */
+async function runBench(w: BrowserWindow, info: { rows: number }) {
+  const budgets = { ...BUDGETS, keyMoveMs: Number(process.env.NORMIE_BUDGET_KEY_MS) || BUDGETS.keyMoveMs };
+  const press = async (keyCode: string) => {
+    w.webContents.sendInputEvent({ type: 'keyDown', keyCode });
+    w.webContents.sendInputEvent({ type: 'char', keyCode });
+    w.webContents.sendInputEvent({ type: 'keyUp', keyCode });
+    await new Promise((r) => setTimeout(r, 25));
+  };
+  await new Promise((r) => setTimeout(r, 500)); // let the first frames settle
+  await w.webContents.executeJavaScript('window.__normiePerf.clear()');
+  for (let i = 0; i < 200; i++) await press('j');
+  for (let i = 0; i < 100; i++) await press('k');
+  await new Promise((r) => setTimeout(r, 200));
+  const samples = (await w.webContents.executeJavaScript('window.__normiePerf.samples()')) as { action: string; ms: number }[];
+  const ms = samples.map((s) => s.ms).sort((a, b) => a - b);
+  const pct = (p: number) => ms[Math.min(ms.length - 1, Math.floor((p / 100) * ms.length))] ?? Infinity;
+  // Memory is a steady-state budget: Chromium caches raster tiles while scrolling and frees them once idle
+  // (measured: 444 MB right after 300 rapid presses, 271 MB about 7 s later). Report the peak, judge the settled value.
+  const peak = measureMemory();
+  await new Promise((r) => setTimeout(r, Number(process.env.NORMIE_BENCH_SETTLE_MS) || 8000));
+  const memory = measureMemory();
+  const results = [
+    { budget: 'keyMoveMs', value: pct(95), limit: budgets.keyMoveMs, detail: `p50 ${pct(50).toFixed(1)}, p95 ${pct(95).toFixed(1)}, max ${(ms.at(-1) ?? 0).toFixed(1)} ms over ${ms.length} presses` },
+    { budget: 'memoryMb', value: memory.mb, limit: budgets.memoryMb, detail: `settled; ${memory.detail}; peak while scrolling ${peak.mb.toFixed(0)}` },
+  ];
+  const pressesOk = ms.length === 300;
+  console.log(`\n[bench] fixture: ${info.rows} Inbox rows in the renderer`);
+  for (const r of results) console.log(`[bench] ${r.value <= r.limit ? 'ok  ' : 'FAIL'} ${r.budget.padEnd(10)} ${r.value.toFixed(1).padStart(7)} / ${r.limit}   ${r.detail}`);
+  if (!pressesOk) console.log(`[bench] FAIL expected 300 measured presses, got ${ms.length}`);
+  quitting = true;
+  app.exit(pressesOk && results.every((r) => r.value <= r.limit) ? 0 : 1);
+}
+
+/** Total memory across the app's processes: physical footprint on macOS (as Activity Monitor shows), else working set. */
+function measureMemory(): { mb: number; detail: string } {
+  const metrics = app.getAppMetrics();
+  if (process.platform === 'darwin') {
+    try {
+      const per = metrics.map((m) => {
+        const out = execFileSync('footprint', ['-p', String(m.pid)], { encoding: 'utf8' });
+        const [, n, unit] = /phys_footprint:\s+([\d.]+)\s+(KB|MB|GB)/.exec(out) ?? [];
+        const mb = Number(n) * (unit === 'GB' ? 1024 : unit === 'KB' ? 1 / 1024 : 1);
+        return { name: m.serviceName?.replace(/^(node|network)\.mojom\./, '') || m.type, mb };
+      });
+      return { mb: per.reduce((a, p) => a + p.mb, 0), detail: `physical footprint: ${per.map((p) => `${p.name} ${p.mb.toFixed(0)}`).join(', ')}` };
+    } catch {
+      // fall through to working set
+    }
+  }
+  return { mb: metrics.reduce((a, m) => a + m.memory.workingSetSize, 0) / 1024, detail: `working set over ${metrics.length} processes` };
+}
 
 /** Smoke check: real key presses move the selection through the registry. */
 async function smokeKeys(w: BrowserWindow) {
   const selectedIndex = () =>
     w.webContents.executeJavaScript(
-      `(() => { const rows = [...document.querySelectorAll('.row')]; const s = document.querySelector('.row.selected');
-        return s ? Math.round(new DOMMatrix(getComputedStyle(s).transform).m42 / s.offsetHeight) : -1; })()`,
+      `(() => { const s = document.querySelector('.row.selected'); return s ? Math.round(s.offsetTop / s.offsetHeight) : -1; })()`,
     ) as Promise<number>;
   const press = async (keyCode: string, n = 1) => {
     for (let i = 0; i < n; i++) {
@@ -161,8 +227,8 @@ app.whenReady().then(() => {
   initAccounts();
   startCore();
   createWindow();
-  if (smoke) setTimeout(() => {
-    console.error('[smoke] renderer never reported ready');
+  if (smoke || bench) readyTimeout = setTimeout(() => {
+    console.error('[smoke/bench] renderer never reported ready');
     app.exit(1);
   }, 20_000);
 });
