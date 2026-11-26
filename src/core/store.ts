@@ -114,6 +114,7 @@ export class Store {
 
   removeAccount(id: AccountId) {
     this.db.transaction(() => {
+      this.db.prepare('delete from bodies where message_id in (select id from messages where account_id = ?)').run(id);
       for (const t of ['threads', 'messages', 'mailboxes']) this.db.prepare(`delete from ${t} where account_id = ?`).run(id);
       this.db.prepare('delete from accounts where id = ?').run(id);
     })();
@@ -134,8 +135,12 @@ export class Store {
     return { uidValidity: r.uid_validity, uidNext: r.uid_next ?? 0, ...(r.highest_modseq ? { highestModseq: r.highest_modseq } : {}) };
   }
 
-  knownUids(accountId: AccountId, mailbox: string): number[] {
-    return (this.db.prepare('select uid from messages where account_id = ? and mailbox = ? order by uid').pluck().all(accountId, mailbox) as number[]);
+  /** UIDs already stored, optionally only those dated on or after `since`. */
+  knownUids(accountId: AccountId, mailbox: string, since = 0): number[] {
+    return this.db
+      .prepare('select uid from messages where account_id = ? and mailbox = ? and date >= ? order by uid')
+      .pluck()
+      .all(accountId, mailbox, since) as number[];
   }
 
   /** UIDs of messages in the window that still need their body, newest first. */
@@ -155,6 +160,7 @@ export class Store {
     batch: { state?: SyncState; reset?: boolean; headers?: RemoteHeader[]; flagChanges?: FlagChange[]; vanished?: number[] },
   ): boolean {
     const touched = new Set<string>();
+    let inboxChanged = false;
     const threadOf = this.db.prepare('select thread_key from messages where account_id = ? and mailbox = ? and uid = ?').pluck();
     const insert = this.db.prepare(`
       insert into messages(account_id, mailbox, uid, remote_id, thread_key, message_id, subject, from_json, to_json, date,
@@ -209,16 +215,18 @@ export class Store {
           .prepare('update mailboxes set uid_validity = ?, uid_next = ?, highest_modseq = ? where account_id = ? and path = ?')
           .run(batch.state.uidValidity, batch.state.uidNext, batch.state.highestModseq ?? null, accountId, mailbox);
       }
-      for (const key of touched) this.refreshThread(accountId, key);
+      for (const key of touched) if (this.refreshThread(accountId, key)) inboxChanged = true;
     })();
-    return touched.size > 0;
+    return inboxChanged;
   }
 
-  putBodies(accountId: AccountId, mailbox: string, bodies: BodyInput[]): string[] {
+  /** Store bodies. Returns the keys of the Threads touched and whether the Inbox Split was affected. */
+  putBodies(accountId: AccountId, mailbox: string, bodies: BodyInput[]): { keys: string[]; inboxChanged: boolean } {
     const idOf = this.db.prepare('select id, thread_key from messages where account_id = ? and mailbox = ? and uid = ?');
     const put = this.db.prepare('insert into bodies(message_id, raw, text) values (?, ?, ?) on conflict(message_id) do update set raw = excluded.raw, text = excluded.text');
     const mark = this.db.prepare('update messages set has_body = 1, snippet = ? where id = ?');
     const touched = new Set<string>();
+    let inboxChanged = false;
     this.db.transaction(() => {
       for (const b of bodies) {
         const m = idOf.get(accountId, mailbox, b.uid) as { id: number; thread_key: string } | undefined;
@@ -227,19 +235,20 @@ export class Store {
         mark.run(snippetOf(b.text), m.id);
         touched.add(m.thread_key);
       }
-      for (const key of touched) this.refreshThread(accountId, key);
+      for (const key of touched) if (this.refreshThread(accountId, key)) inboxChanged = true;
     })();
-    return [...touched].map((k) => `${accountId}:${k}`);
+    return { keys: [...touched].map((k) => `${accountId}:${k}`), inboxChanged };
   }
 
-  /** Recompute one Thread's row from its messages. */
-  private refreshThread(accountId: AccountId, threadKey: string) {
+  /** Recompute one Thread's row from its messages. Returns whether the Inbox Split was affected. */
+  private refreshThread(accountId: AccountId, threadKey: string): boolean {
+    const wasInInbox = this.db.prepare('select in_inbox from threads where account_id = ? and thread_key = ?').pluck().get(accountId, threadKey) === 1;
     const agg = this.db
       .prepare(`select count(*) n, max(date) last_date, max(unread) unread, max(in_inbox) in_inbox from messages where account_id = ? and thread_key = ?`)
       .get(accountId, threadKey) as { n: number; last_date: number; unread: number; in_inbox: number };
     if (!agg.n) {
       this.db.prepare('delete from threads where account_id = ? and thread_key = ?').run(accountId, threadKey);
-      return;
+      return wasInInbox;
     }
     const latest = this.db
       .prepare('select subject, from_json, snippet from messages where account_id = ? and thread_key = ? order by date desc limit 1')
@@ -256,6 +265,7 @@ export class Store {
                   in_inbox = excluded.in_inbox`)
       .run(accountId, threadKey, first || latest.subject, addressLabel(latest.from_json ? JSON.parse(latest.from_json) : undefined),
         agg.last_date, latest.snippet, agg.unread, agg.n, agg.in_inbox);
+    return wasInInbox || agg.in_inbox === 1;
   }
 
   // --- Queries for the renderer

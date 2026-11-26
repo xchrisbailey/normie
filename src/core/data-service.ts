@@ -48,12 +48,18 @@ export class DataService {
     this.store.setMailboxes(accountId, boxes);
   }
 
+  /** Delete an Account and all its local mail. */
+  removeAccount(accountId: AccountId) {
+    this.store.removeAccount(accountId);
+    this.emit({ type: 'rows-changed', split: 'inbox' });
+  }
+
   mailboxState(accountId: AccountId, mailbox: string): SyncState | null {
     return this.store.mailboxState(accountId, mailbox);
   }
 
-  knownUids(accountId: AccountId, mailbox: string): number[] {
-    return this.store.knownUids(accountId, mailbox);
+  knownUids(accountId: AccountId, mailbox: string, since?: number): number[] {
+    return this.store.knownUids(accountId, mailbox, since);
   }
 
   uidsNeedingBodies(accountId: AccountId, mailbox: string, windowStart: number, limit: number): number[] {
@@ -65,8 +71,8 @@ export class DataService {
   }
 
   putBodies(accountId: AccountId, mailbox: string, bodies: BodyInput[]) {
-    const keys = this.store.putBodies(accountId, mailbox, bodies);
-    if (keys.length) this.emit({ type: 'rows-changed', split: 'inbox' });
+    const { keys, inboxChanged } = this.store.putBodies(accountId, mailbox, bodies);
+    if (inboxChanged) this.emit({ type: 'rows-changed', split: 'inbox' });
     for (const key of keys) this.emit({ type: 'thread-changed', key });
   }
 }
@@ -75,15 +81,16 @@ export class DataService {
 export interface DataPort {
   upsertAccount(id: AccountId, kind: string, email: string): Promise<void>;
   setMailboxes(accountId: AccountId, boxes: { path: string; role?: MailboxRole }[]): Promise<void>;
+  removeAccount(accountId: AccountId): Promise<void>;
   mailboxState(accountId: AccountId, mailbox: string): Promise<SyncState | null>;
-  knownUids(accountId: AccountId, mailbox: string): Promise<number[]>;
+  knownUids(accountId: AccountId, mailbox: string, since?: number): Promise<number[]>;
   uidsNeedingBodies(accountId: AccountId, mailbox: string, windowStart: number, limit: number): Promise<number[]>;
   applyChanges(accountId: AccountId, mailbox: string, cs: Partial<ChangeSet>): Promise<void>;
   putBodies(accountId: AccountId, mailbox: string, bodies: BodyInput[]): Promise<void>;
 }
 
 export const DATA_PORT_METHODS = [
-  'upsertAccount', 'setMailboxes', 'mailboxState', 'knownUids', 'uidsNeedingBodies', 'applyChanges', 'putBodies',
+  'upsertAccount', 'setMailboxes', 'removeAccount', 'mailboxState', 'knownUids', 'uidsNeedingBodies', 'applyChanges', 'putBodies',
 ] as const satisfies readonly (keyof DataPort)[];
 
 /** Adapts an in-process DataService to the async DataPort. */

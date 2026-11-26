@@ -67,10 +67,25 @@ export class SyncEngine {
     if (!this.primary) throw new Error(`No ${provider.caps.labels ? 'All Mail' : 'Inbox'} mailbox found by special-use flag`);
   }
 
-  /** One full sync pass: headers first, then bodies. */
+  /** One full sync pass: window headers, then window bodies, then older history as headers only. */
   async syncOnce() {
     await this.syncHeaders();
     await this.syncBodies();
+    await this.backfillHeaders();
+  }
+
+  /** Headers for mail older than the window, newest first, in batches. Resumes where it left off. */
+  async backfillHeaders(mailbox = this.primary!.path, batch = 500) {
+    const { provider, data, accountId } = this.o;
+    const before = this.windowStart;
+    const old = await this.serial(() => provider.uidsBefore(mailbox, before));
+    const known = new Set(await data.knownUids(accountId, mailbox));
+    const missing = old.filter((u) => !known.has(u)).sort((a, b) => b - a);
+    for (let i = 0; i < missing.length; i += batch) {
+      const headers = await this.serial(() => provider.headers(mailbox, missing.slice(i, i + batch)));
+      await data.applyChanges(accountId, mailbox, { headers });
+    }
+    if (missing.length) this.log(`${mailbox}: backfilled ${missing.length} older headers`);
   }
 
   /** Pull header and flag changes for the primary mailbox. */
@@ -84,7 +99,8 @@ export class SyncEngine {
       if (since && !cs.reset && !provider.caps.qresync) {
         const onServer = new Set(await provider.uids(mailbox, { windowStart: this.windowStart }));
         const newUids = new Set(cs.headers.map((h) => h.uid));
-        for (const uid of await data.knownUids(accountId, mailbox)) {
+        // Only the window is compared: older history is headers only and isn't rechecked.
+        for (const uid of await data.knownUids(accountId, mailbox, this.windowStart)) {
           if (!onServer.has(uid) && !newUids.has(uid)) vanished.push(uid);
         }
       }

@@ -13,7 +13,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "package": "npm run build && electron-builder --mac dir",
-    "smoke:packaged": "NORMIE_PROVIDER=fake NORMIE_SMOKE=1 ./dist/mac-arm64/Normie.app/Contents/MacOS/Normie"
+    "smoke:packaged": "NORMIE_PROVIDER=fake NORMIE_SMOKE=1 ./dist/mac-arm64/Normie.app/Contents/MacOS/Normie",
+    "test:live": "vitest run --config vitest.live.config.mts"
   },
   "build": {
     "appId": "dev.normie.app",
