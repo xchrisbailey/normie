@@ -39,7 +39,10 @@ function initAccounts() {
     googleClient: () => loadGoogleClient(googleClientPath()),
     openUrl: (url) => shell.openExternal(url),
   });
-  accounts.onChange((list) => win?.webContents.send('accounts:changed', list));
+  accounts.onChange((list) => {
+    win?.webContents.send('accounts:changed', list);
+    syncProc?.postMessage({ type: 'accounts', accounts: syncAccounts() });
+  });
 }
 
 function syncAccounts(): AccountConfig[] {
@@ -47,7 +50,7 @@ function syncAccounts(): AccountConfig[] {
     const seed = Number(process.env.NORMIE_FAKE_SEED) || undefined;
     return [{ kind: 'fake', accountId: 'fake-1', email: 'me@example.com', seed }];
   }
-  return accounts.list().map((a) => ({ kind: a.kind, accountId: a.id, email: a.email }));
+  return accounts.list().map((a) => ({ kind: a.kind, accountId: a.id, email: a.email, status: a.status }));
 }
 
 function startCore() {
@@ -62,7 +65,7 @@ function startCore() {
   const mainSync = new MessageChannelMain();
   serve(mainPortChannel(mainSync.port1), { accessToken: (id: string) => accounts.accessToken(id) });
   syncProc.postMessage({ type: 'main-port' }, [mainSync.port2]);
-  syncProc.postMessage({ type: 'init', accounts: syncAccounts() });
+  syncProc.postMessage({ type: 'accounts', accounts: syncAccounts() });
 
   for (const [name, proc] of [['data', dataProc], ['sync', syncProc]] as const) {
     proc.on('exit', (code) => {

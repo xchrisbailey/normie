@@ -101,6 +101,10 @@ export interface MailProvider {
   changes(mailbox: string, since: SyncState | null, opts: ChangesOptions): Promise<ChangeSet>;
   /** Every UID in the mailbox within the window, for finding deletions when QRESYNC is missing. */
   uids(mailbox: string, opts: ChangesOptions): Promise<number[]>;
+  /** UIDs of messages dated before `before` (ms): the history kept as headers only. */
+  uidsBefore(mailbox: string, before: number): Promise<number[]>;
+  /** Headers for specific UIDs. */
+  headers(mailbox: string, uids: number[]): Promise<RemoteHeader[]>;
   fetchBodies(mailbox: string, uids: number[]): Promise<RawMessage[]>;
   /** Live events for one mailbox (IMAP IDLE). Ends when the signal aborts. */
   watch(mailbox: string, signal: AbortSignal): AsyncIterable<MailEvent>;

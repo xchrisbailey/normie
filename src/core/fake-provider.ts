@@ -188,6 +188,20 @@ export class FakeProvider implements MailProvider {
     return [...this.box(path).messages.values()].filter((m) => m.header.date >= opts.windowStart).map((m) => m.header.uid);
   }
 
+  async uidsBefore(path: string, before: number) {
+    this.check('uidsBefore');
+    return [...this.box(path).messages.values()].filter((m) => m.header.date < before).map((m) => m.header.uid);
+  }
+
+  async headers(path: string, uids: number[]): Promise<RemoteHeader[]> {
+    this.check('headers');
+    const b = this.box(path);
+    return uids.flatMap((uid) => {
+      const m = b.messages.get(uid);
+      return m ? [{ ...m.header, flags: [...m.header.flags], labels: [...m.header.labels] }] : [];
+    });
+  }
+
   async fetchBodies(path: string, uids: number[]): Promise<RawMessage[]> {
     this.check('fetchBodies');
     const b = this.box(path);
