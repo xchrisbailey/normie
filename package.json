@@ -1,0 +1,62 @@
+{
+  "name": "normie",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Keyboard-first desktop mail client",
+  "author": "Chris Bailey",
+  "main": "out/main/index.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "start:fake": "npm run build && NORMIE_PROVIDER=fake electron .",
+    "smoke": "npm run build && NORMIE_PROVIDER=fake NORMIE_SMOKE=1 electron .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "package": "npm run build && electron-builder --mac dir",
+    "smoke:packaged": "NORMIE_PROVIDER=fake NORMIE_SMOKE=1 ./dist/mac-arm64/Normie.app/Contents/MacOS/Normie"
+  },
+  "build": {
+    "appId": "dev.normie.app",
+    "productName": "Normie",
+    "asar": true,
+    "files": [
+      "out/**",
+      "package.json",
+      "!node_modules/better-sqlite3/prebuilds/{win32,linux,linuxmusl}-*.node",
+      "!node_modules/better-sqlite3/{src,deps,docs,benchmark}/**"
+    ],
+    "mac": {
+      "identity": null,
+      "target": "dir"
+    },
+    "npmRebuild": false
+  },
+  "dependencies": {
+    "better-sqlite3": "13.2.0",
+    "imapflow": "2.12.2",
+    "mailparser": "3.15.0",
+    "nodemailer": "10.6.1"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.2.0": true,
+    "electron-winstaller": false,
+    "fsevents": false,
+    "esbuild": false
+  },
+  "devDependencies": {
+    "@tanstack/react-virtual": "3.14.28",
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "26.6.11",
+    "@types/react": "19.3.3",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "electron": "45.5.0",
+    "electron-builder": "26.18.0",
+    "esbuild": "0.28.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "typescript": "7.0.2",
+    "vite": "8.4.0",
+    "vitest": "5.1.2"
+  }
+}

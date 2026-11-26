@@ -1,0 +1,23 @@
+/* Catppuccin Mocha */
+:root {
+  --base: #1e1e2e; --mantle: #181825; --crust: #11111b; --surface0: #313244; --surface1: #45475a;
+  --text: #cdd6f4; --subtext: #a6adc8; --overlay: #7f849c; --blue: #89b4fa; --lavender: #b4befe;
+  color-scheme: dark;
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--base); color: var(--text); overflow: hidden; -webkit-font-smoothing: antialiased; }
+.app { display: flex; flex-direction: column; height: 100%; }
+.split-bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--mantle); border-bottom: 1px solid var(--surface0); -webkit-app-region: drag; padding-left: 84px; }
+.split { color: var(--subtext); font-weight: 500; }
+.split.active { color: var(--text); }
+.count { color: var(--overlay); font-variant-numeric: tabular-nums; }
+.thread-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+.row { display: grid; grid-template-columns: 180px 1fr 64px; gap: 12px; align-items: center; height: 36px; padding: 0 16px; border-bottom: 1px solid var(--mantle); color: var(--subtext); white-space: nowrap; }
+.row.unread { color: var(--text); }
+.row.unread .from, .row.unread .subject { font-weight: 600; }
+.from, .subject { overflow: hidden; text-overflow: ellipsis; }
+.subject .n { margin-left: 6px; color: var(--overlay); font-weight: 400; }
+.snippet { margin-left: 10px; color: var(--overlay); font-weight: 400; }
+.date { text-align: right; color: var(--overlay); font-variant-numeric: tabular-nums; }
