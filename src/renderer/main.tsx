@@ -3,5 +3,5 @@ import { App } from './App';
 import { waitForCore } from './core-client';
 import './styles.css';
 
-const root = createRoot(document.getElementById('root')!);
-void waitForCore().then((core) => root.render(<App core={core} />));
+// Render at once, from the snapshot; the core's port arrives a moment later.
+createRoot(document.getElementById('root')!).render(<App corePromise={waitForCore()} />);

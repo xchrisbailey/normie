@@ -10,22 +10,37 @@ import { useKeys } from './useKeys';
 
 const PREFETCH = 3;
 
-export function App({ core }: { core: CoreClient }) {
-  const [rows, setRows] = useState<ThreadRow[]>([]);
+export function App({ corePromise }: { corePromise: Promise<CoreClient> }) {
+  const [core, setCore] = useState<CoreClient | null>(null);
+  useEffect(() => void corePromise.then(setCore), [corePromise]);
+  return <Inbox core={core} />;
+}
+
+const SNAPSHOT_ROWS = 60;
+
+function Inbox({ core }: { core: CoreClient | null }) {
+  // The first frame draws the last Split from the snapshot; the core's rows replace it as soon as they arrive.
+  const [rows, setRows] = useState<ThreadRow[]>(() => window.normie.snapshot() ?? []);
+  const fromSnapshot = useRef(true);
+  const [coreAnswered, setCoreAnswered] = useState(false);
+  const painted = useRef(false);
   const [selected, setSelected] = useState(0);
   const [open, setOpen] = useState<{ key: string; subject: string; messages?: ThreadMessage[] } | null>(null);
   const selectedKey = useRef<string | undefined>(undefined);
   const reported = useRef(false);
   const accounts = useAccounts();
   const [overlay, setOverlay] = useState(false);
-  const cache = useMemo(() => new ThreadCache(core), [core]);
+  const cache = useMemo(() => (core ? new ThreadCache(core) : null), [core]);
 
   // Rows for the visible Split live here, in renderer memory. Refreshed when the core says they changed.
   useEffect(() => {
+    if (!core) return;
     let alive = true;
     const load = () =>
       core.rows('inbox').then((r) => {
         if (!alive) return;
+        fromSnapshot.current = false;
+        setCoreAnswered(true);
         setRows(r);
         // Keep the selection on the same Thread when rows above it change.
         const i = selectedKey.current ? r.findIndex((x) => x.key === selectedKey.current) : -1;
@@ -42,19 +57,35 @@ export function App({ core }: { core: CoreClient }) {
   }, [core]);
 
   // A body that arrives for the open Thread shows up without reopening it.
-  useEffect(() => cache.onLoaded((key, messages) => setOpen((o) => (o && o.key === key ? { ...o, messages } : o))), [cache]);
+  useEffect(() => cache?.onLoaded((key, messages) => setOpen((o) => (o && o.key === key ? { ...o, messages } : o))), [cache]);
+
+  // Keep the snapshot fresh for the next launch.
+  useEffect(() => {
+    if (fromSnapshot.current) return;
+    const t = setTimeout(() => window.normie.saveSnapshot(rows.slice(0, SNAPSHOT_ROWS)), 1000);
+    return () => clearTimeout(t);
+  }, [rows]);
 
   useEffect(() => {
     selectedKey.current = rows[selected]?.key;
   }, [rows, selected]);
 
-  const empty = !window.normie.fake && accounts !== null && accounts.length === 0 && rows.length === 0;
+  const empty = !window.normie.fake && core !== null && accounts !== null && accounts.length === 0 && rows.length === 0;
+
+  // The first useful frame: snapshot rows, or whatever the core first answered. Main shows the window and starts sync.
+  useEffect(() => {
+    if (painted.current || (!rows.length && !coreAnswered)) return;
+    painted.current = true;
+    const info = { rows: rows.length, fromSnapshot: fromSnapshot.current };
+    requestAnimationFrame(() => window.normie.firstPaint(info));
+  }, [rows, coreAnswered]);
 
   // Tell main the first useful screen is up (used by smoke runs and, later, the cold-start budget).
   useEffect(() => {
     if (reported.current || (!rows.length && !empty)) return;
     reported.current = true;
-    requestAnimationFrame(() => window.normie.ready({ rows: rows.length, view: rows.length ? 'list' : 'empty' }));
+    const info = { rows: rows.length, view: rows.length ? ('list' as const) : ('empty' as const), fromSnapshot: false };
+    requestAnimationFrame(() => window.normie.ready(info));
   }, [rows, empty]);
 
   const clamp = useCallback((i: number) => Math.max(0, Math.min(rows.length - 1, i)), [rows.length]);
@@ -63,7 +94,7 @@ export function App({ core }: { core: CoreClient }) {
   /** Open the Thread at index i. Instant from the cache; otherwise resolves once its messages are shown. */
   const openAt = (i: number): Promise<unknown> | void => {
     const row = rows[clamp(i)];
-    if (!row) return;
+    if (!row || !cache) return;
     setSelected(clamp(i));
     cache.prefetch(rows.slice(clamp(i) + 1, clamp(i) + 1 + PREFETCH).map((r) => r.key));
     const hit = cache.get(row.key);
@@ -73,7 +104,7 @@ export function App({ core }: { core: CoreClient }) {
 
   // Keep the next Threads warm while moving through the list, too.
   useEffect(() => {
-    if (rows.length) cache.prefetch(rows.slice(selected, selected + PREFETCH + 1).map((r) => r.key));
+    if (rows.length && cache) cache.prefetch(rows.slice(selected, selected + PREFETCH + 1).map((r) => r.key));
   }, [cache, rows, selected]);
 
   useKeys(open ? 'reader' : 'list', {

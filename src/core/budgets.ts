@@ -2,6 +2,8 @@
 export const BUDGETS = {
   /** Move in the list (j, k) and switch Split: one frame. Checked at p95 over many presses. */
   keyMoveMs: 16,
+  /** Launch to a usable inbox (first frame with rows) on Apple silicon, with a store and snapshot from before. Median of 5. */
+  coldStartMs: 1500,
   /** Open a cached (prefetched) Thread: keydown to the frame that shows it. Checked at p95. */
   openCachedMs: 50,
   /**
