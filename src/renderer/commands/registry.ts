@@ -8,6 +8,7 @@ export const ACTIONS = [
   { id: 'list.bottom', name: 'Last Thread', keys: ['Shift-G'], contexts: ['list'] },
   { id: 'list.open', name: 'Open Thread', keys: ['Enter', 'o'], contexts: ['list'] },
   { id: 'go.inbox', name: 'Go to Inbox', keys: ['g i'], contexts: ['list', 'reader'] },
+  { id: 'dev.overlay', name: 'Toggle Performance Overlay', keys: ['Cmd-Shift-D'], contexts: ['list', 'reader', 'composer'] },
 ] as const satisfies readonly ActionDef[];
 
 export type ActionId = (typeof ACTIONS)[number]['id'];

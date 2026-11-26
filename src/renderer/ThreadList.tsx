@@ -15,7 +15,7 @@ const Row = memo(function Row({ row, selected, top }: { row: ThreadRow; selected
   return (
     <div
       className={`row${row.unread ? ' unread' : ''}${selected ? ' selected' : ''}`}
-      style={{ transform: `translateY(${top}px)` }}
+      style={{ top }}
       role="option"
       aria-selected={selected}
     >

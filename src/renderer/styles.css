@@ -29,3 +29,6 @@ body { background: var(--base); color: var(--text); overflow: hidden; -webkit-fo
 .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--subtext); }
 button.primary { font: inherit; padding: 8px 16px; border-radius: 8px; border: 0; background: var(--blue); color: var(--base); font-weight: 600; cursor: pointer; }
 button.primary:disabled { opacity: 0.6; cursor: default; }
+.dev-overlay { position: fixed; right: 12px; bottom: 12px; padding: 6px 10px; border-radius: 6px; background: var(--crust); color: var(--subtext); font: 12px ui-monospace, Menlo, monospace; pointer-events: none; }
+.dev-overlay b { color: #a6e3a1; }
+.dev-overlay.over b { color: #f38ba8; }

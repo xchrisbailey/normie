@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { KeyResolver, tokenOf, type Context } from './commands/keys';
 import { ACTIONS, type ActionId } from './commands/registry';
+import { measureToNextFrame } from './perf';
 
 export type Handlers = Partial<Record<ActionId, () => void>>;
 
@@ -20,7 +21,11 @@ export function useKeys(context: Context, handlers: Handlers) {
       const res = resolver.feed(token, latest.current.context);
       if (res.type === 'none') return;
       e.preventDefault();
-      if (res.type === 'action') latest.current.handlers[res.id as ActionId]?.();
+      if (res.type !== 'action') return;
+      const run = latest.current.handlers[res.id as ActionId];
+      if (!run) return;
+      run();
+      measureToNextFrame(res.id, e.timeStamp);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
