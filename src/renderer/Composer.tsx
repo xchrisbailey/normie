@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { formatAddresses, parseAddresses } from '../core/addresses';
 import { AddressField } from './AddressField';
 import { WhenPicker } from './WhenPicker';
+import { describeWhen } from '../core/when';
 import { expandAt, insertAt, type Snippet } from './commands/snippets';
 import type { Address, DraftContent, OutgoingMessage } from '../core/types';
 
@@ -150,7 +151,9 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
     if (field === bodyField.current) bodyField.current?.setSelectionRange(0, 0);
   }, []);
 
-  const [picking, setPicking] = useState(false);
+  const [picking, setPicking] = useState<null | 'later' | 'reminder'>(null);
+  /** A Reminder: bring the Thread back if nobody answers by then. */
+  const [remindAt, setRemindAt] = useState<number | undefined>(start.remindAt);
   const send = (sendAt?: number) => {
     const id = identities[identity];
     if (!id) return setError('Add an Account before sending.');
@@ -167,6 +170,7 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
       ...(start.inReplyTo ? { inReplyTo: start.inReplyTo } : {}),
       ...(start.references?.length ? { references: start.references } : {}),
       ...(attachments.length ? { attachments } : {}),
+      ...(remindAt !== undefined ? { remindAt } : {}),
     };
     // Wait for a save in flight, so the draft it creates is the one removed.
     if (saving.current) void saving.current.then((d) => onSend(message, d, sendAt));
@@ -177,7 +181,10 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
       // Send Later: choose when first.
       e.preventDefault();
-      setPicking(true);
+      setPicking('later');
+    } else if (e.key.toLowerCase() === 'h' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      setPicking('reminder');
     } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       send();
@@ -257,16 +264,36 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
           ))}
         </ul>
       )}
-      {picking && <WhenPicker title="Send at" onClose={() => { setPicking(false); bodyField.current?.focus(); }} onPick={(at) => { setPicking(false); send(at); }} />}
+      {picking && (
+        <WhenPicker
+          title={picking === 'later' ? 'Send at' : 'Remind me if no reply by'}
+          onClose={() => { setPicking(null); bodyField.current?.focus(); }}
+          onPick={(at) => {
+            setPicking(null);
+            if (picking === 'later') send(at);
+            else {
+              setRemindAt(at);
+              bodyField.current?.focus();
+            }
+          }}
+        />
+      )}
+      {remindAt !== undefined && (
+        <div className="reminder-line">
+          ⏰ Back in the Inbox {describeWhen(new Date(remindAt), new Date())} if nobody replies
+          <button type="button" className="quiet" onClick={() => setRemindAt(undefined)} aria-label="Remove the Reminder">×</button>
+        </div>
+      )}
       <input ref={picker} type="file" multiple hidden onChange={(e) => {
         attach(e.target.files);
         e.target.value = '';
       }} />
       <footer>
-        {error ? <span className="error">{error}</span> : <span className="hint">Markdown · ⌘↩ send · ⌘⇧↩ send later · ⌘⇧A attach · Esc keeps a draft · ⌘⇧⌫ discard</span>}
+        {error ? <span className="error">{error}</span> : <span className="hint">Markdown · ⌘↩ send · ⌘⇧↩ send later · ⌘⇧H remind · ⌘⇧A attach · Esc keeps a draft · ⌘⇧⌫ discard</span>}
         <span className="actions">
           <button type="button" className="quiet" onClick={discard}>Discard</button>
-          <button type="button" className="quiet" onClick={() => setPicking(true)}>Send Later…</button>
+          <button type="button" className="quiet" onClick={() => setPicking('reminder')}>Remind Me…</button>
+          <button type="button" className="quiet" onClick={() => setPicking('later')}>Send Later…</button>
           <button type="button" className="primary" onClick={() => send()}>Send</button>
         </span>
       </footer>

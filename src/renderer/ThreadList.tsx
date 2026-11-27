@@ -30,7 +30,7 @@ const Row = memo(function Row({ row, selected, top, marker }: { row: ThreadRow; 
         {row.count > 1 && <span className="n">{row.count}</span>}
         <span className="snippet">{row.snippet}</span>
       </span>
-      {row.tags?.snoozedUntil !== undefined
+      {row.tags?.reminder ? <time className="date reminder" title="Back because nobody replied">No reply</time> : row.tags?.snoozedUntil !== undefined
         ? <time className="date snoozed" title="Snoozed until">⏰ {when(row.tags.snoozedUntil)}</time>
         : <time className="date">{when(row.date)}</time>}
     </div>

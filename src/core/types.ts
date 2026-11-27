@@ -120,6 +120,8 @@ export interface OutgoingMessage {
   inReplyTo?: string;
   references?: string[];
   attachments?: { filename: string; contentType: string; content: Uint8Array }[];
+  /** A Reminder: if nobody but me has written in the Thread by then (ms), it comes back to the Inbox. */
+  remindAt?: number;
 }
 
 /** A draft as the composer holds it: address fields as typed, since they may not parse yet. */
@@ -286,6 +288,8 @@ export interface RowTags {
   labels?: string[];
   /** Snoozed until then (ms). */
   snoozedUntil?: number;
+  /** Back because nobody replied in time (a Reminder fired). */
+  reminder?: boolean;
 }
 
 export interface ThreadMessage {

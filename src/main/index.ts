@@ -655,13 +655,26 @@ async function smokeKeys(w: BrowserWindow) {
   await press('Escape');
   const sendLater = scheduledNote.startsWith('Scheduled for Tomorrow, 9') && listed.includes('Scheduled: ') && reopenedTo === 'ada@example.com';
 
+  // A Reminder from the composer: Cmd-Shift-H, "tomorrow", Enter → shown above the footer.
+  await press('c');
+  await new Promise((r) => setTimeout(r, 300));
+  await press('H', 1, ['meta', 'shift']);
+  await new Promise((r) => setTimeout(r, 200));
+  for (const ch of 'tomorrow') w.webContents.sendInputEvent({ type: 'char', keyCode: ch });
+  await new Promise((r) => setTimeout(r, 100));
+  await press('Return');
+  await new Promise((r) => setTimeout(r, 200));
+  const reminderLine = (await w.webContents.executeJavaScript(`document.querySelector('.reminder-line')?.textContent ?? ''`)) as string;
+  await press('Escape');
+  const reminder = reminderLine.includes('Back in the Inbox Tomorrow');
+
   // Closing the window keeps Normie running: the window hides, the page still answers, the menu bar item stays.
   w.close();
   await new Promise((r) => setTimeout(r, 200));
   const stillAnswers = (await w.webContents.executeJavaScript('1 + 1').catch(() => 0)) === 2;
   const keepsRunning = !w.isDestroyed() && !w.isVisible() && stillAnswers && !!tray && !tray.isDestroyed();
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick && snooze && keepsRunning && sendLater;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick, snooze, keepsRunning, sendLater, scheduledNote };
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick && snooze && keepsRunning && sendLater && reminder;
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick, snooze, keepsRunning, sendLater, reminder };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };
