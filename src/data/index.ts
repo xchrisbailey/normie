@@ -41,6 +41,12 @@ process.parentPort.on('message', (e) => {
       if (removed.length) console.log(`[data] removed ${removed.length} Account(s) that are no longer signed in`);
     }
     data.bodyRequester = (loc) => emitToSync?.('fetch-body', loc);
+    // Mail stored before list headers were fetched gets its Newsletters tag in the background.
+    const ds = data;
+    const backfill = () => {
+      if (ds.backfillListFlags(1000)) setTimeout(backfill, 20);
+    };
+    setTimeout(backfill, 3000);
     data.replayRequester = (accountId) => emitToSync?.('replay', { accountId });
     data.outboxRequester = (accountId) => emitToSync?.('outbox', { accountId });
     data.draftsRequester = (accountId) => emitToSync?.('drafts', { accountId });

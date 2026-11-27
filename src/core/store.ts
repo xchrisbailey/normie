@@ -209,6 +209,18 @@ const MIGRATIONS: string[] = [
     primary key (account_id, address)
   );
   `,
+  // Splits: whether a message went to a list (NULL: not known yet), each Thread's other person, and my VIPs.
+  `
+  alter table messages add column is_list integer;
+  alter table threads add column is_list integer not null default 0;
+  alter table threads add column sender text;
+  create table vip (address text primary key);
+  update threads set sender = (
+    select lower(json_extract(m.from_json, '$.address')) from messages m
+    where m.account_id = threads.account_id and m.thread_key = threads.thread_key and m.from_json is not null
+      and lower(json_extract(m.from_json, '$.address')) not in (select lower(email) from accounts union select address from identities)
+    order by m.date desc limit 1);
+  `,
 ];
 
 /** How long a delete waits before it's sent, so it can still be undone. */
@@ -492,14 +504,14 @@ export class Store {
     const threadOf = this.db.prepare('select thread_key from messages where account_id = ? and mailbox = ? and uid = ?').pluck();
     const insert = this.db.prepare(`
       insert into messages(account_id, mailbox, uid, remote_id, thread_key, message_id, subject, from_json, to_json, date,
-                           flags_json, labels_json, in_inbox, unread, starred)
+                           flags_json, labels_json, in_inbox, unread, starred, is_list)
       values (@accountId, @mailbox, @uid, @remoteId, @threadKey, @messageId, @subject, @fromJson, @toJson, @date,
-              @flagsJson, @labelsJson, @inInbox, @unread, @starred)
+              @flagsJson, @labelsJson, @inInbox, @unread, @starred, @isList)
       on conflict(account_id, mailbox, uid) do update set
         remote_id = excluded.remote_id, thread_key = excluded.thread_key, message_id = excluded.message_id,
         subject = excluded.subject, from_json = excluded.from_json, to_json = excluded.to_json, date = excluded.date,
         flags_json = excluded.flags_json, labels_json = excluded.labels_json, in_inbox = excluded.in_inbox, unread = excluded.unread,
-        starred = excluded.starred`);
+        starred = excluded.starred, is_list = coalesce(excluded.is_list, is_list)`);
     const updateFlags = this.db.prepare(
       'update messages set flags_json = ?, unread = ?, starred = ?, labels_json = coalesce(?, labels_json), in_inbox = coalesce(?, in_inbox) where account_id = ? and mailbox = ? and uid = ?',
     );
@@ -530,6 +542,7 @@ export class Store {
           subject: h.subject, fromJson: h.from ? JSON.stringify(h.from) : null, toJson: JSON.stringify(h.to), date: h.date,
           flagsJson: JSON.stringify(h.flags), labelsJson: JSON.stringify(h.labels),
           inInbox: inInbox(h.labels), unread: h.flags.includes(SEEN) ? 0 : 1, starred: h.flags.includes(FLAGGED) ? 1 : 0,
+          isList: h.isList === undefined ? null : h.isList ? 1 : 0,
         });
       }
       for (const f of batch.flagChanges ?? []) {
@@ -1032,9 +1045,10 @@ export class Store {
   private refreshThread(accountId: AccountId, threadKey: string): boolean {
     const wasInInbox = this.db.prepare('select in_inbox from threads where account_id = ? and thread_key = ?').pluck().get(accountId, threadKey) === 1;
     const agg = this.db
-      .prepare(`select count(*) n, max(date) last_date, max(unread) unread, max(in_inbox) in_inbox, max(starred) starred
+      .prepare(`select count(*) n, max(date) last_date, max(unread) unread, max(in_inbox) in_inbox, max(starred) starred,
+                  coalesce(max(is_list), 0) is_list
                 from messages where account_id = ? and thread_key = ?`)
-      .get(accountId, threadKey) as { n: number; last_date: number; unread: number; in_inbox: number; starred: number };
+      .get(accountId, threadKey) as { n: number; last_date: number; unread: number; in_inbox: number; starred: number; is_list: number };
     if (!agg.n) {
       this.db.prepare('delete from threads where account_id = ? and thread_key = ?').run(accountId, threadKey);
       return wasInInbox;
@@ -1046,32 +1060,75 @@ export class Store {
       .prepare('select subject from messages where account_id = ? and thread_key = ? order by date asc limit 1')
       .pluck()
       .get(accountId, threadKey) as string;
+    // The other person: the latest sender who isn't me (so my own reply doesn't make a Thread mine).
+    const mine = this.myAddresses();
+    const senders = this.db.prepare('select from_json from messages where account_id = ? and thread_key = ? and from_json is not null order by date desc limit 20')
+      .pluck().all(accountId, threadKey) as string[];
+    const sender = senders.map((j) => (JSON.parse(j) as Address).address.toLowerCase()).find((a) => !mine.has(a)) ?? null;
     this.db
-      .prepare(`insert into threads(account_id, thread_key, subject, from_label, last_date, snippet, unread, count, in_inbox, starred)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      .prepare(`insert into threads(account_id, thread_key, subject, from_label, last_date, snippet, unread, count, in_inbox, starred, is_list, sender)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(account_id, thread_key) do update set subject = excluded.subject, from_label = excluded.from_label,
                   last_date = excluded.last_date, snippet = excluded.snippet, unread = excluded.unread, count = excluded.count,
-                  in_inbox = excluded.in_inbox, starred = excluded.starred`)
+                  in_inbox = excluded.in_inbox, starred = excluded.starred, is_list = excluded.is_list, sender = excluded.sender`)
       .run(accountId, threadKey, first || latest.subject, addressLabel(latest.from_json ? JSON.parse(latest.from_json) : undefined),
-        agg.last_date, latest.snippet, agg.unread, agg.n, agg.in_inbox, agg.starred);
+        agg.last_date, latest.snippet, agg.unread, agg.n, agg.in_inbox, agg.starred, agg.is_list, sender);
     return wasInInbox || agg.in_inbox === 1;
   }
 
   // --- Queries for the renderer
 
+  /** The Inbox's Threads, newest first, each tagged with what the Split rules need (the renderer splits them). */
   rows(split: SplitId, limit = 5000): ThreadRow[] {
     if (split !== 'inbox') return [];
     return (this.db
-      .prepare(`select account_id, thread_key, subject, from_label, last_date, snippet, unread, starred, count
-                from threads where in_inbox = 1 order by last_date desc limit ?`)
+      .prepare(`select t.account_id, t.thread_key, t.subject, t.from_label, t.last_date, t.snippet, t.unread, t.starred, t.count, t.is_list, t.sender,
+                  t.sender in (select address from vip) vip,
+                  t.sender in (select address from contacts where sent_count > 0) known
+                from threads t where t.in_inbox = 1 order by t.last_date desc limit ?`)
       .all(limit) as {
         account_id: string; thread_key: string; subject: string; from_label: string; last_date: number; snippet: string;
-        unread: number; starred: number; count: number;
+        unread: number; starred: number; count: number; is_list: number; sender: string | null; vip: number | null; known: number | null;
       }[])
       .map((r) => ({
         key: threadRowKey(r.account_id, r.thread_key), accountId: r.account_id, subject: r.subject, from: r.from_label,
         date: r.last_date, snippet: r.snippet, unread: r.unread === 1, starred: r.starred === 1, count: r.count,
+        tags: { newsletter: r.is_list === 1, vip: r.vip === 1, known: r.known === 1, ...(r.sender ? { sender: r.sender } : {}) },
       }));
+  }
+
+  /** Mark a sender as VIP, or not. */
+  setVip(address: string, on: boolean) {
+    const a = address.toLowerCase();
+    if (on) this.db.prepare('insert or ignore into vip(address) values (?)').run(a);
+    else this.db.prepare('delete from vip where address = ?').run(a);
+  }
+
+  /**
+   * Mail stored before list headers were fetched: read them from the stored message. A batch at a time, so the data
+   * process stays responsive. Returns how many were done (0 when finished).
+   */
+  backfillListFlags(batch = 1000): number {
+    const rows = this.db.prepare(`select m.id, m.account_id, m.thread_key, substr(b.raw, 1, 16384) head from messages m join bodies b on b.message_id = m.id
+                                  where m.is_list is null limit ?`).all(batch) as { id: number; account_id: string; thread_key: string; head: Buffer }[];
+    if (!rows.length) {
+      // Headers-only mail has nothing to read: it stays "not a list".
+      this.db.prepare('update messages set is_list = 0 where is_list is null').run();
+      return 0;
+    }
+    const set = this.db.prepare('update messages set is_list = ? where id = ?');
+    const lists = new Set<string>();
+    this.db.transaction(() => {
+      for (const r of rows) {
+        const head = Buffer.from(r.head).toString('latin1').split(/\r?\n\r?\n/)[0]!.replace(/\r?\n[ \t]+/g, ' ');
+        const isList = /^(list-unsubscribe|list-id):/im.test(head) || /^precedence:\s*(bulk|list|junk)\b/im.test(head);
+        set.run(isList ? 1 : 0, r.id);
+        if (isList) lists.add(`${r.account_id}\u0000${r.thread_key}`);
+      }
+      const mark = this.db.prepare('update threads set is_list = 1 where account_id = ? and thread_key = ?');
+      for (const k of lists) mark.run(...(k.split('\u0000') as [string, string]));
+    })();
+    return rows.length;
   }
 
   thread(key: string): ThreadMessage[] {

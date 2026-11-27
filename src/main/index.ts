@@ -239,10 +239,9 @@ async function runBench(w: BrowserWindow, info: { rows: number }) {
   await new Promise((r) => setTimeout(r, 200));
   for (let i = 0; i < 50; i++) await press('e');
   await new Promise((r) => setTimeout(r, 200));
-  // Switching the Account filter (1, then 0 for all) redraws the list from memory.
-  for (let i = 0; i < 20; i++) {
-    await press('1');
-    await press('0');
+  // Switching Splits (Tab through all five and back) redraws the list from memory.
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 5; j++) await press('Tab');
   }
   await new Promise((r) => setTimeout(r, 200));
   // The palette: open with Cmd-K, close with Escape.
@@ -262,7 +261,7 @@ async function runBench(w: BrowserWindow, info: { rows: number }) {
   const dones = sorted(samples.filter((s) => s.action === 'thread.done'));
   const donePct = pctOf(dones);
   const palettes = sorted(samples.filter((s) => s.action === 'palette.open'));
-  const switches = sorted(samples.filter((s) => s.action.startsWith('filter.')));
+  const switches = sorted(samples.filter((s) => s.action.startsWith('split.')));
   const switchPct = pctOf(switches);
   const palettePct = pctOf(palettes);
   // Memory is a steady-state budget: Chromium caches raster tiles while scrolling and frees them once idle
@@ -274,7 +273,7 @@ async function runBench(w: BrowserWindow, info: { rows: number }) {
     { budget: 'keyMoveMs', value: pct(95), limit: budgets.keyMoveMs, detail: `p50 ${pct(50).toFixed(1)}, p95 ${pct(95).toFixed(1)}, max ${(ms.at(-1) ?? 0).toFixed(1)} ms over ${ms.length} presses` },
     { budget: 'openCachedMs', value: openPct(95), limit: budgets.openCachedMs, detail: `p50 ${openPct(50).toFixed(1)}, p95 ${openPct(95).toFixed(1)}, max ${(opens.at(-1) ?? 0).toFixed(1)} ms over ${opens.length} opens` },
     { budget: 'triageMs', value: donePct(95), limit: budgets.triageMs, detail: `Done: p50 ${donePct(50).toFixed(1)}, p95 ${donePct(95).toFixed(1)}, max ${(dones.at(-1) ?? 0).toFixed(1)} ms over ${dones.length} Threads` },
-    { budget: 'switchMs', value: switchPct(95), limit: budgets.switchMs, detail: `Account filter: p50 ${switchPct(50).toFixed(1)}, p95 ${switchPct(95).toFixed(1)}, max ${(switches.at(-1) ?? 0).toFixed(1)} ms over ${switches.length} switches` },
+    { budget: 'switchMs', value: switchPct(95), limit: budgets.switchMs, detail: `Split: p50 ${switchPct(50).toFixed(1)}, p95 ${switchPct(95).toFixed(1)}, max ${(switches.at(-1) ?? 0).toFixed(1)} ms over ${switches.length} switches` },
     { budget: 'paletteMs', value: palettePct(95), limit: budgets.paletteMs, detail: `Cmd-K: p50 ${palettePct(50).toFixed(1)}, p95 ${palettePct(95).toFixed(1)}, max ${(palettes.at(-1) ?? 0).toFixed(1)} ms over ${palettes.length} opens` },
     { budget: 'memoryMb', value: memory.mb, limit: budgets.memoryMb, detail: `settled; ${memory.detail}; peak while scrolling ${peak.mb.toFixed(0)}` },
   ];
@@ -369,7 +368,7 @@ async function smokeKeys(w: BrowserWindow) {
   )) as string) === 'risky';
   const reader = html && focusedFrame && readerClosed && riskyRefused;
   // Done takes the selected Thread out of the list.
-  const count = () => w.webContents.executeJavaScript(`Number(document.querySelector('.split-bar .count')?.textContent)`) as Promise<number>;
+  const count = () => w.webContents.executeJavaScript(`Number(document.querySelector('.split.active .count')?.textContent)`) as Promise<number>;
   const before = await count();
   await press('e');
   const done = (await count()) === before - 1;
@@ -494,8 +493,17 @@ async function smokeKeys(w: BrowserWindow) {
   const expanded = (await w.webContents.executeJavaScript(`document.querySelector('.composer textarea').value`)) as string;
   await press('Escape');
   const snippet = expanded === 'Great work. Thanks so much!';
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, expanded };
+  // Tab steps through the Splits; Newsletters holds the fake newsletter; 0 goes back to the whole Inbox.
+  const activeSplit = () => w.webContents.executeJavaScript(`document.querySelector('.split.active')?.firstChild?.textContent?.trim()`) as Promise<string>;
+  const tabs: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    await press('Tab');
+    tabs.push(await activeSplit());
+  }
+  await press('0');
+  const splits = tabs.join('|') === 'Important|Other|Newsletters|VIP' && (await activeSplit()) === 'Inbox';
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits;
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, tabs };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };

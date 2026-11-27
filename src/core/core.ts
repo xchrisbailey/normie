@@ -24,6 +24,7 @@ export function coreApiOf(ds: DataService): CoreApi {
     deleteDraft: async (id) => ds.deleteDraft(id),
     drafts: async () => ds.drafts(),
     contacts: async (q, limit) => ds.contacts(q, limit),
+    setVip: async (address, on) => ds.setVip(address, on),
     draft: async (id) => ds.draft(id),
     cancelSend: async (id) => ds.cancelSend(id),
     original: (id, withAttachments) => ds.original(id, withAttachments),

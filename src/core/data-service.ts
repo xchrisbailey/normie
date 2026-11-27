@@ -193,6 +193,19 @@ export class DataService {
     return this.store.contacts(query, limit, this.now());
   }
 
+  /** Add a sender to the VIP list, or take them off. The Splits change. */
+  setVip(address: string, on: boolean) {
+    this.store.setVip(address, on);
+    this.emit({ type: 'rows-changed', split: 'inbox' });
+  }
+
+  /** One batch of the list-header backfill; returns how many were done. Tells the renderer when it finishes. */
+  backfillListFlags(batch?: number): number {
+    const n = this.store.backfillListFlags(batch);
+    if (!n) this.emit({ type: 'rows-changed', split: 'inbox' });
+    return n;
+  }
+
   /** Always load remote images from this sender. */
   allowImagesFrom(address: string) {
     this.store.allowImagesFrom(address);

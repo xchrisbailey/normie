@@ -23,6 +23,8 @@ export interface CoreApi {
   attachment(messageId: number, index: number): Promise<{ filename: string; contentType: string; content: Uint8Array } | null>;
   /** People to suggest in an address field, best first. */
   contacts(query: string, limit?: number): Promise<Address[]>;
+  /** Add a sender to the VIP list, or take them off. */
+  setVip(address: string, on: boolean): Promise<void>;
   /** Always load remote images from this sender. */
   allowImagesFrom(address: string): Promise<void>;
   /** An Account's own Labels, for the Label picker. Kept current by 'labels-changed' notices. */
@@ -33,4 +35,4 @@ export interface CoreApi {
   pending(): Promise<PendingStatus>;
 }
 
-export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment', 'send', 'cancelSend', 'original', 'saveDraft', 'deleteDraft', 'drafts', 'draft', 'contacts'] as const satisfies readonly (keyof CoreApi)[];
+export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment', 'send', 'cancelSend', 'original', 'saveDraft', 'deleteDraft', 'drafts', 'draft', 'contacts', 'setVip'] as const satisfies readonly (keyof CoreApi)[];

@@ -57,6 +57,8 @@ export interface RemoteHeader {
   flags: string[];
   /** Labels including system ones such as \Inbox. On folder-only servers, the mailbox the message is in. */
   labels: string[];
+  /** Sent to a list: List-Unsubscribe, List-Id or Precedence: bulk/list. Undefined when the headers weren't fetched. */
+  isList?: boolean;
 }
 
 export interface FlagChange {
@@ -250,6 +252,20 @@ export interface ThreadRow {
   unread: boolean;
   starred: boolean;
   count: number;
+  /** What the Split rules need, worked out by the core. */
+  tags?: RowTags;
+}
+
+/** Facts about a Thread the Splits are built from. */
+export interface RowTags {
+  /** Sent to a list (a newsletter, notifications). */
+  newsletter: boolean;
+  /** The sender is on my VIP list. */
+  vip: boolean;
+  /** I've written to the sender. */
+  known: boolean;
+  /** The other person in the Thread (its latest sender who isn't me), lowercased. */
+  sender?: string;
 }
 
 export interface ThreadMessage {
