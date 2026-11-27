@@ -12,8 +12,12 @@ import { sleep } from '../src/core/sleep';
 const cores: Array<TestCore> = [];
 const dirs: Array<string> = [];
 afterEach(async () => {
-  for (const c of cores.splice(0)) {await c.close();}
-  for (const d of dirs.splice(0)) {rmSync(d, { recursive: true, force: true });}
+  for (const c of cores.splice(0)) {
+    await c.close();
+  }
+  for (const d of dirs.splice(0)) {
+    rmSync(d, { recursive: true, force: true });
+  }
 });
 
 let now = Date.UTC(2026, 10, 27, 12);
@@ -21,7 +25,13 @@ async function start(opts: { provider?: FakeProvider; transport?: FakeTransport;
   const provider = opts.provider ?? new FakeProvider();
   const transport = opts.transport ?? new FakeTransport();
   const c = await createCore({
-    provider, transport, extractText: fakeExtractText, now: () => now, backoffMs: () => 5, accountId: 'gmail:me@example.com', dbPath: opts.dbPath,
+    provider,
+    transport,
+    extractText: fakeExtractText,
+    now: () => now,
+    backoffMs: () => 5,
+    accountId: 'gmail:me@example.com',
+    dbPath: opts.dbPath,
   });
   cores.push(c);
   await c.engine.syncOnce();
@@ -29,15 +39,22 @@ async function start(opts: { provider?: FakeProvider; transport?: FakeTransport;
 }
 
 const message = (over: Partial<OutgoingMessage> = {}): OutgoingMessage => ({
-  accountId: 'gmail:me@example.com', from: { name: 'Me', address: 'me@example.com' },
-  to: [{ name: 'Ada', address: 'ada@example.com' }], cc: [], bcc: [{ address: 'secret@example.com' }],
-  subject: 'Lunch?', body: 'Shall we have **lunch** on Friday?\n\n- noon\n- 1pm', ...over,
+  accountId: 'gmail:me@example.com',
+  from: { name: 'Me', address: 'me@example.com' },
+  to: [{ name: 'Ada', address: 'ada@example.com' }],
+  cc: [],
+  bcc: [{ address: 'secret@example.com' }],
+  subject: 'Lunch?',
+  body: 'Shall we have **lunch** on Friday?\n\n- noon\n- 1pm',
+  ...over,
 });
 
 const waitFor = async (cond: () => boolean, ms = 2000) => {
   const end = Date.now() + ms;
   while (!cond()) {
-    if (Date.now() > end) {throw new Error('timed out');}
+    if (Date.now() > end) {
+      throw new Error('timed out');
+    }
     await sleep(5);
   }
 };
@@ -161,12 +178,27 @@ describe('replying through the core', () => {
       provider.deliver({ subject: 'Re: Lunch', raw: new TextDecoder().decode(raw), labels: [String.raw`\Sent`], flags: [String.raw`\Seen`] });
     };
     provider.deliver({
-      subject: 'Lunch', threadId: 't-lunch', date: now - 3_600_000,
-      raw: ['From: Ada <ada@example.com>', 'To: me@example.com', 'Cc: Grace <grace@example.com>', 'Subject: Lunch',
-        'Message-ID: <lunch-1@example.com>', 'References: <older@example.com>', '', 'Friday?'].join('\r\n'),
+      subject: 'Lunch',
+      threadId: 't-lunch',
+      date: now - 3_600_000,
+      raw: [
+        'From: Ada <ada@example.com>',
+        'To: me@example.com',
+        'Cc: Grace <grace@example.com>',
+        'Subject: Lunch',
+        'Message-ID: <lunch-1@example.com>',
+        'References: <older@example.com>',
+        '',
+        'Friday?',
+      ].join('\r\n'),
     });
     const c = await createCore({
-      provider, transport, extractText: fakeExtractText, mime: { readMessage, attachmentContent, readOriginal }, now: () => now, accountId: 'gmail:me@example.com',
+      provider,
+      transport,
+      extractText: fakeExtractText,
+      mime: { readMessage, attachmentContent, readOriginal },
+      now: () => now,
+      accountId: 'gmail:me@example.com',
     });
     cores.push(c);
     await c.engine.syncOnce();
@@ -194,10 +226,14 @@ describe('attachments', () => {
   it('go out as MIME parts', async () => {
     const { c, transport } = await start();
     const pdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]);
-    await c.send(message({ attachments: [
-      { filename: 'menu.pdf', contentType: 'application/pdf', content: pdf },
-      { filename: 'notes.txt', contentType: 'text/plain', content: new TextEncoder().encode('bring snacks') },
-    ] }));
+    await c.send(
+      message({
+        attachments: [
+          { filename: 'menu.pdf', contentType: 'application/pdf', content: pdf },
+          { filename: 'notes.txt', contentType: 'text/plain', content: new TextEncoder().encode('bring snacks') },
+        ],
+      }),
+    );
     now += 5000;
     await c.engine.sendOutbox();
     const raw = transport.sent[0]!.raw;

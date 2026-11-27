@@ -16,10 +16,7 @@ const sorted = (xs: Array<{ ms: number }>) => xs.map((s) => s.ms).sort((a, b) =>
 const pctOf = (xs: Array<number>) => (p: number) => xs[Math.min(xs.length - 1, Math.floor((p / 100) * xs.length))] ?? Infinity;
 
 function isSearchTimes(v: unknown): v is Array<SearchTime> {
-  return (
-    Array.isArray(v) &&
-    v.every((t: unknown) => typeof t === 'object' && t !== null && 'q' in t && 'n' in t && 'ms' in t && typeof t.ms === 'number')
-  );
+  return Array.isArray(v) && v.every((t: unknown) => typeof t === 'object' && t !== null && 'q' in t && 'n' in t && 'ms' in t && typeof t.ms === 'number');
 }
 
 /** The benchmark: real key presses against the 100,000-message fixture, checked against the budgets. */
@@ -28,14 +25,20 @@ export async function runBench(w: BrowserWindow, info: { rows: number }, dataPro
   const budgets = { ...BUDGETS, keyMoveMs: Number(process.env.NORMIE_BUDGET_KEY_MS) || BUDGETS.keyMoveMs };
   const press = async (keyCode: string, modifiers: Array<'meta'> = []) => {
     w.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
-    if (!modifiers.length) {w.webContents.sendInputEvent({ type: 'char', keyCode });}
+    if (!modifiers.length) {
+      w.webContents.sendInputEvent({ type: 'char', keyCode });
+    }
     w.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
     await sleep(25);
   };
   await sleep(500); // let the first frames settle
   await d.js<void>('window.__normiePerf.clear()');
-  for (let i = 0; i < 200; i++) {await press('j');}
-  for (let i = 0; i < 100; i++) {await press('k');}
+  for (let i = 0; i < 200; i++) {
+    await press('j');
+  }
+  for (let i = 0; i < 100; i++) {
+    await press('k');
+  }
   await sleep(200);
   // Opening: Enter on the selected Thread, then j through the next 30 in the reader. Each step's Thread
   // was prefetched while the one before it was open.
@@ -48,11 +51,15 @@ export async function runBench(w: BrowserWindow, info: { rows: number }, dataPro
   await press('Escape');
   // Triage: Done on 50 Threads in a row (the main run works on a copy of the fixture).
   await sleep(200);
-  for (let i = 0; i < 50; i++) {await press('e');}
+  for (let i = 0; i < 50; i++) {
+    await press('e');
+  }
   await sleep(200);
   // Switching Splits (Tab through all five and back) redraws the list from memory.
   for (let i = 0; i < 8; i++) {
-    for (let j = 0; j < 5; j++) {await press('Tab');}
+    for (let j = 0; j < 5; j++) {
+      await press('Tab');
+    }
   }
   await sleep(200);
   // The palette: open with Cmd-K, close with Escape.
@@ -82,7 +89,9 @@ export async function runBench(w: BrowserWindow, info: { rows: number }, dataPro
   const queries = ['review', 'the', 'budget 1234', 'from:ada', 'subject:"design review"', 'schedule numbers', 'thanks', 'offsite agenda', 'zzzz', 'to:me'];
   const searchTimes = await new Promise<Array<SearchTime>>((resolve) => {
     const onMessage = (m: unknown) => {
-      if (typeof m !== 'object' || m === null || !('type' in m) || m.type !== 'debug-search') {return;}
+      if (typeof m !== 'object' || m === null || !('type' in m) || m.type !== 'debug-search') {
+        return;
+      }
       dataProc.off('message', onMessage);
       resolve('times' in m && isSearchTimes(m.times) ? m.times : []);
     };
@@ -98,21 +107,57 @@ export async function runBench(w: BrowserWindow, info: { rows: number }, dataPro
     });
     dataProc.postMessage({ type: 'debug-memory' });
   });
-  const tabMem = await d.js<{ used: number; total: number }>(`(() => { const m = performance.memory; return { used: Math.round(m.usedJSHeapSize / 1048576), total: Math.round(m.totalJSHeapSize / 1048576) }; })()`);
+  const tabMem = await d.js<{ used: number; total: number }>(
+    `(() => { const m = performance.memory; return { used: Math.round(m.usedJSHeapSize / 1048576), total: Math.round(m.totalJSHeapSize / 1048576) }; })()`,
+  );
   log(`[bench] inside: data ${JSON.stringify(dataMem)} renderer heap ${JSON.stringify(tabMem)}`);
   const results = [
-    { budget: 'keyMoveMs', value: pct(95), limit: budgets.keyMoveMs, detail: `p50 ${pct(50).toFixed(1)}, p95 ${pct(95).toFixed(1)}, max ${(ms.at(-1) ?? 0).toFixed(1)} ms over ${ms.length} presses` },
-    { budget: 'openCachedMs', value: openPct(95), limit: budgets.openCachedMs, detail: `p50 ${openPct(50).toFixed(1)}, p95 ${openPct(95).toFixed(1)}, max ${(opens.at(-1) ?? 0).toFixed(1)} ms over ${opens.length} opens` },
-    { budget: 'triageMs', value: donePct(95), limit: budgets.triageMs, detail: `Done: p50 ${donePct(50).toFixed(1)}, p95 ${donePct(95).toFixed(1)}, max ${(dones.at(-1) ?? 0).toFixed(1)} ms over ${dones.length} Threads` },
-    { budget: 'switchMs', value: switchPct(95), limit: budgets.switchMs, detail: `Split: p50 ${switchPct(50).toFixed(1)}, p95 ${switchPct(95).toFixed(1)}, max ${(switches.at(-1) ?? 0).toFixed(1)} ms over ${switches.length} switches` },
-    { budget: 'paletteMs', value: palettePct(95), limit: budgets.paletteMs, detail: `Cmd-K: p50 ${palettePct(50).toFixed(1)}, p95 ${palettePct(95).toFixed(1)}, max ${(palettes.at(-1) ?? 0).toFixed(1)} ms over ${palettes.length} opens` },
-    { budget: 'searchMs', value: searchPct(95), limit: budgets.searchMs, detail: `p50 ${searchPct(50).toFixed(1)}, p95 ${searchPct(95).toFixed(1)}, max ${(searchMs.at(-1) ?? 0).toFixed(1)} ms over ${searchMs.length} queries (slowest: ${searchTimes.sort((a, b) => b.ms - a.ms)[0]?.q})` },
+    {
+      budget: 'keyMoveMs',
+      value: pct(95),
+      limit: budgets.keyMoveMs,
+      detail: `p50 ${pct(50).toFixed(1)}, p95 ${pct(95).toFixed(1)}, max ${(ms.at(-1) ?? 0).toFixed(1)} ms over ${ms.length} presses`,
+    },
+    {
+      budget: 'openCachedMs',
+      value: openPct(95),
+      limit: budgets.openCachedMs,
+      detail: `p50 ${openPct(50).toFixed(1)}, p95 ${openPct(95).toFixed(1)}, max ${(opens.at(-1) ?? 0).toFixed(1)} ms over ${opens.length} opens`,
+    },
+    {
+      budget: 'triageMs',
+      value: donePct(95),
+      limit: budgets.triageMs,
+      detail: `Done: p50 ${donePct(50).toFixed(1)}, p95 ${donePct(95).toFixed(1)}, max ${(dones.at(-1) ?? 0).toFixed(1)} ms over ${dones.length} Threads`,
+    },
+    {
+      budget: 'switchMs',
+      value: switchPct(95),
+      limit: budgets.switchMs,
+      detail: `Split: p50 ${switchPct(50).toFixed(1)}, p95 ${switchPct(95).toFixed(1)}, max ${(switches.at(-1) ?? 0).toFixed(1)} ms over ${switches.length} switches`,
+    },
+    {
+      budget: 'paletteMs',
+      value: palettePct(95),
+      limit: budgets.paletteMs,
+      detail: `Cmd-K: p50 ${palettePct(50).toFixed(1)}, p95 ${palettePct(95).toFixed(1)}, max ${(palettes.at(-1) ?? 0).toFixed(1)} ms over ${palettes.length} opens`,
+    },
+    {
+      budget: 'searchMs',
+      value: searchPct(95),
+      limit: budgets.searchMs,
+      detail: `p50 ${searchPct(50).toFixed(1)}, p95 ${searchPct(95).toFixed(1)}, max ${(searchMs.at(-1) ?? 0).toFixed(1)} ms over ${searchMs.length} queries (slowest: ${searchTimes.sort((a, b) => b.ms - a.ms)[0]?.q})`,
+    },
     { budget: 'memoryMb', value: memory.mb, limit: budgets.memoryMb, detail: `settled; ${memory.detail}; peak while scrolling ${peak.mb.toFixed(0)}` },
   ];
   const pressesOk = ms.length === 300 && opens.length === 31 && dones.length === 50 && palettes.length === 40 && switches.length === 40;
   log(`\n[bench] fixture: ${info.rows} Inbox rows in the renderer`);
-  for (const r of results) {log(`[bench] ${r.value <= r.limit ? 'ok  ' : 'FAIL'} ${r.budget.padEnd(12)} ${r.value.toFixed(1).padStart(7)} / ${r.limit}   ${r.detail}`);}
-  if (!pressesOk) {log(`[bench] FAIL expected 300 moves, 31 opens, 50 Dones and 40 palettes, got ${ms.length}, ${opens.length}, ${dones.length} and ${palettes.length}`);}
+  for (const r of results) {
+    log(`[bench] ${r.value <= r.limit ? 'ok  ' : 'FAIL'} ${r.budget.padEnd(12)} ${r.value.toFixed(1).padStart(7)} / ${r.limit}   ${r.detail}`);
+  }
+  if (!pressesOk) {
+    log(`[bench] FAIL expected 300 moves, 31 opens, 50 Dones and 40 palettes, got ${ms.length}, ${opens.length}, ${dones.length} and ${palettes.length}`);
+  }
   return pressesOk && results.every((r) => r.value <= r.limit);
 }
 
@@ -134,4 +179,3 @@ export function measureMemory(): Memory {
   }
   return { mb: metrics.reduce((a, m) => a + m.memory.workingSetSize, 0) / 1024, detail: `working set over ${metrics.length} processes` };
 }
-

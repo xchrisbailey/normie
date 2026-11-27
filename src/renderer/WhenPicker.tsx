@@ -13,15 +13,23 @@ export function WhenPicker({ title, onPick, onClose }: { title: string; onPick: 
   const [now, setNow] = useState(() => new Date());
   const typed = text.trim() ? parseWhen(text, now) : null;
   const choices = text.trim()
-    ? typed ? [{ label: describeWhen(typed, now), at: typed }] : []
+    ? typed
+      ? [{ label: describeWhen(typed, now), at: typed }]
+      : []
     : suggestions(now).map((s) => ({ label: `${s.label} · ${describeWhen(s.at, now)}`, at: s.at }));
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {onClose();}
-    else if (e.key === 'ArrowDown') {setIndex((i) => Math.min(choices.length - 1, i + 1));}
-    else if (e.key === 'ArrowUp') {setIndex((i) => Math.max(0, i - 1));}
-    else if (e.key === 'Enter' && choices[index]) {onPick(choices[index].at.getTime());}
-    else {return;}
+    if (e.key === 'Escape') {
+      onClose();
+    } else if (e.key === 'ArrowDown') {
+      setIndex((i) => Math.min(choices.length - 1, i + 1));
+    } else if (e.key === 'ArrowUp') {
+      setIndex((i) => Math.max(0, i - 1));
+    } else if (e.key === 'Enter' && choices[index]) {
+      onPick(choices[index].at.getTime());
+    } else {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
   };
@@ -29,11 +37,28 @@ export function WhenPicker({ title, onPick, onClose }: { title: string; onPick: 
   return createPortal(
     <div className="palette-backdrop" onMouseDown={onClose}>
       <div className="palette" role="dialog" aria-label={title} onMouseDown={(e) => e.stopPropagation()}>
-        <input ref={input} value={text} placeholder={`${title}: tomorrow 9, monday, in 2 hours…`} spellCheck={false}
-          onChange={(e) => { setText(e.target.value); setIndex(0); setNow(new Date()); }} onKeyDown={onKeyDown} onBlur={onClose} />
+        <input
+          ref={input}
+          value={text}
+          placeholder={`${title}: tomorrow 9, monday, in 2 hours…`}
+          spellCheck={false}
+          onChange={(e) => {
+            setText(e.target.value);
+            setIndex(0);
+            setNow(new Date());
+          }}
+          onKeyDown={onKeyDown}
+          onBlur={onClose}
+        />
         <ul role="listbox">
           {choices.map((c, i) => (
-            <li key={c.at.getTime()} role="option" aria-selected={i === index} className={i === index ? 'selected' : ''} onMouseDown={() => onPick(c.at.getTime())}>
+            <li
+              key={c.at.getTime()}
+              role="option"
+              aria-selected={i === index}
+              className={i === index ? 'selected' : ''}
+              onMouseDown={() => onPick(c.at.getTime())}
+            >
               <span>{c.label}</span>
             </li>
           ))}

@@ -25,7 +25,9 @@ describe('address suggestions', () => {
   it('puts people I have written to first, then the people who write often and lately', async () => {
     const c = await start((p) => {
       // Ada writes a lot but I never answer; Adam I wrote to once; Adele wrote once, long ago.
-      for (let i = 0; i < 5; i++) {p.deliver({ subject: `News ${i}`, from: { name: 'Ada Newsletter', address: 'ada@news.example' }, date: NOW - i * DAY });}
+      for (let i = 0; i < 5; i++) {
+        p.deliver({ subject: `News ${i}`, from: { name: 'Ada Newsletter', address: 'ada@news.example' }, date: NOW - i * DAY });
+      }
       p.deliver({ subject: 'Hi', from: me, to: [{ name: 'Adam Smith', address: 'adam@example.com' }], date: NOW - 30 * DAY, labels: [String.raw`\Sent`] });
       p.deliver({ subject: 'Old', from: { name: 'Adele', address: 'adele@example.com' }, date: NOW - 300 * DAY });
     });
@@ -59,9 +61,21 @@ describe('address suggestions', () => {
 describe('Identities and suggestions', () => {
   it('never suggests any of my Identities, and counts mail from them as sent', async () => {
     const p = new FakeProvider();
-    p.deliver({ subject: 'Hi', from: { address: 'chris@srcery.example' }, to: [{ name: 'Zoe', address: 'zoe@example.com' }], date: NOW - DAY, labels: [String.raw`\Sent`] });
+    p.deliver({
+      subject: 'Hi',
+      from: { address: 'chris@srcery.example' },
+      to: [{ name: 'Zoe', address: 'zoe@example.com' }],
+      date: NOW - DAY,
+      labels: [String.raw`\Sent`],
+    });
     p.deliver({ subject: 'News', from: { name: 'Zed', address: 'zed@news.example' }, date: NOW - DAY });
-    core = await createCore({ provider: p, extractText: fakeExtractText, now: () => NOW, email: 'me@example.com', identities: ['me@example.com', 'chris@srcery.example'] });
+    core = await createCore({
+      provider: p,
+      extractText: fakeExtractText,
+      now: () => NOW,
+      email: 'me@example.com',
+      identities: ['me@example.com', 'chris@srcery.example'],
+    });
     await core.engine.syncOnce();
     expect(await core.contacts('chris')).toEqual([]);
     expect((await core.contacts('z')).map((a) => a.address)).toEqual(['zoe@example.com', 'zed@news.example']);

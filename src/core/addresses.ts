@@ -10,13 +10,19 @@ function split(input: string): Array<string> {
   let quoted = false;
   let angle = 0;
   for (const ch of input) {
-    if (ch === '"') {quoted = !quoted;}
-    else if (ch === '<' && !quoted) {angle++;}
-    else if (ch === '>' && !quoted) {angle = Math.max(0, angle - 1);}
+    if (ch === '"') {
+      quoted = !quoted;
+    } else if (ch === '<' && !quoted) {
+      angle++;
+    } else if (ch === '>' && !quoted) {
+      angle = Math.max(0, angle - 1);
+    }
     if ((ch === ',' || ch === ';') && !quoted && !angle) {
       out.push(cur);
       cur = '';
-    } else {cur += ch;}
+    } else {
+      cur += ch;
+    }
   }
   out.push(cur);
   return out.flatMap((s) => {
@@ -32,9 +38,17 @@ export function parseAddresses(input: string) {
   for (const part of split(input)) {
     const m = /^(.*)<([^>]+)>$/.exec(part);
     const address = (m?.[2] ?? part).trim();
-    const name = m ? (m[1] ?? '').trim().replace(/^"(.*)"$/, '$1').trim() : '';
-    if (!ADDRESS.test(address)) {invalid.push(part);}
-    else {addresses.push(name ? { name, address } : { address });}
+    const name = m
+      ? (m[1] ?? '')
+          .trim()
+          .replace(/^"(.*)"$/, '$1')
+          .trim()
+      : '';
+    if (!ADDRESS.test(address)) {
+      invalid.push(part);
+    } else {
+      addresses.push(name ? { name, address } : { address });
+    }
   }
   return { addresses, invalid };
 }

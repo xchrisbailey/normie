@@ -39,4 +39,8 @@ function fail(error) {
 }
 
 // oxlint-disable-next-line unicorn/prefer-top-level-await -- top-level await on whenReady never resolves in Electron's main module
-app.whenReady().then(render).then(() => app.quit()).catch(fail);
+app
+  .whenReady()
+  .then(render)
+  .then(() => app.quit())
+  .catch(fail);

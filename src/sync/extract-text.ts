@@ -2,7 +2,9 @@
 import { simpleParser } from 'mailparser';
 
 export async function extractText(raw: Uint8Array): Promise<string> {
-  if (!raw.length) {return '';}
+  if (!raw.length) {
+    return '';
+  }
   const parsed = await simpleParser(Buffer.from(raw), { skipImageLinks: true, skipTextToHtml: true });
   return (parsed.text ?? '').replaceAll('\r\n', '\n').trim();
 }

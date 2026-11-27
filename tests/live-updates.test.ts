@@ -28,7 +28,10 @@ async function live(caps: Caps, setup: (p: FakeProvider) => void = () => {}) {
 }
 const subjects = async (c: TestCore) => (await c.rows('inbox')).map((r) => r.subject);
 
-for (const [name, caps] of [['Gmail-like (CONDSTORE only)', GMAIL_CAPS], ['iCloud-like (QRESYNC)', ICLOUD_CAPS]] as const) {
+for (const [name, caps] of [
+  ['Gmail-like (CONDSTORE only)', GMAIL_CAPS],
+  ['iCloud-like (QRESYNC)', ICLOUD_CAPS],
+] as const) {
   describe(`live updates, ${name}`, () => {
     it('shows new Inbox mail without user action', async () => {
       const { p, c } = await live(caps);
@@ -62,7 +65,9 @@ for (const [name, caps] of [['Gmail-like (CONDSTORE only)', GMAIL_CAPS], ['iClou
       p.drop(2);
       p.deliver({ subject: 'While offline', date: NOW - 30_000 });
       // Wait for IDLE to restart and the catch-up pass to land.
-      for (let i = 0; i < 50 && !(await subjects(c)).includes('While offline'); i++) {await sleep(10);}
+      for (let i = 0; i < 50 && !(await subjects(c)).includes('While offline'); i++) {
+        await sleep(10);
+      }
       expect(await subjects(c)).toEqual(['While offline', 'Existing']);
       const pass = c.engine.nextPass();
       p.deliver({ subject: 'After reconnect', date: NOW - 10_000 });
@@ -80,7 +85,10 @@ describe('sync state', () => {
     const dbPath = `${process.env.TMPDIR ?? '/tmp'}/normie-test-${process.pid}-${Date.now()}.sqlite`;
     let c = await createCore({ provider: p, extractText: fakeExtractText, now: () => NOW, dbPath });
     await c.engine.syncOnce();
-    const before = c.data.mailboxState(expected(c.data.store.db.prepare<[], string>('select id from accounts').pluck().get(), 'an account id'), '[Gmail]/All Mail');
+    const before = c.data.mailboxState(
+      expected(c.data.store.db.prepare<[], string>('select id from accounts').pluck().get(), 'an account id'),
+      '[Gmail]/All Mail',
+    );
     await c.close();
     p.setFlags(1, { flags: [String.raw`\Seen`] });
     c = core = await createCore({ provider: p, extractText: fakeExtractText, now: () => NOW, dbPath });

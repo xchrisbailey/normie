@@ -28,15 +28,25 @@ const MODIFIER_KEYS = new Set(['Shift', 'Meta', 'Control', 'Alt', 'CapsLock']);
  * A shifted letter becomes "Shift-H"; shifted symbols keep their own character ("#").
  */
 export function tokenOf(e: KeyLike, platform = 'darwin'): string | null {
-  if (MODIFIER_KEYS.has(e.key)) {return null;}
+  if (MODIFIER_KEYS.has(e.key)) {
+    return null;
+  }
   const cmd = platform === 'darwin' ? e.metaKey : e.ctrlKey;
   let key = e.key === ' ' ? 'Space' : e.key;
   const parts: Array<string> = [];
-  if (cmd) {parts.push('Cmd');}
-  if (e.altKey) {parts.push('Alt');}
+  if (cmd) {
+    parts.push('Cmd');
+  }
+  if (e.altKey) {
+    parts.push('Alt');
+  }
   const isLetter = /^[a-z]$/i.test(key);
-  if (e.shiftKey && (isLetter || key.length > 1)) {parts.push('Shift');}
-  if (isLetter) {key = parts.length ? key.toUpperCase() : key.toLowerCase();}
+  if (e.shiftKey && (isLetter || key.length > 1)) {
+    parts.push('Shift');
+  }
+  if (isLetter) {
+    key = parts.length ? key.toUpperCase() : key.toLowerCase();
+  }
   return [...parts, key].join('-');
 }
 
@@ -48,7 +58,11 @@ export class KeyResolver {
   private pending: Array<string> = [];
   private pendingAt = 0;
 
-  constructor(actions: ReadonlyArray<ActionDef>, private readonly timeoutMs = 1000, private readonly now = () => performance.now()) {
+  constructor(
+    actions: ReadonlyArray<ActionDef>,
+    private readonly timeoutMs = 1000,
+    private readonly now = () => performance.now(),
+  ) {
     for (const a of actions) {
       for (const k of a.keys) {
         this.bindings.push({ seq: k.split(' '), id: a.id, contexts: a.contexts });
@@ -57,7 +71,9 @@ export class KeyResolver {
   }
 
   feed(token: string, context: Context): Resolution {
-    if (this.pending.length && this.now() - this.pendingAt > this.timeoutMs) {this.pending = [];}
+    if (this.pending.length && this.now() - this.pendingAt > this.timeoutMs) {
+      this.pending = [];
+    }
     const seq = [...this.pending, token];
     const live = this.bindings.filter((b) => b.contexts.includes(context) && seq.every((t, i) => b.seq[i] === t));
     const exact = live.find((b) => b.seq.length === seq.length);

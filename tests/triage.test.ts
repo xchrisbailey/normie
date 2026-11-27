@@ -15,8 +15,12 @@ const cores: Array<TestCore> = [];
 const dirs: Array<string> = [];
 
 afterEach(async () => {
-  for (const c of cores.splice(0)) {await c.close();}
-  for (const d of dirs.splice(0)) {rmSync(d, { recursive: true, force: true });}
+  for (const c of cores.splice(0)) {
+    await c.close();
+  }
+  for (const d of dirs.splice(0)) {
+    rmSync(d, { recursive: true, force: true });
+  }
 });
 
 async function start(provider: FakeProvider, dbPath?: string) {
@@ -127,7 +131,9 @@ describe('Done', () => {
 const waitFor = async (cond: () => boolean | Promise<boolean>, ms = 2000) => {
   const end = Date.now() + ms;
   while (!(await cond())) {
-    if (Date.now() > end) {throw new Error('timed out');}
+    if (Date.now() > end) {
+      throw new Error('timed out');
+    }
     await sleep(5);
   }
 };
@@ -140,7 +146,6 @@ const fastCore = async (p: FakeProvider) => {
 };
 
 describe('failed changes', () => {
-
   it('retries with backoff by itself until the server takes the change', async () => {
     const { p } = mailbox();
     const c = await fastCore(p);
@@ -281,7 +286,6 @@ describe('undo', () => {
 const rowOf = async (c: TestCore, subject: string) => (await c.rows('inbox')).find((r) => r.subject === subject);
 
 describe('star, read and delete', () => {
-
   it('stars the latest message, and unstarring clears every star in the Thread', async () => {
     const { p, lunch } = mailbox();
     const c = await start(p);
@@ -422,12 +426,13 @@ describe('mute', () => {
 
 const labelled = () => {
   const m = mailbox();
-  for (const path of ['Receipts', 'Work/Projects', '[Gmail]/Important', '[Gmail]/Starred', 'Sent Messages']) {m.p.addMailbox({ path });}
+  for (const path of ['Receipts', 'Work/Projects', '[Gmail]/Important', '[Gmail]/Starred', 'Sent Messages']) {
+    m.p.addMailbox({ path });
+  }
   return m;
 };
 
 describe('Labels', () => {
-
   it("lists the Account's own Labels, not system mailboxes", async () => {
     const { p } = labelled();
     const c = await start(p);
@@ -451,7 +456,11 @@ describe('Labels', () => {
     await c.engine.replay();
     await c.undo(ids);
     await c.engine.replay();
-    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[0], lunch.sent, lunch.inbox[1]], edit: { removeLabels: ['Work/Projects'] } });
+    expect(p.edits.at(-1)).toEqual({
+      mailbox: '[Gmail]/All Mail',
+      uids: [lunch.inbox[0], lunch.sent, lunch.inbox[1]],
+      edit: { removeLabels: ['Work/Projects'] },
+    });
   });
 
   it('removes a Label from every message that has it', async () => {

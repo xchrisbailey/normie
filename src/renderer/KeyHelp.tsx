@@ -23,7 +23,9 @@ export function KeyHelp({ actions, onClose }: { actions: ReadonlyArray<ActionDef
           }
         }}
       >
-        <h2>Keys <span className="help">· everything is also in ⌘K · change them in keymap.json</span></h2>
+        <h2>
+          Keys <span className="help">· everything is also in ⌘K · change them in keymap.json</span>
+        </h2>
         <div className="key-help-columns">
           {helpSections(actions).map((s) => (
             <section key={s.title}>
@@ -32,7 +34,11 @@ export function KeyHelp({ actions, onClose }: { actions: ReadonlyArray<ActionDef
                 {s.rows.map((r) => (
                   <div key={r.name} className="key-row">
                     <dt>{r.name}</dt>
-                    <dd>{r.keys.map((k) => <kbd key={k}>{k}</kbd>)}</dd>
+                    <dd>
+                      {r.keys.map((k) => (
+                        <kbd key={k}>{k}</kbd>
+                      ))}
+                    </dd>
                   </div>
                 ))}
               </dl>

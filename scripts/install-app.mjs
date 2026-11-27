@@ -21,7 +21,9 @@ if (running()) {
   console.error('Normie started while building. Quit it, then run this again.');
   process.exit(1);
 }
-if (existsSync(target)) {rmSync(target, { recursive: true, force: true });}
+if (existsSync(target)) {
+  rmSync(target, { recursive: true, force: true });
+}
 run('ditto', ['dist/mac-arm64/Normie.app', target]);
 run('codesign', ['--verify', '--deep', '--strict', target]);
 const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();

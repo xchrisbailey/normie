@@ -7,19 +7,36 @@ import { errorMessage } from '../src/core/errors';
 
 class MemSecrets implements SecretStore {
   m = new Map<string, string>();
-  async get(id: string) { return this.m.get(id); }
-  async set(id: string, v: string) { this.m.set(id, v); }
-  async delete(id: string) { this.m.delete(id); }
+  async get(id: string) {
+    return this.m.get(id);
+  }
+  async set(id: string, v: string) {
+    this.m.set(id, v);
+  }
+  async delete(id: string) {
+    this.m.delete(id);
+  }
 }
 class MemList implements AccountList {
   saved: Array<AccountRecord> = [];
-  load() { return this.saved; }
-  save(a: Array<AccountRecord>) { this.saved = structuredClone(a); }
+  load() {
+    return this.saved;
+  }
+  save(a: Array<AccountRecord>) {
+    this.saved = structuredClone(a);
+  }
 }
 const setup = () => {
   const secrets = new MemSecrets();
   const list = new MemList();
-  const accounts = new Accounts({ secrets, list, googleClient: () => { throw new Error('no Google here'); }, openUrl: () => {} });
+  const accounts = new Accounts({
+    secrets,
+    list,
+    googleClient: () => {
+      throw new Error('no Google here');
+    },
+    openUrl: () => {},
+  });
   return { secrets, list, accounts };
 };
 const fieldOf = (f: () => void): [string | undefined, string] | undefined => {
@@ -35,8 +52,12 @@ const fieldOf = (f: () => void): [string | undefined, string] | undefined => {
 describe('iCloud settings', () => {
   it('uses the servers spike #2 measured', () => {
     expect(settingsFrom({ provider: 'icloud', email: 'chris@icloud.com', password: 'abcd-efgh-ijkl-mnop' })).toEqual({
-      provider: 'icloud', email: 'chris@icloud.com', user: 'chris@icloud.com', savesSent: false,
-      imap: { host: 'imap.mail.me.com', port: 993, security: 'tls' }, smtp: { host: 'smtp.mail.me.com', port: 587, security: 'starttls' },
+      provider: 'icloud',
+      email: 'chris@icloud.com',
+      user: 'chris@icloud.com',
+      savesSent: false,
+      imap: { host: 'imap.mail.me.com', port: 993, security: 'tls' },
+      smtp: { host: 'smtp.mail.me.com', port: 587, security: 'starttls' },
     });
   });
 
@@ -56,7 +77,12 @@ describe('IMAP settings', () => {
   const base = { provider: 'imap' as const, email: 'me@example.com', password: 'pw', imap: { host: 'imap.example.com' }, smtp: { host: 'smtp.example.com' } };
 
   it('fills in the usual ports and security, and the login', () => {
-    expect(settingsFrom(base)).toMatchObject({ user: 'me@example.com', imap: { port: 993, security: 'tls' }, smtp: { port: 587, security: 'starttls' }, savesSent: false });
+    expect(settingsFrom(base)).toMatchObject({
+      user: 'me@example.com',
+      imap: { port: 993, security: 'tls' },
+      smtp: { port: 587, security: 'starttls' },
+      savesSent: false,
+    });
   });
 
   it('points at the field to fix', () => {
@@ -64,12 +90,17 @@ describe('IMAP settings', () => {
     expect(fieldOf(() => settingsFrom({ ...base, password: '' }))![0]).toBe('password');
     expect(fieldOf(() => settingsFrom({ ...base, imap: { host: 'not a host' } }))![0]).toBe('imap.host');
     expect(fieldOf(() => settingsFrom({ ...base, smtp: { host: 'smtp.example.com', port: 70_000 } }))![0]).toBe('smtp.port');
-    expect(fieldOf(() => settingsFrom({ ...base, imap: { host: 'imap.example.com', security: 'none' } }))).toEqual(['imap.security', expect.stringMatching(/unencrypted/)]);
+    expect(fieldOf(() => settingsFrom({ ...base, imap: { host: 'imap.example.com', security: 'none' } }))).toEqual([
+      'imap.security',
+      expect.stringMatching(/unencrypted/),
+    ]);
   });
 
   it('says which server failed and why', () => {
     const s = settingsFrom(base);
-    expect(explainFailure(s, 'smtp', Object.assign(new Error('Invalid login'), { code: 'EAUTH' }))).toBe('SMTP (smtp.example.com:587) didn’t accept the username or password.');
+    expect(explainFailure(s, 'smtp', Object.assign(new Error('Invalid login'), { code: 'EAUTH' }))).toBe(
+      'SMTP (smtp.example.com:587) didn’t accept the username or password.',
+    );
     expect(explainFailure(s, 'imap', Object.assign(new Error('x'), { code: 'ENOTFOUND' }))).toMatch(/Couldn’t find imap\.example\.com/);
     expect(explainFailure(s, 'imap', Object.assign(new Error('x'), { code: 'ECONNREFUSED' }))).toMatch(/refused the connection/);
     expect(explainFailure(s, 'imap', new Error('self-signed certificate in chain'))).toMatch(/certificate isn’t trusted/);
@@ -80,8 +111,11 @@ describe('IMAP settings', () => {
 describe('adding and removing a password Account', () => {
   it('saves nothing when the servers refuse it', async () => {
     const { accounts, secrets, list } = setup();
-    await expect(accounts.addPassword({ provider: 'icloud', email: 'me@icloud.com', password: 'bad' }, async () => { throw new Error('iCloud didn’t accept the sign-in'); }))
-      .rejects.toThrow(/didn’t accept/);
+    await expect(
+      accounts.addPassword({ provider: 'icloud', email: 'me@icloud.com', password: 'bad' }, async () => {
+        throw new Error('iCloud didn’t accept the sign-in');
+      }),
+    ).rejects.toThrow(/didn’t accept/);
     expect(list.saved).toEqual([]);
     expect(secrets.m.size).toBe(0);
   });
@@ -89,7 +123,10 @@ describe('adding and removing a password Account', () => {
   it('keeps the password secret, gives it to sync, and forgets it on removal', async () => {
     const { accounts, secrets, list } = setup();
     let checked: string | undefined;
-    const a = await accounts.addPassword({ provider: 'icloud', email: 'me@icloud.com', password: 'abcd-efgh-ijkl-mnop' }, async (_s, pw) => void (checked = pw));
+    const a = await accounts.addPassword(
+      { provider: 'icloud', email: 'me@icloud.com', password: 'abcd-efgh-ijkl-mnop' },
+      async (_s, pw) => void (checked = pw),
+    );
     expect(checked).toBe('abcd-efgh-ijkl-mnop');
     expect(a).toMatchObject({ id: 'icloud:me@icloud.com@imap.mail.me.com', kind: 'imap', email: 'me@icloud.com', status: 'ok' });
     expect(JSON.stringify(list.saved)).not.toContain('abcd-efgh');

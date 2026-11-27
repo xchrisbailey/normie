@@ -23,7 +23,9 @@ export function useKeymap() {
     const apply = (k: { file?: unknown; error?: string }) => {
       const merged = mergeKeymap(ACTIONS, k.file);
       const problems = k.error ? [k.error] : merged.problems;
-      for (const p of problems) {warn(`[keymap] ${p}`);}
+      for (const p of problems) {
+        warn(`[keymap] ${p}`);
+      }
       setState({ actions: merged.actions, problems });
     };
     void window.normie.keymap().then(apply);
@@ -49,7 +51,9 @@ export function useSnippets() {
     const apply = (k: { file?: unknown; error?: string }) => {
       const parsed = parseSnippets(k.file);
       const problems = k.error ? [k.error] : parsed.problems;
-      for (const p of problems) {warn(`[snippets] ${p}`);}
+      for (const p of problems) {
+        warn(`[snippets] ${p}`);
+      }
       setState({ snippets: parsed.snippets, problems });
     };
     void window.normie.snippets().then(apply);
@@ -69,22 +73,39 @@ export function useKeys(context: Context, handlers: Handlers, actions: ReadonlyA
     const resolver = new KeyResolver(actions);
     const onKeyDown = (e: KeyboardEvent) => {
       const target = isHtmlElement(e.target) ? e.target : null;
-      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) {return;}
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) {
+        return;
+      }
       // While a form or the palette is open, keys are its own: none reach the list behind it.
-      if (document.querySelector('.palette-backdrop')) {return;}
+      if (document.querySelector('.palette-backdrop')) {
+        return;
+      }
       const token = tokenOf(e, window.normie.platform);
-      if (!token) {return;}
+      if (!token) {
+        return;
+      }
       const res = resolver.feed(token, latest.current.context);
-      if (res.type === 'none') {return;}
+      if (res.type === 'none') {
+        return;
+      }
       e.preventDefault();
-      if (res.type !== 'action') {return;}
-      if (!isActionId(res.id)) {return;}
+      if (res.type !== 'action') {
+        return;
+      }
+      if (!isActionId(res.id)) {
+        return;
+      }
       const run = latest.current.handlers[res.id];
-      if (!run) {return;}
+      if (!run) {
+        return;
+      }
       const result = run();
       const id = res.id;
-      if (result) {void result.then(() => measureToNextFrame(id, e.timeStamp));}
-      else {measureToNextFrame(id, e.timeStamp);}
+      if (result) {
+        void result.then(() => measureToNextFrame(id, e.timeStamp));
+      } else {
+        measureToNextFrame(id, e.timeStamp);
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);

@@ -18,7 +18,8 @@ export interface Original {
 export type ReplyKind = 'reply' | 'replyAll' | 'forward';
 
 /** What a reply or forward fills in on an outgoing message; the composer adds the rest. */
-export type ReplyPlan = Pick<OutgoingMessage, 'to' | 'cc' | 'bcc' | 'subject' | 'body'> & Partial<Pick<OutgoingMessage, 'from' | 'inReplyTo' | 'references' | 'attachments'>>;
+export type ReplyPlan = Pick<OutgoingMessage, 'to' | 'cc' | 'bcc' | 'subject' | 'body'> &
+  Partial<Pick<OutgoingMessage, 'from' | 'inReplyTo' | 'references' | 'attachments'>>;
 
 const same = (a: Address, b: Address) => a.address.toLowerCase() === b.address.toLowerCase();
 const dedupe = (list: Array<Address>) => list.filter((a, i) => list.findIndex((b) => same(a, b)) === i);
@@ -27,17 +28,30 @@ const label = (a?: Address) => (a ? (a.name ? `${a.name} <${a.address}>` : a.add
 
 export function prefixed(subject: string, kind: ReplyKind): string {
   const s = subject.trim();
-  if (kind === 'forward') {return /^(fwd?|fw):/i.test(s) ? s : `Fwd: ${s}`;}
+  if (kind === 'forward') {
+    return /^(fwd?|fw):/i.test(s) ? s : `Fwd: ${s}`;
+  }
   return /^re:/i.test(s) ? s : `Re: ${s}`;
 }
 
-const quote = (text: string) => text.replaceAll('\r\n', '\n').trimEnd().split('\n').map((l) => (l ? `> ${l}` : '>')).join('\n');
+const quote = (text: string) =>
+  text
+    .replaceAll('\r\n', '\n')
+    .trimEnd()
+    .split('\n')
+    .map((l) => (l ? `> ${l}` : '>'))
+    .join('\n');
 
 /**
  * Plan a reply or forward. `mine` are my Identities' addresses, for leaving myself out and for picking the From:
  * a reply goes out from the Identity the original was sent to.
  */
-export function planReply(kind: ReplyKind, o: Original, mine: Array<Address>, when = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' })): ReplyPlan {
+export function planReply(
+  kind: ReplyKind,
+  o: Original,
+  mine: Array<Address>,
+  when = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }),
+): ReplyPlan {
   const sender = o.from;
   const fromMe = !!sender && mine.some((m) => same(m, sender));
   const identity = mine.find((m) => [...o.to, ...o.cc].some((a) => same(a, m))) ?? (fromMe ? o.from : undefined);
@@ -56,7 +70,9 @@ export function planReply(kind: ReplyKind, o: Original, mine: Array<Address>, wh
       ...(o.cc.length ? [`Cc: ${o.cc.map(label).join(', ')}`] : []),
     ].join('\n');
     const forward = {
-      to: [], cc: [], bcc: [],
+      to: [],
+      cc: [],
+      bcc: [],
       subject: prefixed(o.subject, 'forward'),
       body: `\n\n${header}\n\n${o.text.trimEnd()}`,
       attachments: o.attachments,
@@ -72,9 +88,13 @@ export function planReply(kind: ReplyKind, o: Original, mine: Array<Address>, wh
     to = dedupe([...to, ...(fromMe ? [] : without(o.to, mine))]);
     cc = without(dedupe(o.cc), [...mine, ...to]);
   }
-  if (!fromMe) {to = without(to, mine);}
+  if (!fromMe) {
+    to = without(to, mine);
+  }
   const reply = {
-    to, cc, bcc: [],
+    to,
+    cc,
+    bcc: [],
     subject: prefixed(o.subject, 'reply'),
     body: `\n\nOn ${date}, ${label(o.from)} wrote:\n${quote(o.text)}`,
     ...threading,

@@ -8,8 +8,14 @@ export class VerifyError extends Error {}
 
 export async function verifyPasswordAccount(s: PasswordAccountSettings, password: string): Promise<void> {
   const imap = new ImapFlow({
-    host: s.imap.host, port: s.imap.port, secure: s.imap.security === 'tls', doSTARTTLS: s.imap.security === 'starttls' ? true : undefined,
-    auth: { user: s.user, pass: password }, logger: false, connectionTimeout: 20_000, greetingTimeout: 15_000,
+    host: s.imap.host,
+    port: s.imap.port,
+    secure: s.imap.security === 'tls',
+    doSTARTTLS: s.imap.security === 'starttls' ? true : undefined,
+    auth: { user: s.user, pass: password },
+    logger: false,
+    connectionTimeout: 20_000,
+    greetingTimeout: 15_000,
   });
   imap.on('error', () => {});
   try {
@@ -20,8 +26,12 @@ export async function verifyPasswordAccount(s: PasswordAccountSettings, password
     await imap.logout().catch(() => imap.close());
   }
   const smtp = nodemailer.createTransport({
-    host: s.smtp.host, port: s.smtp.port, secure: s.smtp.security === 'tls', requireTLS: s.smtp.security === 'starttls',
-    auth: { user: s.user, pass: password }, connectionTimeout: 20_000,
+    host: s.smtp.host,
+    port: s.smtp.port,
+    secure: s.smtp.security === 'tls',
+    requireTLS: s.smtp.security === 'starttls',
+    auth: { user: s.user, pass: password },
+    connectionTimeout: 20_000,
   });
   try {
     await smtp.verify();

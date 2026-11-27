@@ -14,7 +14,11 @@ describe('attachment files', () => {
   });
 
   it('refuses to open files that run code, whatever the case', () => {
-    for (const f of ['Setup.app', 'run.command', 'x.SH', 'invoice.pdf.exe', 'a.jar', 'disk.dmg', 'link.webloc']) {expect(isRisky(f), f).toBe(true);}
-    for (const f of ['invoice.pdf', 'photo.JPG', 'notes.txt', 'sheet.xlsx', 'archive.zip']) {expect(isRisky(f), f).toBe(false);}
+    for (const f of ['Setup.app', 'run.command', 'x.SH', 'invoice.pdf.exe', 'a.jar', 'disk.dmg', 'link.webloc']) {
+      expect(isRisky(f), f).toBe(true);
+    }
+    for (const f of ['invoice.pdf', 'photo.JPG', 'notes.txt', 'sheet.xlsx', 'archive.zip']) {
+      expect(isRisky(f), f).toBe(false);
+    }
   });
 });

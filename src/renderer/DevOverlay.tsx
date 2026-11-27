@@ -7,7 +7,9 @@ import type { Sample } from './perf';
 export function DevOverlay() {
   const [last, setLast] = useState<Sample | null>(null);
   useEffect(() => onSample(setLast), []);
-  if (!last) {return <div className="dev-overlay">waiting for an action…</div>;}
+  if (!last) {
+    return <div className="dev-overlay">waiting for an action…</div>;
+  }
   const over = last.ms > BUDGETS.keyMoveMs;
   return (
     <div className={`dev-overlay${over ? ' over' : ''}`}>

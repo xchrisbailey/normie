@@ -28,10 +28,36 @@ afterEach(async () => {
 
 async function mailbox() {
   const p = new FakeProvider();
-  p.deliver({ subject: 'Quarterly budget', threadId: 't-budget', from: { name: 'Ada Lovelace', address: 'ada@example.com' }, text: 'Numbers for Q3 attached.', date: NOW - 5 * HOUR });
-  p.deliver({ subject: 'Re: Quarterly budget', threadId: 't-budget', from: { name: 'Grace Hopper', address: 'grace@example.com' }, text: 'Looks fine to me.', date: NOW - 4 * HOUR });
-  p.deliver({ subject: 'Lunch', threadId: 't-lunch', from: { name: 'Alan Turing', address: 'alan@example.com' }, to: [{ name: 'Grace', address: 'grace@example.com' }], text: 'Friday at noon? Bring the budget.', date: NOW - 2 * HOUR });
-  p.deliver({ subject: 'Old archive', threadId: 't-old', from: { address: 'ada@example.com' }, labels: ['Archive'], text: 'From long ago, about budgets.', date: NOW - 50 * 24 * HOUR });
+  p.deliver({
+    subject: 'Quarterly budget',
+    threadId: 't-budget',
+    from: { name: 'Ada Lovelace', address: 'ada@example.com' },
+    text: 'Numbers for Q3 attached.',
+    date: NOW - 5 * HOUR,
+  });
+  p.deliver({
+    subject: 'Re: Quarterly budget',
+    threadId: 't-budget',
+    from: { name: 'Grace Hopper', address: 'grace@example.com' },
+    text: 'Looks fine to me.',
+    date: NOW - 4 * HOUR,
+  });
+  p.deliver({
+    subject: 'Lunch',
+    threadId: 't-lunch',
+    from: { name: 'Alan Turing', address: 'alan@example.com' },
+    to: [{ name: 'Grace', address: 'grace@example.com' }],
+    text: 'Friday at noon? Bring the budget.',
+    date: NOW - 2 * HOUR,
+  });
+  p.deliver({
+    subject: 'Old archive',
+    threadId: 't-old',
+    from: { address: 'ada@example.com' },
+    labels: ['Archive'],
+    text: 'From long ago, about budgets.',
+    date: NOW - 50 * 24 * HOUR,
+  });
   core = await createCore({ provider: p, extractText: fakeExtractText, now: () => NOW });
   await core.engine.syncOnce();
   return core;
@@ -61,7 +87,9 @@ describe('searching', () => {
     // As if these were stored before the index: empty it, and mark everything as still to do.
     c.data.store.db.exec(`delete from search; update meta set value = (select max(id) + 1 from messages) where key = 'search_backfill_below'`);
     expect(await subjects(c, 'budget')).toEqual([]);
-    while (c.data.store.indexSearchBatch(2)){;}
+    while (c.data.store.indexSearchBatch(2)) {
+      // Each call does one batch; it returns false once there's nothing left.
+    }
     expect(await subjects(c, 'budget')).toEqual(['Lunch', 'Quarterly budget', 'Old archive']);
   });
 });

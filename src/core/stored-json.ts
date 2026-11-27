@@ -22,11 +22,21 @@ const isNumberList = (v: JsonValue | undefined): v is Array<number> => Array.isA
 export function parseEdit(text: string): MessageEdit {
   const o = parseObject(text);
   const edit: MessageEdit = {};
-  if (isStringArray(o.addFlags)) {edit.addFlags = o.addFlags;}
-  if (isStringArray(o.removeFlags)) {edit.removeFlags = o.removeFlags;}
-  if (isStringArray(o.addLabels)) {edit.addLabels = o.addLabels;}
-  if (isStringArray(o.removeLabels)) {edit.removeLabels = o.removeLabels;}
-  if (typeof o.moveTo === 'string') {edit.moveTo = o.moveTo;}
+  if (isStringArray(o.addFlags)) {
+    edit.addFlags = o.addFlags;
+  }
+  if (isStringArray(o.removeFlags)) {
+    edit.removeFlags = o.removeFlags;
+  }
+  if (isStringArray(o.addLabels)) {
+    edit.addLabels = o.addLabels;
+  }
+  if (isStringArray(o.removeLabels)) {
+    edit.removeLabels = o.removeLabels;
+  }
+  if (typeof o.moveTo === 'string') {
+    edit.moveTo = o.moveTo;
+  }
   return edit;
 }
 
@@ -34,7 +44,9 @@ export function parseEdit(text: string): MessageEdit {
 export function parseResult(text: string): ChangeResult {
   const o = parseObject(text);
   const result: ChangeResult = {};
-  if (isNumberList(o.movedUids)) {result.movedUids = o.movedUids;}
+  if (isNumberList(o.movedUids)) {
+    result.movedUids = o.movedUids;
+  }
   return result;
 }
 
@@ -65,10 +77,16 @@ export function parseAttachmentInfos(text: string | null): Array<AttachmentInfo>
   const v = text ? parseJson(text) : [];
   return Array.isArray(v)
     ? v.flatMap((a) => {
-      if (!isJsonObject(a) || typeof a.index !== 'number' || typeof a.filename !== 'string' || typeof a.contentType !== 'string' || typeof a.size !== 'number') {
-        return [];
-      }
-      return [{ index: a.index, filename: a.filename, contentType: a.contentType, size: a.size }];
-    })
+        if (
+          !isJsonObject(a) ||
+          typeof a.index !== 'number' ||
+          typeof a.filename !== 'string' ||
+          typeof a.contentType !== 'string' ||
+          typeof a.size !== 'number'
+        ) {
+          return [];
+        }
+        return [{ index: a.index, filename: a.filename, contentType: a.contentType, size: a.size }];
+      })
     : [];
 }

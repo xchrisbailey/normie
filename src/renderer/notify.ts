@@ -15,9 +15,13 @@ export function toNotify(keys: Array<string>, rows: Array<ThreadRow>, splits: Ar
   const out: Array<Notice> = [];
   for (const key of new Set(keys)) {
     const row = rows.find((r) => r.key === key);
-    if (!row || !splits.some((s) => s.notify && s.match(row))) {continue;}
+    if (!row || !splits.some((s) => s.notify && s.match(row))) {
+      continue;
+    }
     const last = recent.get(key);
-    if (last !== undefined && now - last < NOTIFY_QUIET_MS) {continue;}
+    if (last !== undefined && now - last < NOTIFY_QUIET_MS) {
+      continue;
+    }
     recent.set(key, now);
     out.push({ key, title: row.from || 'New mail', body: row.subject || '(no subject)' });
   }

@@ -45,12 +45,30 @@ describe('system mailboxes', () => {
 describe('Gmail headers', () => {
   it('maps Gmail ids, thread ids and labels from an ImapFlow fetch', () => {
     const m = {
-      seq: 1, uid: 42, emailId: '188295', threadId: '188290', labels: new Set([String.raw`\Inbox`, String.raw`\Important`]), flags: new Set([String.raw`\Seen`]),
-      envelope: { date: new Date(NOW), subject: 'Hi', messageId: '<a@b>', from: [{ name: 'Ada', address: 'ada@example.com' }], to: [{ address: 'me@example.com' }] },
+      seq: 1,
+      uid: 42,
+      emailId: '188295',
+      threadId: '188290',
+      labels: new Set([String.raw`\Inbox`, String.raw`\Important`]),
+      flags: new Set([String.raw`\Seen`]),
+      envelope: {
+        date: new Date(NOW),
+        subject: 'Hi',
+        messageId: '<a@b>',
+        from: [{ name: 'Ada', address: 'ada@example.com' }],
+        to: [{ address: 'me@example.com' }],
+      },
     } satisfies Partial<FetchMessageObject>;
     expect(headerOf(m, '[Gmail]/All Mail', true)).toMatchObject({
-      uid: 42, remoteId: '188295', threadId: '188290', labels: [String.raw`\Inbox`, String.raw`\Important`], flags: [String.raw`\Seen`],
-      subject: 'Hi', from: { name: 'Ada', address: 'ada@example.com' }, to: [{ address: 'me@example.com' }], date: NOW,
+      uid: 42,
+      remoteId: '188295',
+      threadId: '188290',
+      labels: [String.raw`\Inbox`, String.raw`\Important`],
+      flags: [String.raw`\Seen`],
+      subject: 'Hi',
+      from: { name: 'Ada', address: 'ada@example.com' },
+      to: [{ address: 'me@example.com' }],
+      date: NOW,
     });
   });
 });
@@ -58,7 +76,9 @@ describe('Gmail headers', () => {
 describe('first sync', () => {
   it('fills the list from headers before any body arrives', async () => {
     const p = new FakeProvider();
-    for (let i = 0; i < 1200; i++) {p.deliver({ subject: `m${i}`, date: NOW - i * 60_000, threadId: `t${i}` });}
+    for (let i = 0; i < 1200; i++) {
+      p.deliver({ subject: `m${i}`, date: NOW - i * 60_000, threadId: `t${i}` });
+    }
     const c = await start(p);
     const order: Array<string> = [];
     c.onNotice(() => order.push(c.data.store.db.prepare('select count(*) from bodies').pluck().get() === 0 ? 'no-bodies' : 'bodies'));
@@ -77,7 +97,10 @@ describe('first sync', () => {
     const c = await start(p);
     await c.engine.syncOnce();
     const rows = c.data.store.db.prepare('select subject, has_body from messages order by date').all();
-    expect(rows).toEqual([{ subject: 'Ancient', has_body: 0 }, { subject: 'Recent', has_body: 1 }]);
+    expect(rows).toEqual([
+      { subject: 'Ancient', has_body: 0 },
+      { subject: 'Recent', has_body: 1 },
+    ]);
     expect((await c.rows('inbox')).map((r) => r.subject)).toEqual(['Recent', 'Ancient']);
   });
 

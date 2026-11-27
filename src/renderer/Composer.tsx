@@ -35,7 +35,9 @@ const same = (a?: Address, b?: Address) => !!a && !!b && a.address.toLowerCase()
 const sizeOf = (n: number) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
 
 async function readFiles(files: FileList | Array<File>): Promise<Array<Attachment>> {
-  return Promise.all([...files].map(async (f) => ({ filename: f.name, contentType: f.type || 'application/octet-stream', content: new Uint8Array(await f.arrayBuffer()) })));
+  return Promise.all(
+    [...files].map(async (f) => ({ filename: f.name, contentType: f.type || 'application/octet-stream', content: new Uint8Array(await f.arrayBuffer()) })),
+  );
 }
 
 /** What the app can do to an open composer: insert text at the cursor in the body (a snippet from the palette). */
@@ -43,7 +45,17 @@ export interface ComposerHandle {
   insert(text: string): void;
 }
 
-export default function Composer({ start, identities, onSend, onClose, onSaveDraft, onDiscard, suggest, snippets, handle: handleRef }: {
+export default function Composer({
+  start,
+  identities,
+  onSend,
+  onClose,
+  onSaveDraft,
+  onDiscard,
+  suggest,
+  snippets,
+  handle: handleRef,
+}: {
   start: ComposeStart;
   identities: Array<Identity>;
   /** `sendAt` for Send Later. */
@@ -57,8 +69,10 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
   snippets: ReadonlyArray<Snippet>;
   handle?: React.MutableRefObject<ComposerHandle | null>;
 }) {
-  const first = identities.find((i) => i.accountId === start.accountId && same(i.from, start.from))
-    ?? identities.find((i) => i.accountId === start.accountId) ?? identities[0];
+  const first =
+    identities.find((i) => i.accountId === start.accountId && same(i.from, start.from)) ??
+    identities.find((i) => i.accountId === start.accountId) ??
+    identities[0];
   const [identity, setIdentity] = useState(first ? identities.indexOf(first) : 0);
   const [to, setTo] = useState(start.toText ?? formatAddresses(start.to ?? []));
   const [cc, setCc] = useState(start.ccText ?? formatAddresses(start.cc ?? []));
@@ -71,14 +85,18 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
   const [dragging, setDragging] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
   const attach = (files: FileList | Array<File> | null) => {
-    if (files?.length) {void readFiles(files).then((list) => setAttachments((a) => [...a, ...list]));}
+    if (files?.length) {
+      void readFiles(files).then((list) => setAttachments((a) => [...a, ...list]));
+    }
   };
   const toField = useRef<HTMLInputElement>(null);
   const bodyField = useRef<HTMLTextAreaElement>(null);
   /** Where to put the cursor after the body changes from code (a snippet). */
   const nextCursor = useRef<number | null>(null);
   useLayoutEffect(() => {
-    if (nextCursor.current === null || !bodyField.current) {return;}
+    if (nextCursor.current === null || !bodyField.current) {
+      return;
+    }
     bodyField.current.focus();
     bodyField.current.setSelectionRange(nextCursor.current, nextCursor.current);
     nextCursor.current = null;
@@ -98,11 +116,17 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
     }
   });
   const onBodyKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key !== 'Tab' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) {return;}
+    if (e.key !== 'Tab' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) {
+      return;
+    }
     const el = e.currentTarget;
-    if (el.selectionStart !== el.selectionEnd) {return;}
+    if (el.selectionStart !== el.selectionEnd) {
+      return;
+    }
     const r = expandAt(body, el.selectionStart, snippets);
-    if (!r) {return;}
+    if (!r) {
+      return;
+    }
     e.preventDefault();
     nextCursor.current = r.cursor;
     setBody(r.text);
@@ -116,10 +140,18 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
   const content = (): DraftContent => {
     const id = identities[identity];
     const draft: DraftContent = { accountId: id?.accountId ?? start.accountId ?? '', to, cc, bcc, subject, body };
-    if (id) {draft.from = id.from;}
-    if (start.inReplyTo) {draft.inReplyTo = start.inReplyTo;}
-    if (start.references) {draft.references = start.references;}
-    if (attachments.length) {draft.attachments = attachments;}
+    if (id) {
+      draft.from = id.from;
+    }
+    if (start.inReplyTo) {
+      draft.inReplyTo = start.inReplyTo;
+    }
+    if (start.references) {
+      draft.references = start.references;
+    }
+    if (attachments.length) {
+      draft.attachments = attachments;
+    }
     return draft;
   };
   const latestContent = useRef(content);
@@ -129,14 +161,18 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
   });
   const saveNow = () => {
     clearTimeout(timer.current);
-    if (!dirty.current) {return;}
+    if (!dirty.current) {
+      return;
+    }
     dirty.current = false;
     const after = saving.current ?? Promise.resolve(draftId.current);
     saving.current = after.then((id) => onSaveDraft(id, latestContent.current())).then((id) => (draftId.current = id));
   };
   const mounted = useRef(true);
   useEffect(() => {
-    if (mounted.current) {return void (mounted.current = false);}
+    if (mounted.current) {
+      return void (mounted.current = false);
+    }
     dirty.current = true;
     clearTimeout(timer.current);
     timer.current = setTimeout(saveNow, DRAFT_SAVE_MS);
@@ -157,7 +193,9 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
     const field = start.to?.length ? bodyField.current : toField.current;
     field?.focus();
     // A reply starts above the quote.
-    if (field === bodyField.current) {bodyField.current?.setSelectionRange(0, 0);}
+    if (field === bodyField.current) {
+      bodyField.current?.setSelectionRange(0, 0);
+    }
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- place the cursor once, when the Composer opens
   }, []);
 
@@ -168,28 +206,53 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
   const [remindShownAt, setRemindShownAt] = useState(() => Date.now());
   const send = (sendAt?: number) => {
     const id = identities[identity];
-    if (!id) {return setError('Add an Account before sending.');}
+    if (!id) {
+      return setError('Add an Account before sending.');
+    }
     const toList = parseAddresses(to);
     const ccList = parseAddresses(cc);
     const bccList = parseAddresses(bcc);
     const lists = [toList, ccList, bccList];
     const invalid = lists.flatMap((l) => l.invalid);
-    if (invalid.length) {return setError(`Not an address: ${invalid.join(', ')}`);}
-    if (!lists.some((l) => l.addresses.length)) {return setError('Add at least one recipient.');}
+    if (invalid.length) {
+      return setError(`Not an address: ${invalid.join(', ')}`);
+    }
+    if (!lists.some((l) => l.addresses.length)) {
+      return setError('Add at least one recipient.');
+    }
     const total = attachments.reduce((n, a) => n + a.content.length, 0);
-    if (total > ATTACHMENT_LIMIT) {return setError(`Attachments come to ${sizeOf(total)}; the limit is 25 MB.`);}
+    if (total > ATTACHMENT_LIMIT) {
+      return setError(`Attachments come to ${sizeOf(total)}; the limit is 25 MB.`);
+    }
     clearTimeout(timer.current);
     dirty.current = false;
     const message: OutgoingMessage = {
-      accountId: id.accountId, from: id.from, to: toList.addresses, cc: ccList.addresses, bcc: bccList.addresses, subject, body,
+      accountId: id.accountId,
+      from: id.from,
+      to: toList.addresses,
+      cc: ccList.addresses,
+      bcc: bccList.addresses,
+      subject,
+      body,
     };
-    if (start.inReplyTo) {message.inReplyTo = start.inReplyTo;}
-    if (start.references?.length) {message.references = start.references;}
-    if (attachments.length) {message.attachments = attachments;}
-    if (remindAt !== undefined) {message.remindAt = remindAt;}
+    if (start.inReplyTo) {
+      message.inReplyTo = start.inReplyTo;
+    }
+    if (start.references?.length) {
+      message.references = start.references;
+    }
+    if (attachments.length) {
+      message.attachments = attachments;
+    }
+    if (remindAt !== undefined) {
+      message.remindAt = remindAt;
+    }
     // Wait for a save in flight, so the draft it creates is the one removed.
-    if (saving.current) {void saving.current.then((d) => onSend(message, d, sendAt));}
-    else {onSend(message, draftId.current ?? undefined, sendAt);}
+    if (saving.current) {
+      void saving.current.then((d) => onSend(message, d, sendAt));
+    } else {
+      onSend(message, draftId.current ?? undefined, sendAt);
+    }
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -221,7 +284,9 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
       aria-label="Compose"
       onKeyDown={onKeyDown}
       onDragOver={(e) => {
-        if (![...e.dataTransfer.types].includes('Files')) {return;}
+        if (![...e.dataTransfer.types].includes('Files')) {
+          return;
+        }
         e.preventDefault();
         setDragging(true);
       }}
@@ -237,27 +302,50 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
           <label>
             <span>From</span>
             <select value={identity} onChange={(e) => setIdentity(Number(e.target.value))}>
-              {identities.map((i, n) => <option key={`${i.accountId}:${i.from.address}`} value={n}>{i.from.name ? `${i.from.name} <${i.from.address}>` : i.from.address}</option>)}
+              {identities.map((i, n) => (
+                <option key={`${i.accountId}:${i.from.address}`} value={n}>
+                  {i.from.name ? `${i.from.name} <${i.from.address}>` : i.from.address}
+                </option>
+              ))}
             </select>
           </label>
         ) : (
           <label>
             <span>From</span>
-            <output>{identities[0] ? (identities[0].from.name ? `${identities[0].from.name} <${identities[0].from.address}>` : identities[0].from.address) : 'No Account'}</output>
+            <output>
+              {identities[0]
+                ? identities[0].from.name
+                  ? `${identities[0].from.name} <${identities[0].from.address}>`
+                  : identities[0].from.address
+                : 'No Account'}
+            </output>
           </label>
         )}
         <label>
           <span>To</span>
           <AddressField ref={toField} value={to} onChange={setTo} suggest={suggest} />
-          {!showCopies && <button type="button" className="link" onClick={() => setShowCopies(true)} tabIndex={-1}>Cc Bcc</button>}
+          {!showCopies && (
+            <button type="button" className="link" onClick={() => setShowCopies(true)} tabIndex={-1}>
+              Cc Bcc
+            </button>
+          )}
         </label>
         {showCopies && (
           <>
-            <label><span>Cc</span><AddressField value={cc} onChange={setCc} suggest={suggest} /></label>
-            <label><span>Bcc</span><AddressField value={bcc} onChange={setBcc} suggest={suggest} /></label>
+            <label>
+              <span>Cc</span>
+              <AddressField value={cc} onChange={setCc} suggest={suggest} />
+            </label>
+            <label>
+              <span>Bcc</span>
+              <AddressField value={bcc} onChange={setBcc} suggest={suggest} />
+            </label>
           </>
         )}
-        <label><span>Subject</span><input value={subject} onChange={(e) => setSubject(e.target.value)} /></label>
+        <label>
+          <span>Subject</span>
+          <input value={subject} onChange={(e) => setSubject(e.target.value)} />
+        </label>
       </div>
       <textarea
         ref={bodyField}
@@ -274,7 +362,9 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
             <li key={`${a.filename}:${i}`}>
               <span>{a.filename}</span>
               <span className="size">{sizeOf(a.content.length)}</span>
-              <button type="button" aria-label={`Remove ${a.filename}`} onClick={() => setAttachments((list) => list.filter((_, n) => n !== i))}>×</button>
+              <button type="button" aria-label={`Remove ${a.filename}`} onClick={() => setAttachments((list) => list.filter((_, n) => n !== i))}>
+                ×
+              </button>
             </li>
           ))}
         </ul>
@@ -282,11 +372,15 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
       {picking && (
         <WhenPicker
           title={picking === 'later' ? 'Send at' : 'Remind me if no reply by'}
-          onClose={() => { setPicking(null); bodyField.current?.focus(); }}
+          onClose={() => {
+            setPicking(null);
+            bodyField.current?.focus();
+          }}
           onPick={(at) => {
             setPicking(null);
-            if (picking === 'later') {send(at);}
-            else {
+            if (picking === 'later') {
+              send(at);
+            } else {
               setRemindAt(at);
               setRemindShownAt(Date.now());
               bodyField.current?.focus();
@@ -297,20 +391,40 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
       {remindAt !== undefined && (
         <div className="reminder-line">
           ⏰ Back in the Inbox {describeWhen(new Date(remindAt), new Date(remindShownAt))} if nobody replies
-          <button type="button" className="quiet" onClick={() => setRemindAt(undefined)} aria-label="Remove the Reminder">×</button>
+          <button type="button" className="quiet" onClick={() => setRemindAt(undefined)} aria-label="Remove the Reminder">
+            ×
+          </button>
         </div>
       )}
-      <input ref={picker} type="file" multiple hidden onChange={(e) => {
-        attach(e.target.files);
-        e.target.value = '';
-      }} />
+      <input
+        ref={picker}
+        type="file"
+        multiple
+        hidden
+        onChange={(e) => {
+          attach(e.target.files);
+          e.target.value = '';
+        }}
+      />
       <footer>
-        {error ? <span className="error">{error}</span> : <span className="hint">Markdown · ⌘↩ send · ⌘⇧↩ send later · ⌘⇧H remind · ⌘⇧A attach · Esc keeps a draft · ⌘⇧⌫ discard</span>}
+        {error ? (
+          <span className="error">{error}</span>
+        ) : (
+          <span className="hint">Markdown · ⌘↩ send · ⌘⇧↩ send later · ⌘⇧H remind · ⌘⇧A attach · Esc keeps a draft · ⌘⇧⌫ discard</span>
+        )}
         <span className="actions">
-          <button type="button" className="quiet" onClick={discard}>Discard</button>
-          <button type="button" className="quiet" onClick={() => setPicking('reminder')}>Remind Me…</button>
-          <button type="button" className="quiet" onClick={() => setPicking('later')}>Send Later…</button>
-          <button type="button" className="primary" onClick={() => send()}>Send</button>
+          <button type="button" className="quiet" onClick={discard}>
+            Discard
+          </button>
+          <button type="button" className="quiet" onClick={() => setPicking('reminder')}>
+            Remind Me…
+          </button>
+          <button type="button" className="quiet" onClick={() => setPicking('later')}>
+            Send Later…
+          </button>
+          <button type="button" className="primary" onClick={() => send()}>
+            Send
+          </button>
         </span>
       </footer>
     </section>

@@ -5,11 +5,17 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const read = (f) => readFileSync(f, 'utf8');
-const renderer = readdirSync('out/renderer/assets').filter((f) => f.endsWith('.js')).map((f) => path.join('out/renderer/assets', f));
+const renderer = readdirSync('out/renderer/assets')
+  .filter((f) => f.endsWith('.js'))
+  .map((f) => path.join('out/renderer/assets', f));
 const rules = [
   { files: ['out/sync/index.js'], banned: ['better-sqlite3'], why: 'sync must not load SQLite; import from keys.ts/types.ts, not store.ts' },
   { files: ['out/data/index.js'], banned: ['imapflow', 'nodemailer'], why: 'the data process makes no network connections' },
-  { files: renderer, banned: ['better-sqlite3', 'imapflow', 'nodemailer', 'mailparser', 'require("node:', 'require("fs")'], why: 'the renderer is sandboxed: no Node modules' },
+  {
+    files: renderer,
+    banned: ['better-sqlite3', 'imapflow', 'nodemailer', 'mailparser', 'require("node:', 'require("fs")'],
+    why: 'the renderer is sandboxed: no Node modules',
+  },
 ];
 
 let failed = false;
@@ -26,5 +32,7 @@ for (const r of rules) {
     }
   }
 }
-if (failed) {process.exit(1);}
+if (failed) {
+  process.exit(1);
+}
 console.log(`check-bundles: ok (${rules.reduce((n, r) => n + r.files.length, 0)} bundles)`);

@@ -12,8 +12,12 @@ let now = Date.UTC(2026, 10, 27, 12);
 const cores: Array<TestCore> = [];
 const dirs: Array<string> = [];
 afterEach(async () => {
-  for (const c of cores.splice(0)) {await c.close();}
-  for (const d of dirs.splice(0)) {rmSync(d, { recursive: true, force: true });}
+  for (const c of cores.splice(0)) {
+    await c.close();
+  }
+  for (const d of dirs.splice(0)) {
+    rmSync(d, { recursive: true, force: true });
+  }
 });
 
 async function start(p: FakeProvider, opts: { dbPath?: string; accountId?: string } = {}) {

@@ -70,12 +70,16 @@ function useLabels(core: CoreClient | null) {
   const [labels, setLabels] = useState(new Map<string, LabelSet>());
   const accounts = useAccounts();
   useEffect(() => {
-    if (!core) {return;}
+    if (!core) {
+      return;
+    }
     const load = (id: string) => void core.labels(id).then((l) => setLabels((m) => new Map(m).set(id, l)));
     const ids = window.normie.fake ? ['fake:me@example.com'] : (accounts ?? []).map((a) => a.id);
     ids.forEach(load);
     return core.onNotice((n) => {
-      if (n.type === 'labels-changed') {load(n.accountId);}
+      if (n.type === 'labels-changed') {
+        load(n.accountId);
+      }
     });
   }, [core, accounts]);
   return labels;
@@ -95,9 +99,14 @@ function Inbox({ core }: { core: CoreClient | null }) {
   // …split into tabs by local rules; the rows shown are the open Split's (Tab and Shift-Tab, 1–9 for an Account).
   const splitsFile = useSplitsFile();
   const { splits, problems: splitProblems } = useMemo(() => {
-    const parsed = splitsFrom(splitsFile.file, accountOrder.map((id) => ({ id, name: accountName(id) })));
+    const parsed = splitsFrom(
+      splitsFile.file,
+      accountOrder.map((id) => ({ id, name: accountName(id) })),
+    );
     const problems = splitsFile.error ? [splitsFile.error] : parsed.problems;
-    for (const p of problems) {warn(`[splits] ${p}`);}
+    for (const p of problems) {
+      warn(`[splits] ${p}`);
+    }
     return { splits: parsed.splits, problems };
   }, [splitsFile, accountOrder, accountName]);
   const [splitId, setSplitId] = useState('inbox');
@@ -171,11 +180,15 @@ function Inbox({ core }: { core: CoreClient | null }) {
 
   // Rows for the visible Split live here, in renderer memory. Refreshed when the core says they changed.
   useEffect(() => {
-    if (!core) {return;}
+    if (!core) {
+      return;
+    }
     let alive = true;
     const load = () =>
       core.rows('inbox').then((r) => {
-        if (!alive) {return;}
+        if (!alive) {
+          return;
+        }
         fromSnapshot.current = false;
         setCoreAnswered(true);
         r = overrides.apply(r);
@@ -188,7 +201,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
     loadRows.current = () => void load();
     void load();
     const off = core.onNotice((n) => {
-      if (n.type === 'rows-changed' && n.split === 'inbox') {void load();}
+      if (n.type === 'rows-changed' && n.split === 'inbox') {
+        void load();
+      }
     });
     return () => {
       alive = false;
@@ -201,7 +216,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
 
   // Keep the snapshot fresh for the next launch.
   useEffect(() => {
-    if (fromSnapshot.current) {return;}
+    if (fromSnapshot.current) {
+      return;
+    }
     const t = setTimeout(() => window.normie.saveSnapshot(allRows.slice(0, SNAPSHOT_ROWS)), 1000);
     return () => clearTimeout(t);
   }, [allRows]);
@@ -214,7 +231,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
 
   // The first useful frame: snapshot rows, or whatever the core first answered. Main shows the window and starts sync.
   useEffect(() => {
-    if (painted.current || (!allRows.length && !coreAnswered)) {return;}
+    if (painted.current || (!allRows.length && !coreAnswered)) {
+      return;
+    }
     painted.current = true;
     const info = { rows: allRows.length, fromSnapshot: fromSnapshot.current };
     requestAnimationFrame(() => window.normie.firstPaint(info));
@@ -222,7 +241,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
 
   // Tell main the first useful screen is up (used by smoke runs and, later, the cold-start budget).
   useEffect(() => {
-    if (reported.current || (!allRows.length && !empty)) {return;}
+    if (reported.current || (!allRows.length && !empty)) {
+      return;
+    }
     reported.current = true;
     const info = { rows: allRows.length, view: allRows.length ? ('list' as const) : ('empty' as const), fromSnapshot: false };
     requestAnimationFrame(() => window.normie.ready(info));
@@ -234,24 +255,34 @@ function Inbox({ core }: { core: CoreClient | null }) {
   /** Open the Thread at index i. Instant from the cache; otherwise resolves once its messages are shown. */
   const openAt = (i: number): Promise<void> | undefined => {
     const row = rows[clamp(i)];
-    if (!row) {return undefined;}
+    if (!row) {
+      return undefined;
+    }
     return openRow(row, clamp(i), rows);
   };
 
   function openRow(row: ThreadRow, i: number, list: Array<ThreadRow>): Promise<void> | undefined {
-    if (!cache) {return undefined;}
+    if (!cache) {
+      return undefined;
+    }
     setSelected(i);
-    if (row.unread) {markRead(row);}
+    if (row.unread) {
+      markRead(row);
+    }
     cache.prefetch(list.slice(i + 1, i + 1 + PREFETCH).map((r) => r.key));
     const hit = cache.get(row.key);
     setOpen({ key: row.key, subject: row.subject, messages: hit });
-    if (!hit) {return cache.load(row.key).then((messages) => setOpen((o) => (o?.key === row.key ? { ...o, messages } : o)));}
+    if (!hit) {
+      return cache.load(row.key).then((messages) => setOpen((o) => (o?.key === row.key ? { ...o, messages } : o)));
+    }
     return undefined;
   }
 
   // Keep the next Threads warm while moving through the list, too.
   useEffect(() => {
-    if (rows.length && cache) {cache.prefetch(rows.slice(selected, selected + PREFETCH + 1).map((r) => r.key));}
+    if (rows.length && cache) {
+      cache.prefetch(rows.slice(selected, selected + PREFETCH + 1).map((r) => r.key));
+    }
   }, [cache, rows, selected]);
 
   /**
@@ -266,8 +297,12 @@ function Inbox({ core }: { core: CoreClient | null }) {
   ) => {
     const i = clamp(selected);
     const row = rows[i];
-    if (!row || !core) {return;}
-    if (typeof action === 'function') {action = action(row);}
+    if (!row || !core) {
+      return;
+    }
+    if (typeof action === 'function') {
+      action = action(row);
+    }
     overrides.setChange(row.key, change);
     const nextAll = overrides.apply(allRows);
     setAllRows(nextAll);
@@ -278,27 +313,41 @@ function Inbox({ core }: { core: CoreClient | null }) {
       setSelected(Math.max(0, to));
       selectedKey.current = next[to]?.key;
       if (open) {
-        if (next[to]) {openRow(next[to], to, next)?.catch(logError);}
-        else {setOpen(null);}
+        if (next[to]) {
+          openRow(next[to], to, next)?.catch(logError);
+        } else {
+          setOpen(null);
+        }
       }
     }
     const ids = core.act(row.key, action);
     const entry: UndoEntry = { key: row.key, prev: row, ids: ids.catch(() => []) };
-    if (undoAfter) {entry.after = undoAfter;}
+    if (undoAfter) {
+      entry.after = undoAfter;
+    }
     undoStack.current.push(entry);
-    if (undoStack.current.length > 50) {undoStack.current.shift();}
+    if (undoStack.current.length > 50) {
+      undoStack.current.shift();
+    }
     // Drop the override once the core has the action, unless something newer (an undo) replaced it.
     const settle = (reload: boolean) => {
       overrides.dropChange(row.key, change);
-      if (reload) {loadRows.current();}
+      if (reload) {
+        loadRows.current();
+      }
     };
     // When nothing changed in the store, no notice will come: reload to drop the override.
-    void ids.then((x) => settle(!x.length), () => settle(true));
+    void ids.then(
+      (x) => settle(!x.length),
+      () => settle(true),
+    );
   };
 
   /** Opening a Thread marks it read. Not an undoable action: u marks it unread again. */
   function markRead(row: ThreadRow) {
-    if (!core) {return;}
+    if (!core) {
+      return;
+    }
     overrides.setChange(row.key, markedRead);
     setAllRows((rs) => rs.map((r) => (r.key === row.key ? markedRead(r) : r)));
     void core.act(row.key, { type: 'read', on: true }).finally(() => {
@@ -309,7 +358,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
   /** Undo the last triage action: the row comes back as it was in this frame, then the core reverts it. */
   const undo = () => {
     const entry = undoStack.current.pop();
-    if (!entry || !core) {return;}
+    if (!entry || !core) {
+      return;
+    }
     const restore = () => entry.prev;
     overrides.setChange(entry.key, restore);
     overrides.setInsert(entry.key, entry.prev);
@@ -321,7 +372,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
       setSelected(i);
       selectedKey.current = entry.key;
       const restored = next[i];
-      if (open && restored) {openRow(restored, i, next)?.catch(logError);}
+      if (open && restored) {
+        openRow(restored, i, next)?.catch(logError);
+      }
     }
     void entry.ids
       .then((ids) => core.undo(ids))
@@ -336,12 +389,15 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const context = compose ? 'composer' : open ? 'reader' : 'list';
 
   const markers = useMemo(
-    () => (accountOrder.length > 1 ? new Map(accountOrder.map((id, i) => [id, expected(ACCOUNT_COLORS[i % ACCOUNT_COLORS.length], 'an Account color')])) : undefined),
+    () =>
+      accountOrder.length > 1 ? new Map(accountOrder.map((id, i) => [id, expected(ACCOUNT_COLORS[i % ACCOUNT_COLORS.length], 'an Account color')])) : undefined,
     [accountOrder],
   );
   /** Open a Split: the list starts at its top. */
   const openSplit = (id: string) => {
-    if (!splits.some((s) => s.id === id)) {return;}
+    if (!splits.some((s) => s.id === id)) {
+      return;
+    }
     setSplitId(id);
     setSelected(0);
     selectedKey.current = undefined;
@@ -349,18 +405,26 @@ function Inbox({ core }: { core: CoreClient | null }) {
   };
   const stepSplit = (d: 1 | -1) => {
     const target = splits[(splits.indexOf(split) + d + splits.length) % splits.length];
-    if (target) {openSplit(target.id);}
+    if (target) {
+      openSplit(target.id);
+    }
   };
   /** 1–9: one Account's Split (or, with one Account, the whole Inbox). 0: the whole Inbox. */
   const filterAccount = (n: number) => {
-    if (n === 0 || accountOrder.length < 2) {return openSplit('inbox');}
+    if (n === 0 || accountOrder.length < 2) {
+      return openSplit('inbox');
+    }
     const id = accountOrder[n - 1];
-    if (id) {openSplit(`account:${id}`);}
+    if (id) {
+      openSplit(`account:${id}`);
+    }
   };
   /** Add the selected Thread's sender to the VIP list, or take them off. */
   const setVip = (on: boolean) => {
     const sender = rows[clamp(selected)]?.tags?.sender;
-    if (!sender || !core) {return;}
+    if (!sender || !core) {
+      return;
+    }
     void core.setVip(sender, on).then(() => setNote(on ? `${sender} is a VIP` : `${sender} is no longer a VIP`));
   };
   // Every action in the registry has a handler (Required makes the compiler say so), so the palette lists them all.
@@ -383,10 +447,18 @@ function Inbox({ core }: { core: CoreClient | null }) {
     },
     'thread.done': () => triage({ type: 'done' }, () => null),
     'thread.delete': () => triage({ type: 'delete' }, () => null),
-    'thread.star': () => triage((r) => ({ type: 'star', on: !r.starred }), (r) => ({ ...r, starred: !r.starred })),
+    'thread.star': () =>
+      triage(
+        (r) => ({ type: 'star', on: !r.starred }),
+        (r) => ({ ...r, starred: !r.starred }),
+      ),
     'thread.mute': () => triage({ type: 'mute', on: true }, () => null, { type: 'mute', on: false }),
     'thread.unmute': () => triage({ type: 'mute', on: false }, (r) => r),
-    'thread.toggleRead': () => triage((r) => ({ type: 'read', on: r.unread }), (r) => ({ ...r, unread: !r.unread })),
+    'thread.toggleRead': () =>
+      triage(
+        (r) => ({ type: 'read', on: r.unread }),
+        (r) => ({ ...r, unread: !r.unread }),
+      ),
     undo,
     'dev.overlay': () => setOverlay((o) => !o),
     'palette.open': () => setPalette((p) => (p ? null : 'actions')),
@@ -395,7 +467,11 @@ function Inbox({ core }: { core: CoreClient | null }) {
     'split.next': () => stepSplit(1),
     'split.prev': () => stepSplit(-1),
     'app.loginItem': () => {
-      void window.normie.toggleLoginItem().then((r) => setNote(r.packaged ? `Start at login is ${r.on ? 'on' : 'off'}` : `Start at login is ${r.on ? 'on' : 'off'} (it applies to the installed app)`));
+      void window.normie
+        .toggleLoginItem()
+        .then((r) =>
+          setNote(r.packaged ? `Start at login is ${r.on ? 'on' : 'off'}` : `Start at login is ${r.on ? 'on' : 'off'} (it applies to the installed app)`),
+        );
     },
     'search.open': () => {
       setOpen(null);
@@ -407,9 +483,12 @@ function Inbox({ core }: { core: CoreClient | null }) {
     'theme.latte': () => setTheme('latte'),
     'theme.system': () => setTheme('system'),
     'thread.snooze': () => {
-      if (rows[clamp(selected)]) {setPicker('snooze');}
+      if (rows[clamp(selected)]) {
+        setPicker('snooze');
+      }
     },
-    'thread.unsnooze': () => triage({ type: 'unsnooze' }, (r) => (r.tags ? { ...r, date: Date.now(), tags: { ...r.tags, snoozedUntil: undefined } } : { ...r, date: Date.now() })),
+    'thread.unsnooze': () =>
+      triage({ type: 'unsnooze' }, (r) => (r.tags ? { ...r, date: Date.now(), tags: { ...r.tags, snoozedUntil: undefined } } : { ...r, date: Date.now() })),
     'vip.add': () => setVip(true),
     'vip.remove': () => setVip(false),
     'filter.1': () => filterAccount(1),
@@ -427,7 +506,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
     'compose.replyAll': () => replyTo('replyAll'),
     'compose.forward': () => replyTo('forward'),
     'thread.label': () => {
-      if (rows[clamp(selected)]) {setPalette('label');}
+      if (rows[clamp(selected)]) {
+        setPalette('label');
+      }
     },
   };
   const keymap = useKeymap();
@@ -446,22 +527,36 @@ function Inbox({ core }: { core: CoreClient | null }) {
     const el = isHtmlElement(active) ? active : null;
     const typing = !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
     if (ids[0] === 'edit.undo') {
-      if (typing) {return void document.execCommand('undo');}
+      if (typing) {
+        return void document.execCommand('undo');
+      }
       return void h['send.undo']?.();
     }
     // From the menus while typing in a field, or with a form or the palette open: only Cmd commands run. (A plain key
     // can reach the menu as a key equivalent when the page answers slowly.) The palette's own choices always run.
-    if (fromMenu && (typing || document.querySelector('.palette-backdrop')) && !ids.some((x) => ACTIONS.find((a) => a.id === x)?.keys.some((k) => k.startsWith('Cmd-')))) {return;}
+    if (
+      fromMenu &&
+      (typing || document.querySelector('.palette-backdrop')) &&
+      !ids.some((x) => ACTIONS.find((a) => a.id === x)?.keys.some((k) => k.startsWith('Cmd-')))
+    ) {
+      return;
+    }
     const id = ids.find((x) => isActionId(x) && ACTIONS.some((a) => a.id === x && (a.contexts as ReadonlyArray<string>).includes(ctx)) && h[x]);
-    if (id && isActionId(id)) {void h[id]?.();}
+    if (id && isActionId(id)) {
+      void h[id]?.();
+    }
   }, []);
   useEffect(() => window.normie.onMenuAction((ids) => runAction(ids, true)), [runAction]);
 
   /** Show the open Thread's hidden images; `always` also remembers each sender. */
   function loadImages(always: boolean) {
-    if (!open?.messages) {return;}
+    if (!open?.messages) {
+      return;
+    }
     const blocked = blockedMessages(open.messages, imagesAllowed);
-    if (!blocked.length) {return;}
+    if (!blocked.length) {
+      return;
+    }
     setImagesAllowed((s) => new Set([...s, ...blocked.map((m) => m.id)]));
     if (always && core) {
       const senders = new Set(blocked.flatMap((m) => (m.from ? [m.from.address.toLowerCase()] : [])));
@@ -470,27 +565,42 @@ function Inbox({ core }: { core: CoreClient | null }) {
   }
 
   /** Open or save an attachment. Files that would run code are only ever saved. */
-  const onAttachment = useCallback((action: 'open' | 'save', messageId: number, index: number) => {
-    if (!core) {return;}
-    void core.attachment(messageId, index).then(async (file) => {
-      if (!file) {return setNote('That attachment is no longer available.');}
-      if (action === 'save') {return void (await window.normie.saveAttachment(file));}
-      const r = await window.normie.openAttachment(file);
-      if (r.reason === 'risky') {setNote(`"${file.filename}" could run code, so Normie won't open it. Save it to look at it.`);}
-      else if (!r.ok) {setNote(`Couldn't open "${file.filename}": ${r.reason}`);}
-    });
-  }, [core, setNote]);
+  const onAttachment = useCallback(
+    (action: 'open' | 'save', messageId: number, index: number) => {
+      if (!core) {
+        return;
+      }
+      void core.attachment(messageId, index).then(async (file) => {
+        if (!file) {
+          return setNote('That attachment is no longer available.');
+        }
+        if (action === 'save') {
+          return void (await window.normie.saveAttachment(file));
+        }
+        const r = await window.normie.openAttachment(file);
+        if (r.reason === 'risky') {
+          setNote(`"${file.filename}" could run code, so Normie won't open it. Save it to look at it.`);
+        } else if (!r.ok) {
+          setNote(`Couldn't open "${file.filename}": ${r.reason}`);
+        }
+      });
+    },
+    [core, setNote],
+  );
 
   /** The Identities mail can go out from: one per Account for now (several come with milestone 4). */
   const identities: Array<Identity> = window.normie.fake
     ? [{ accountId: 'fake:me@example.com', from: { address: 'me@example.com' } }]
-    : (accounts ?? []).filter((a) => a.status === 'ok').flatMap((a) =>
-      (a.identities?.length ? a.identities : [{ address: a.email }]).map((from) => ({ accountId: a.id, from })));
+    : (accounts ?? [])
+        .filter((a) => a.status === 'ok')
+        .flatMap((a) => (a.identities?.length ? a.identities : [{ address: a.email }]).map((from) => ({ accountId: a.id, from })));
 
   const suggestContacts = useCallback((q: string) => (core ? core.contacts(q, 6) : Promise.resolve([])), [core]);
 
   const sendMessage = (m: OutgoingMessage, draftId?: number, sendAt?: number) => {
-    if (!core) {return;}
+    if (!core) {
+      return;
+    }
     setCompose(null);
     if (sendAt !== undefined) {
       void core.send(m, draftId, sendAt).then(() => setNote(`Scheduled for ${describeWhen(new Date(sendAt), new Date())}`));
@@ -505,25 +615,40 @@ function Inbox({ core }: { core: CoreClient | null }) {
   /** Reply, reply all or forward the latest message of the selected Thread. */
   function replyTo(kind: ReplyKind) {
     const row = rows[clamp(selected)];
-    if (!row || !core || !cache) {return;}
+    if (!row || !core || !cache) {
+      return;
+    }
     void cache.load(row.key).then(async (messages) => {
       const last = messages.at(-1);
       const original = last && (await core.original(last.id, kind === 'forward'));
-      if (!original) {return setNote("Couldn't read that message.");}
-      setCompose({ accountId: row.accountId, ...planReply(kind, original, identities.map((i) => i.from)) });
+      if (!original) {
+        return setNote("Couldn't read that message.");
+      }
+      setCompose({
+        accountId: row.accountId,
+        ...planReply(
+          kind,
+          original,
+          identities.map((i) => i.from),
+        ),
+      });
     });
   }
 
   /** Cmd-Z after sending: take the message back from the Outbox and reopen it. */
   function undoSend() {
     const sent = lastSent.current;
-    if (!core || !sent || performance.now() - sent.at > UNDO_SEND_WINDOW_MS) {return;}
+    if (!core || !sent || performance.now() - sent.at > UNDO_SEND_WINDOW_MS) {
+      return;
+    }
     lastSent.current = null;
     void core.cancelSend(sent.id).then((m) => {
       if (m) {
         setCompose(m);
         setNote('Send undone');
-      } else {setNote('Already sent');}
+      } else {
+        setNote('Already sent');
+      }
     });
   }
 
@@ -533,14 +658,24 @@ function Inbox({ core }: { core: CoreClient | null }) {
   useLayoutEffect(() => {
     splitsRef.current = splits;
   });
-  useEffect(() => core?.onNotice((n) => {
-    if (n.type !== 'arrived') {return;}
-    void core.rows('inbox').then((r) => {
-      const notices = toNotify(n.keys, r, splitsRef.current, notified.current, Date.now());
-      if (document.hasFocus()) {return;}
-      for (const note of notices) {window.normie.notify(note);}
-    });
-  }), [core]);
+  useEffect(
+    () =>
+      core?.onNotice((n) => {
+        if (n.type !== 'arrived') {
+          return;
+        }
+        void core.rows('inbox').then((r) => {
+          const notices = toNotify(n.keys, r, splitsRef.current, notified.current, Date.now());
+          if (document.hasFocus()) {
+            return;
+          }
+          for (const note of notices) {
+            window.normie.notify(note);
+          }
+        });
+      }),
+    [core],
+  );
 
   // A clicked notification opens its Thread, in the whole Inbox.
   const openThreadRef = useRef<(key: string) => void>(() => {});
@@ -548,7 +683,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
     openThreadRef.current = (key) => {
       const i = allRows.findIndex((r) => r.key === key);
       const row = allRows[i];
-      if (!row) {return;}
+      if (!row) {
+        return;
+      }
       setSplitId('inbox');
       setCompose(null);
       openRow(row, i, allRows)?.catch(logError);
@@ -557,13 +694,21 @@ function Inbox({ core }: { core: CoreClient | null }) {
   useEffect(() => window.normie.onOpenThread((key) => openThreadRef.current(key)), []);
 
   // A message the server kept refusing comes back to the composer, with the reason.
-  useEffect(() => core?.onNotice((n) => {
-    if (n.type !== 'send-failed') {return;}
-    void core.cancelSend(n.id).then((m) => {
-      if (m) {setCompose(m);}
-      setNote(`Couldn't send: ${n.error}`);
-    });
-  }), [core, setNote]);
+  useEffect(
+    () =>
+      core?.onNotice((n) => {
+        if (n.type !== 'send-failed') {
+          return;
+        }
+        void core.cancelSend(n.id).then((m) => {
+          if (m) {
+            setCompose(m);
+          }
+          setNote(`Couldn't send: ${n.error}`);
+        });
+      }),
+    [core, setNote],
+  );
 
   /** Run the search as the query changes (a short pause between keys first). */
   const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -571,23 +716,33 @@ function Inbox({ core }: { core: CoreClient | null }) {
     setSearch((s) => ({ query, results: s?.results ?? [] }));
     clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => {
-      if (!core) {return;}
+      if (!core) {
+        return;
+      }
       void core.search(query).then((results) => {
-        if (searchRef.current?.query !== query) {return;}
+        if (searchRef.current?.query !== query) {
+          return;
+        }
         setSearch({ query, results });
         setSelected(0);
         selectedKey.current = undefined;
         // Nothing here: ask the servers by themselves.
-        if (!results.length && query.trim().length >= 2) {searchServer(query);}
+        if (!results.length && query.trim().length >= 2) {
+          searchServer(query);
+        }
       });
     }, 60);
   };
   /** Search the servers for mail that isn't stored here (older than what's synced, or in folders not synced). */
   function searchServer(query = searchRef.current?.query ?? '') {
-    if (!core || !query.trim()) {return;}
+    if (!core || !query.trim()) {
+      return;
+    }
     setSearch((s) => (s && s.query === query ? { ...s, server: 'searching' } : s));
     void core.searchServer(query).then((results) => {
-      if (searchRef.current?.query !== query) {return;}
+      if (searchRef.current?.query !== query) {
+        return;
+      }
       setSearch({ query, results, server: 'done' });
     });
   }
@@ -606,13 +761,29 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const paletteItems = (mode: 'actions' | 'label'): Array<PaletteItem> => {
     const set = rowLabels();
     const labelItems = set.names.map((l) => ({ id: LABEL_ITEM + l, name: mode === 'label' ? l : `${set.moves ? 'Move to' : 'Label'}: ${l}`, keywords: l }));
-    if (mode === 'label') {return labelItems;}
+    if (mode === 'label') {
+      return labelItems;
+    }
     // While writing: snippets, by name, with their trigger.
-    if (compose) {return snippets.map((s) => ({ id: SNIPPET_ITEM + s.trigger, name: `Snippet: ${s.name}`, hint: `;${s.trigger}`, keywords: `${s.trigger} ${s.text.slice(0, 60)}` }));}
-    const scheduledItems = scheduled.map((s) => ({ id: SCHEDULED_ITEM + s.id, name: `Scheduled: ${s.subject || '(no subject)'}`, keywords: `scheduled later ${s.to}`, hint: describeWhen(new Date(s.sendAt), new Date()) }));
+    if (compose) {
+      return snippets.map((s) => ({
+        id: SNIPPET_ITEM + s.trigger,
+        name: `Snippet: ${s.name}`,
+        hint: `;${s.trigger}`,
+        keywords: `${s.trigger} ${s.text.slice(0, 60)}`,
+      }));
+    }
+    const scheduledItems = scheduled.map((s) => ({
+      id: SCHEDULED_ITEM + s.id,
+      name: `Scheduled: ${s.subject || '(no subject)'}`,
+      keywords: `scheduled later ${s.to}`,
+      hint: describeWhen(new Date(s.sendAt), new Date()),
+    }));
     const draftItems = drafts.map((d) => {
       const item: PaletteItem = { id: DRAFT_ITEM + d.id, name: `Draft: ${d.subject || '(no subject)'}`, keywords: `draft ${d.to}` };
-      if (d.to) {item.hint = d.to.slice(0, 30);}
+      if (d.to) {
+        item.hint = d.to.slice(0, 30);
+      }
       return item;
     });
     return [...actionItems(keymap.actions, context, (id) => id !== 'palette.open'), ...scheduledItems, ...draftItems, ...(rows.length ? labelItems : [])];
@@ -628,7 +799,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
   /** Take a scheduled message out of the Outbox and into the composer: edit it, send it now, schedule it again, or discard it. */
   function openScheduled(id: number) {
     void core?.cancelSend(id).then((m) => {
-      if (!m) {return setNote('That message has already gone.');}
+      if (!m) {
+        return setNote('That message has already gone.');
+      }
       setCompose(m);
       setNote('Out of the schedule: ⌘↩ sends now, ⌘⇧↩ schedules again, Discard cancels it');
     });
@@ -637,12 +810,22 @@ function Inbox({ core }: { core: CoreClient | null }) {
   /** Reopen a draft where it was left. */
   function openDraft(id: number) {
     void core?.draft(id).then((d) => {
-      if (!d) {return setNote('That draft is gone.');}
+      if (!d) {
+        return setNote('That draft is gone.');
+      }
       const start: ComposeStart = { accountId: d.accountId, draftId: id, toText: d.to, ccText: d.cc, bccText: d.bcc, subject: d.subject, body: d.body };
-      if (d.from) {start.from = d.from;}
-      if (d.inReplyTo) {start.inReplyTo = d.inReplyTo;}
-      if (d.references) {start.references = d.references;}
-      if (d.attachments) {start.attachments = d.attachments;}
+      if (d.from) {
+        start.from = d.from;
+      }
+      if (d.inReplyTo) {
+        start.inReplyTo = d.inReplyTo;
+      }
+      if (d.references) {
+        start.references = d.references;
+      }
+      if (d.attachments) {
+        start.attachments = d.attachments;
+      }
       setCompose(start);
     });
   }
@@ -655,7 +838,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
             <input
               ref={searchInput}
               value={search.query}
-              placeholder="Search: words, &quot;a phrase&quot;, from:, to:, subject:"
+              placeholder='Search: words, "a phrase", from:, to:, subject:'
               spellCheck={false}
               onChange={(e) => onSearchInput(e.target.value)}
               onKeyDown={(e) => {
@@ -668,7 +851,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
                   e.preventDefault();
                   closeSearch();
                 }
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {searchServer();}
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  searchServer();
+                }
               }}
             />
             <span className="count">{search.results.length}</span>
@@ -677,17 +862,25 @@ function Inbox({ core }: { core: CoreClient | null }) {
             ) : search.server === 'done' ? (
               <span className="sync-note">Server searched</span>
             ) : search.query.trim() ? (
-              <button type="button" className="quiet search-server" onClick={() => searchServer()} tabIndex={-1} title="Also search mail that isn't stored on this Mac (⌘↩)">Search the server</button>
+              <button
+                type="button"
+                className="quiet search-server"
+                onClick={() => searchServer()}
+                tabIndex={-1}
+                title="Also search mail that isn't stored on this Mac (⌘↩)"
+              >
+                Search the server
+              </button>
             ) : null}
           </span>
         ) : (
-        <nav className="splits" aria-label="Splits">
-          {splits.map((s) => (
-            <button type="button" key={s.id} className={s.id === split.id ? 'split active' : 'split'} onClick={() => openSplit(s.id)} tabIndex={-1}>
-              {s.name} <span className="count">{s.id === split.id ? rows.length : counts.get(s.id)}</span>
-            </button>
-          ))}
-        </nav>
+          <nav className="splits" aria-label="Splits">
+            {splits.map((s) => (
+              <button type="button" key={s.id} className={s.id === split.id ? 'split active' : 'split'} onClick={() => openSplit(s.id)} tabIndex={-1}>
+                {s.name} <span className="count">{s.id === split.id ? rows.length : counts.get(s.id)}</span>
+              </button>
+            ))}
+          </nav>
         )}
         <SyncBadge core={core} />
         {note && <span className="sync-note">{note}</span>}
@@ -726,7 +919,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
                 snippets={snippets}
                 handle={composer}
                 onDiscard={(id) => {
-                  if (id !== null) {void core?.deleteDraft(id);}
+                  if (id !== null) {
+                    void core?.deleteDraft(id);
+                  }
                   setNote('Draft discarded');
                 }}
               />
@@ -766,11 +961,17 @@ function Inbox({ core }: { core: CoreClient | null }) {
           onClose={() => setPalette(null)}
           onRun={(item) => {
             setPalette(null);
-            if (item.id.startsWith(LABEL_ITEM)) {applyLabel(item.id.slice(LABEL_ITEM.length));}
-            else if (item.id.startsWith(DRAFT_ITEM)) {openDraft(Number(item.id.slice(DRAFT_ITEM.length)));}
-            else if (item.id.startsWith(SCHEDULED_ITEM)) {openScheduled(Number(item.id.slice(SCHEDULED_ITEM.length)));}
-            else if (item.id.startsWith(SNIPPET_ITEM)) {composer.current?.insert(snippets.find((s) => s.trigger === item.id.slice(SNIPPET_ITEM.length))?.text ?? '');}
-            else {runAction([item.id]);}
+            if (item.id.startsWith(LABEL_ITEM)) {
+              applyLabel(item.id.slice(LABEL_ITEM.length));
+            } else if (item.id.startsWith(DRAFT_ITEM)) {
+              openDraft(Number(item.id.slice(DRAFT_ITEM.length)));
+            } else if (item.id.startsWith(SCHEDULED_ITEM)) {
+              openScheduled(Number(item.id.slice(SCHEDULED_ITEM.length)));
+            } else if (item.id.startsWith(SNIPPET_ITEM)) {
+              composer.current?.insert(snippets.find((s) => s.trigger === item.id.slice(SNIPPET_ITEM.length))?.text ?? '');
+            } else {
+              runAction([item.id]);
+            }
           }}
         />
       )}

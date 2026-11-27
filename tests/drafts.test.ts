@@ -11,22 +11,39 @@ import type { DraftContent } from '../src/core/types';
 const cores: Array<TestCore> = [];
 const dirs: Array<string> = [];
 afterEach(async () => {
-  for (const c of cores.splice(0)) {await c.close();}
-  for (const d of dirs.splice(0)) {rmSync(d, { recursive: true, force: true });}
+  for (const c of cores.splice(0)) {
+    await c.close();
+  }
+  for (const d of dirs.splice(0)) {
+    rmSync(d, { recursive: true, force: true });
+  }
 });
 
 let now = Date.UTC(2026, 10, 27, 12);
 const ACCOUNT = 'gmail:me@example.com';
 async function start(provider = new FakeProvider(), dbPath?: string) {
   const c = await createCore({
-    provider, transport: new FakeTransport(), extractText: fakeExtractText, now: () => (now += 1), accountId: ACCOUNT, dbPath, draftDebounceMs: 60_000,
+    provider,
+    transport: new FakeTransport(),
+    extractText: fakeExtractText,
+    now: () => (now += 1),
+    accountId: ACCOUNT,
+    dbPath,
+    draftDebounceMs: 60_000,
   });
   cores.push(c);
   await c.engine.syncOnce();
   return { c, provider };
 }
 const draft = (over: Partial<DraftContent> = {}): DraftContent => ({
-  accountId: ACCOUNT, from: { address: 'me@example.com' }, to: 'Ada <ada@example.com>, half-typed@', cc: '', bcc: '', subject: 'Plans', body: 'Thinking about…', ...over,
+  accountId: ACCOUNT,
+  from: { address: 'me@example.com' },
+  to: 'Ada <ada@example.com>, half-typed@',
+  cc: '',
+  bcc: '',
+  subject: 'Plans',
+  body: 'Thinking about…',
+  ...over,
 });
 
 describe('drafts', () => {
@@ -57,7 +74,10 @@ describe('drafts', () => {
     const { c, provider } = await start();
     const id = await c.saveDraft(null, draft());
     await c.engine.syncDrafts();
-    await c.send({ accountId: ACCOUNT, from: { address: 'me@example.com' }, to: [{ address: 'ada@example.com' }], cc: [], bcc: [], subject: 'Plans', body: 'Done.' }, id);
+    await c.send(
+      { accountId: ACCOUNT, from: { address: 'me@example.com' }, to: [{ address: 'ada@example.com' }], cc: [], bcc: [], subject: 'Plans', body: 'Done.' },
+      id,
+    );
     expect(await c.drafts()).toEqual([]);
     await c.engine.syncDrafts();
     expect(provider.contents('[Gmail]/Drafts')).toEqual([]);
@@ -87,7 +107,10 @@ describe('drafts', () => {
     const db = path.join(dir, 'store.sqlite');
     const provider = new FakeProvider();
     const first = await start(provider, db);
-    const id = await first.c.saveDraft(null, draft({ attachments: [{ filename: 'a.txt', contentType: 'text/plain', content: new TextEncoder().encode('hi') }] }));
+    const id = await first.c.saveDraft(
+      null,
+      draft({ attachments: [{ filename: 'a.txt', contentType: 'text/plain', content: new TextEncoder().encode('hi') }] }),
+    );
     await first.c.close();
     cores.splice(cores.indexOf(first.c), 1);
     const second = await start(provider, db);
@@ -111,6 +134,8 @@ describe('removing an Account', () => {
     expect(await c.drafts()).toEqual([]);
     expect(await c.pending()).toEqual({ count: 0, waiting: 0 });
     const left = (t: string) => c.data.store.db.prepare(`select count(*) from ${t}`).pluck().get();
-    for (const t of ['messages', 'threads', 'mailboxes', 'pending_changes', 'outbox', 'drafts', 'bodies']) {expect(left(t), t).toBe(0);}
+    for (const t of ['messages', 'threads', 'mailboxes', 'pending_changes', 'outbox', 'drafts', 'bodies']) {
+      expect(left(t), t).toBe(0);
+    }
   });
 });

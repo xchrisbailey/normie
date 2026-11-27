@@ -19,11 +19,7 @@ export type AccountConfig =
   | { kind: 'gmail'; accountId: string; email: string; status?: 'ok' | 'needs-sign-in'; identities?: Array<string> }
   | { kind: 'imap'; accountId: string; email: string; status?: 'ok' | 'needs-sign-in'; settings: PasswordAccountSettings; identities?: Array<string> };
 
-type Message =
-  | { type: 'accounts'; accounts: Array<AccountConfig> }
-  | { type: 'poll' }
-  | { type: 'data-port' }
-  | { type: 'main-port' };
+type Message = { type: 'accounts'; accounts: Array<AccountConfig> } | { type: 'poll' } | { type: 'data-port' } | { type: 'main-port' };
 
 const isMessage = (v: unknown): v is Message =>
   typeof v === 'object' &&
@@ -48,7 +44,15 @@ async function providerFor(a: AccountConfig): Promise<{ provider: MailProvider; 
     const s = a.settings;
     const pass = await password(a.accountId);
     return {
-      provider: new ImapProvider({ host: s.imap.host, port: s.imap.port, security: s.imap.security, user: s.user, password: pass, savesSent: s.savesSent, log }),
+      provider: new ImapProvider({
+        host: s.imap.host,
+        port: s.imap.port,
+        security: s.imap.security,
+        user: s.user,
+        password: pass,
+        savesSent: s.savesSent,
+        log,
+      }),
       transport: passwordTransport(s.smtp, s.user, pass),
       extractText,
     };
@@ -59,21 +63,33 @@ async function providerFor(a: AccountConfig): Promise<{ provider: MailProvider; 
   }
   const p = new FakeProvider();
   seedDemo(p, a.seed ?? 40);
-  if (!a.seed) {seedNewsletter(p);}
+  if (!a.seed) {
+    seedNewsletter(p);
+  }
   // Like Gmail, the fake files what it sends in Sent by itself.
   const transport = new FakeTransport();
   const send = transport.send.bind(transport);
   transport.send = async (raw, envelope) => {
     await send(raw, envelope);
     const text = new TextDecoder().decode(raw);
-    p.deliver({ subject: /^Subject: (.*)$/m.exec(text)?.[1]?.trim() ?? '', raw: text, labels: [String.raw`\Sent`], flags: [String.raw`\Seen`], from: { address: a.email } });
+    p.deliver({
+      subject: /^Subject: (.*)$/m.exec(text)?.[1]?.trim() ?? '',
+      raw: text,
+      labels: [String.raw`\Sent`],
+      flags: [String.raw`\Seen`],
+      from: { address: a.email },
+    });
   };
   return { provider: p, transport, extractText };
 }
 
 async function startAccount(a: AccountConfig) {
-  if (!data || engines.has(a.accountId) || starting.has(a.accountId)) {return;}
-  if (a.kind !== 'fake' && a.status === 'needs-sign-in') {return;}
+  if (!data || engines.has(a.accountId) || starting.has(a.accountId)) {
+    return;
+  }
+  if (a.kind !== 'fake' && a.status === 'needs-sign-in') {
+    return;
+  }
   starting.add(a.accountId);
   let made;
   try {
@@ -84,8 +100,19 @@ async function startAccount(a: AccountConfig) {
     return;
   }
   const { provider, transport, extractText: extract } = made;
-  const options: ConstructorParameters<typeof SyncEngine>[0] = { accountId: a.accountId, kind: a.kind, email: a.email, provider, transport, data, extractText: extract, log };
-  if (a.kind !== 'fake' && a.identities) {options.identities = a.identities;}
+  const options: ConstructorParameters<typeof SyncEngine>[0] = {
+    accountId: a.accountId,
+    kind: a.kind,
+    email: a.email,
+    provider,
+    transport,
+    data,
+    extractText: extract,
+    log,
+  };
+  if (a.kind !== 'fake' && a.identities) {
+    options.identities = a.identities;
+  }
   const engine = new SyncEngine(options);
   try {
     await engine.start();
@@ -93,7 +120,9 @@ async function startAccount(a: AccountConfig) {
     log(`${a.accountId}: syncing ${engine.primaryMailbox}`);
     await engine.syncOnce();
     log(`${a.accountId}: first sync done; watching for changes`);
-    if (engines.get(a.accountId) === engine) {engine.startLive();}
+    if (engines.get(a.accountId) === engine) {
+      engine.startLive();
+    }
   } catch (error) {
     log(`${a.accountId}: ${errorMessage(error)}`);
     engines.delete(a.accountId);
@@ -104,14 +133,18 @@ async function startAccount(a: AccountConfig) {
 }
 
 async function reconcile() {
-  if (!data || !mainClient || !wanted) {return;}
+  if (!data || !mainClient || !wanted) {
+    return;
+  }
   const ids = new Set(wanted.map((a) => a.accountId));
   for (const [id, engine] of engines) {
     const w = wanted.find((a) => a.accountId === id);
     if (!w || (w.kind !== 'fake' && w.status === 'needs-sign-in')) {
       engines.delete(id);
       await engine.stop().catch(() => {});
-      if (!w) {await data.removeAccount(id);}
+      if (!w) {
+        await data.removeAccount(id);
+      }
     } else if (w.kind !== 'fake') {
       // Identities may have changed: the core keeps the list of my addresses current.
       await data.setIdentities(id, w.identities?.length ? w.identities : [w.email]);
@@ -126,23 +159,34 @@ async function reconcile() {
 
 process.parentPort.on('message', (e) => {
   const msg: unknown = e.data;
-  if (!isMessage(msg)) {return;}
-  if (msg.type === 'poll') {return void engines.forEach((engine) => engine.pollNow());}
-  if (msg.type === 'accounts') {wanted = msg.accounts;}
-  else if (msg.type === 'data-port' && e.ports[0]) {
+  if (!isMessage(msg)) {
+    return;
+  }
+  if (msg.type === 'poll') {
+    return void engines.forEach((engine) => engine.pollNow());
+  }
+  if (msg.type === 'accounts') {
+    wanted = msg.accounts;
+  } else if (msg.type === 'data-port' && e.ports[0]) {
     dataClient = connect<SyncEvents>(mainPortChannel(e.ports[0]));
     data = proxy<DataPort>(dataClient, DATA_PORT_METHODS);
     const client = dataClient;
     client.on('fetch-body', (loc) => {
-      engines.get(loc.accountId)?.fetchBodies(loc.mailbox, [loc.uid]).catch((error: unknown) => log(`body fetch failed: ${errorMessage(error)}`));
+      engines
+        .get(loc.accountId)
+        ?.fetchBodies(loc.mailbox, [loc.uid])
+        .catch((error: unknown) => log(`body fetch failed: ${errorMessage(error)}`));
     });
     client.on('replay', (payload) => engines.get(payload.accountId)?.replaySoon());
     client.on('outbox', (payload) => engines.get(payload.accountId)?.outboxSoon());
     client.on('search-server', ({ id, query }) => {
-      void Promise.all([...engines.values()].map((e) => e.searchServer(query).catch((error: unknown) => log(`server search failed: ${errorMessage(error)}`))))
-        .then(() => client.call('serverSearchDone', id));
+      void Promise.all(
+        [...engines.values()].map((e) => e.searchServer(query).catch((error: unknown) => log(`server search failed: ${errorMessage(error)}`))),
+      ).then(() => client.call('serverSearchDone', id));
     });
     client.on('drafts', (payload) => engines.get(payload.accountId)?.draftsSoon());
-  } else if (msg.type === 'main-port' && e.ports[0]) {mainClient = connect(mainPortChannel(e.ports[0]));}
+  } else if (msg.type === 'main-port' && e.ports[0]) {
+    mainClient = connect(mainPortChannel(e.ports[0]));
+  }
   void reconcile();
 });

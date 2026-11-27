@@ -13,7 +13,9 @@ describe('rpc over a MessagePort', () => {
     const { server, client, close } = pair();
     const emit = serve<{ notice: { type: string } }>(server, {
       add: (a: number, b: number) => a + b,
-      boom: () => { throw new Error('nope'); },
+      boom: () => {
+        throw new Error('nope');
+      },
     });
     const c = connect<{ notice: { type: string } }>(client);
     const events: Array<unknown> = [];

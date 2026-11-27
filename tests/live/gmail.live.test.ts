@@ -85,20 +85,35 @@ describe.skipIf(!user)('Gmail provider against the real server', () => {
     expect(await labelsNow()).toContain(String.raw`\Inbox`);
   });
 
-  it.skipIf(process.env.GMAIL_LIVE_SEND !== '1')('sends a message to yourself over SMTP, and Gmail files it in Sent', async () => {
-    const from = { address: user! };
-    const messageId = newMessageId(from);
-    const built = await buildMime({ accountId: 'live', from, to: [from], cc: [], bcc: [], subject: `Normie live test ${new Date().toISOString()}`, body: 'Sent by **Normie**’s live test. Safe to delete.' }, messageId);
-    await gmailTransport(user!, token).send(built.raw, built.envelope);
-    // Gmail files SMTP mail in Sent itself (savesSent), so it shows up in All Mail with the \Sent label.
-    let found = false;
-    for (let i = 0; i < 10 && !found; i++) {
-      await sleep(2000);
-      const recent = await p.changes(allMail, null, { windowStart: Date.now() - DAY });
-      found = recent.headers.some((h) => h.messageId === messageId && h.labels.includes(String.raw`\Sent`));
-    }
-    expect(found).toBe(true);
-  }, 60_000);
+  it.skipIf(process.env.GMAIL_LIVE_SEND !== '1')(
+    'sends a message to yourself over SMTP, and Gmail files it in Sent',
+    async () => {
+      const from = { address: user! };
+      const messageId = newMessageId(from);
+      const built = await buildMime(
+        {
+          accountId: 'live',
+          from,
+          to: [from],
+          cc: [],
+          bcc: [],
+          subject: `Normie live test ${new Date().toISOString()}`,
+          body: 'Sent by **Normie**’s live test. Safe to delete.',
+        },
+        messageId,
+      );
+      await gmailTransport(user!, token).send(built.raw, built.envelope);
+      // Gmail files SMTP mail in Sent itself (savesSent), so it shows up in All Mail with the \Sent label.
+      let found = false;
+      for (let i = 0; i < 10 && !found; i++) {
+        await sleep(2000);
+        const recent = await p.changes(allMail, null, { windowStart: Date.now() - DAY });
+        found = recent.headers.some((h) => h.messageId === messageId && h.labels.includes(String.raw`\Sent`));
+      }
+      expect(found).toBe(true);
+    },
+    60_000,
+  );
 
   it('searches All Mail with Gmail search syntax (X-GM-RAW)', async () => {
     const hits = await p.search(allMail, { raw: 'newer_than:30d', terms: [{ text: 'newer_than:30d' }] });

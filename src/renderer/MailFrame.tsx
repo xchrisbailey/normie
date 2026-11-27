@@ -37,7 +37,10 @@ const shellCss = (c: Record<'base' | 'text' | 'surface0' | 'surface1' | 'overlay
 function themeColors() {
   const css = getComputedStyle(document.documentElement);
   const v = (name: string) => css.getPropertyValue(`--${name}`).trim();
-  return { colors: { base: v('base'), text: v('text'), surface0: v('surface0'), surface1: v('surface1'), overlay: v('overlay') }, dark: css.colorScheme !== 'light' };
+  return {
+    colors: { base: v('base'), text: v('text'), surface0: v('surface0'), surface1: v('surface1'), overlay: v('overlay') },
+    dark: css.colorScheme !== 'light',
+  };
 }
 const sizeOf = (n: number) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
 // The tag as a name, so the type set on the next line is what the button-has-type check can't see through a literal.
@@ -93,7 +96,10 @@ function render(doc: Document, messages: Array<ThreadMessage>, allow: (m: Thread
         size.className = 'size';
         size.textContent = sizeOf(a.size);
         chip.append(name, size);
-        for (const [label, action] of [['Open', 'open'], ['Save', 'save']] as const) {
+        for (const [label, action] of [
+          ['Open', 'open'],
+          ['Save', 'save'],
+        ] as const) {
           const b = doc.createElement(BUTTON);
           b.type = 'button';
           b.textContent = label;
@@ -115,7 +121,15 @@ export interface FrameHandle {
 
 export type AttachmentAction = (action: 'open' | 'save', messageId: number, index: number) => void;
 
-export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, remote, handle, onAttachment, theme }: {
+export const MailFrame = memo(function MailFrame({
+  threadKey,
+  messages,
+  allow,
+  remote,
+  handle,
+  onAttachment,
+  theme,
+}: {
   threadKey: string;
   messages: Array<ThreadMessage>;
   allow: (m: ThreadMessage) => boolean;
@@ -134,36 +148,58 @@ export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, r
 
   const fill = () => {
     const doc = frame.current?.contentDocument;
-    if (ready.current && doc?.body) {render(doc, latest.current.messages, latest.current.allow);}
+    if (ready.current && doc?.body) {
+      render(doc, latest.current.messages, latest.current.allow);
+    }
   };
 
   // Hook up the frame's document once it has loaded: keys go to the app, links to the system browser.
   const onLoad = () => {
     const doc = frame.current?.contentDocument;
-    if (!doc) {return;}
+    if (!doc) {
+      return;
+    }
     ready.current = true;
     doc.addEventListener('keydown', (e) => {
       const forwarded = new KeyboardEvent('keydown', {
-        key: e.key, code: e.code, shiftKey: e.shiftKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, cancelable: true,
+        key: e.key,
+        code: e.code,
+        shiftKey: e.shiftKey,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        altKey: e.altKey,
+        cancelable: true,
       });
       window.dispatchEvent(forwarded);
-      if (forwarded.defaultPrevented) {e.preventDefault();}
-    });
-    doc.addEventListener('click', (e) => {
-      const path = e.composedPath();
-      const button = path.find((n): n is HTMLElement => isHtmlElement(n) && !!n.dataset.attachment);
-      if (button) {
+      if (forwarded.defaultPrevented) {
         e.preventDefault();
-        const [action, id, index] = (button.dataset.attachment ?? '').split(':');
-        if (action === 'open' || action === 'save') {latest.current.onAttachment?.(action, Number(id), Number(index));}
-        return;
       }
-      const a = path.find((n): n is HTMLAnchorElement => isElement(n) && n.tagName === 'A');
-      if (!a) {return;}
-      e.preventDefault();
-      const href = a.getAttribute('href');
-      if (href && /^(https?:|mailto:)/i.test(href.trim())) {window.normie.openLink(href.trim());}
-    }, true);
+    });
+    doc.addEventListener(
+      'click',
+      (e) => {
+        const path = e.composedPath();
+        const button = path.find((n): n is HTMLElement => isHtmlElement(n) && !!n.dataset.attachment);
+        if (button) {
+          e.preventDefault();
+          const [action, id, index] = (button.dataset.attachment ?? '').split(':');
+          if (action === 'open' || action === 'save') {
+            latest.current.onAttachment?.(action, Number(id), Number(index));
+          }
+          return;
+        }
+        const a = path.find((n): n is HTMLAnchorElement => isElement(n) && n.tagName === 'A');
+        if (!a) {
+          return;
+        }
+        e.preventDefault();
+        const href = a.getAttribute('href');
+        if (href && /^(https?:|mailto:)/i.test(href.trim())) {
+          window.normie.openLink(href.trim());
+        }
+      },
+      true,
+    );
     fill();
   };
 
@@ -174,7 +210,9 @@ export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, r
     handle.current = {
       scrollPage: (d) => {
         const w = frame.current?.contentWindow;
-        if (w) {w.scrollBy({ top: d * w.innerHeight * 0.85 });}
+        if (w) {
+          w.scrollBy({ top: d * w.innerHeight * 0.85 });
+        }
       },
     };
   }

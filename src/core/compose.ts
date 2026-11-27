@@ -10,9 +10,14 @@ const escapeHtml = (s: string) => s.replaceAll('&', '&amp;').replaceAll('<', '&l
 
 /** Markdown to HTML for the HTML part. Raw HTML in the Markdown is escaped, not passed through. */
 export function markdownToHtml(markdown: string): string {
-  const body = marked.parse(markdown, { async: false, gfm: true, breaks: true, renderer: Object.assign(new marked.Renderer(), {
-    html: ({ text }: { text: string }) => escapeHtml(text),
-  }) });
+  const body = marked.parse(markdown, {
+    async: false,
+    gfm: true,
+    breaks: true,
+    renderer: Object.assign(new marked.Renderer(), {
+      html: ({ text }: { text: string }) => escapeHtml(text),
+    }),
+  });
   return `<!doctype html><html><body style="font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.5;">${body}</body></html>`;
 }
 
@@ -36,8 +41,12 @@ export async function buildMime(m: OutgoingMessage, messageId: string, date = ne
     attachments: (m.attachments ?? []).map((a) => ({ filename: a.filename, contentType: a.contentType, content: Buffer.from(a.content) })),
     headers: { 'X-Mailer': 'Normie' },
   };
-  if (m.inReplyTo) {options.inReplyTo = m.inReplyTo;}
-  if (m.references?.length) {options.references = m.references;}
+  if (m.inReplyTo) {
+    options.inReplyTo = m.inReplyTo;
+  }
+  if (m.references?.length) {
+    options.references = m.references;
+  }
   const composer = new MailComposer(options);
   // MailComposer keeps Bcc in the envelope and out of the headers.
   const node = composer.compile();
