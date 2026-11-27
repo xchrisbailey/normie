@@ -89,9 +89,13 @@ async function smokeHeader(w: BrowserWindow) {
   // The Search icon opens the search, typing in it; Esc closes it.
   const searchIcon = await d.clickAt('.tool[aria-label="Search"]');
   await sleep(200);
-  const searchFocused = await d.js<boolean>(`document.activeElement === document.querySelector('.search-bar input')`);
+  const searchFocus = await d.js<string>(`(() => {
+    const a = document.activeElement;
+    return a === document.querySelector('.search-bar input') ? 'input' : a ? a.tagName + '.' + a.className : 'none';
+  })()`);
   await d.press('Escape');
-  const icons = searchIcon.hit && searchFocused && !(await d.js<boolean>(`!!document.querySelector('.search-bar')`));
+  const searchClosed = !(await d.js<boolean>(`!!document.querySelector('.search-bar')`));
+  const icons = searchIcon.hit && searchFocus === 'input' && searchClosed;
   // A narrow window: the last tabs move into More, and choosing one from it opens that Split.
   const [width, height] = w.getSize();
   w.setSize(420, height ?? 820);
@@ -120,7 +124,7 @@ async function smokeHeader(w: BrowserWindow) {
   await d.clickAt('.tool[aria-label="Inbox"]');
   w.webContents.sendInputEvent({ type: 'mouseMove', x: 4, y: 400 });
   await sleep(300);
-  return { ok: clickOpens && inkUnder && peek && icons && more, names, clickOpens, inkUnder, peekCards, icons, shownNarrow, items, opened, more };
+  return { ok: clickOpens && inkUnder && peek && icons && more, names, clickOpens, inkUnder, peekCards, icons, search: { hit: searchIcon.hit, focus: searchFocus, closed: searchClosed }, shownNarrow, items, opened, more };
 }
 
 /**
