@@ -262,6 +262,18 @@ export class ImapProvider implements MailProvider {
       if (this.client?.usable) throw new ServerRejectedError(`server refused to append to ${path}`);
       throw new Error(`connection lost while appending to ${path}`);
     }
+    return r.uid ? { uid: r.uid } : {};
+  }
+
+  async remove(path: string, uids: number[]) {
+    if (!uids.length) return;
+    await this.withMailbox(path, async () => {
+      const ok = await this.c.messageDelete(uids.join(','), { uid: true });
+      if (!ok) {
+        if (this.client?.usable) throw new ServerRejectedError(`server refused to delete from ${path}`);
+        throw new Error(`connection lost while deleting from ${path}`);
+      }
+    }, false);
   }
 
   /**

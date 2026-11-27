@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { OutgoingMessage, ThreadAction, ThreadMessage, ThreadRow } from '../core/types';
+import type { DraftSummary, OutgoingMessage, ThreadAction, ThreadMessage, ThreadRow } from '../core/types';
 import type { ComposeStart, Identity } from './Composer';
 import { planReply, type ReplyKind } from '../core/reply';
 import { AccountBar, EmptyState, useAccounts } from './AccountBar';
@@ -26,9 +26,15 @@ export function App({ corePromise }: { corePromise: Promise<CoreClient> }) {
 const SNAPSHOT_ROWS = 60;
 /** Loaded on first use, so the composer costs nothing at launch. */
 const Composer = lazy(() => import('./Composer'));
+/** Each composer start gets its own key, so opening a draft while composing starts fresh. */
+const composeKeys = new WeakMap<object, number>();
+let nextComposeKey = 0;
+const composeKey = (s: object) => composeKeys.get(s) ?? (composeKeys.set(s, ++nextComposeKey), nextComposeKey);
+
 /** How long Cmd-Z can take a sent message back (the Outbox waits 5 s; a little slack for the round trip). */
 const UNDO_SEND_WINDOW_MS = 4500;
 const LABEL_ITEM = 'label:';
+const DRAFT_ITEM = 'draft:';
 
 /** Each Account's Labels, fetched once and again whenever the core says they changed. */
 function useLabels(core: CoreClient | null) {
@@ -60,6 +66,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const [overlay, setOverlay] = useState(false);
   /** The open palette: every action, or Labels for the selected Thread. */
   const [palette, setPalette] = useState<null | 'actions' | 'label'>(null);
+  /** Drafts, fetched when the palette opens. */
+  const [drafts, setDrafts] = useState<DraftSummary[]>([]);
   /** A short message in the top bar, gone after a few seconds. */
   const [note, setNoteState] = useState<string | null>(null);
   const noteTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -343,10 +351,10 @@ function Inbox({ core }: { core: CoreClient | null }) {
     ? [{ accountId: 'fake-1', from: { address: 'me@example.com' } }]
     : (accounts ?? []).filter((a) => a.status === 'ok').map((a) => ({ accountId: a.id, from: { address: a.email } }));
 
-  const sendMessage = (m: OutgoingMessage) => {
+  const sendMessage = (m: OutgoingMessage, draftId?: number) => {
     if (!core) return;
     setCompose(null);
-    void core.send(m).then((id) => {
+    void core.send(m, draftId).then((id) => {
       lastSent.current = { id, at: performance.now() };
       setNote('Sending… ⌘Z to undo');
     });
@@ -392,8 +400,24 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const paletteItems = (mode: 'actions' | 'label'): PaletteItem[] => {
     const labelItems = rowLabels().map((l) => ({ id: LABEL_ITEM + l, name: mode === 'label' ? l : `Label: ${l}`, keywords: l }));
     if (mode === 'label') return labelItems;
-    return [...actionItems(keymap.actions, context, (id) => id !== 'palette.open' && !!handlers[id as keyof Handlers]), ...(rows.length ? labelItems : [])];
+    const draftItems = drafts.map((d) => ({ id: DRAFT_ITEM + d.id, name: `Draft: ${d.subject || '(no subject)'}`, keywords: `draft ${d.to}`, ...(d.to ? { hint: d.to.slice(0, 30) } : {}) }));
+    return [...actionItems(keymap.actions, context, (id) => id !== 'palette.open' && !!handlers[id as keyof Handlers]), ...draftItems, ...(rows.length ? labelItems : [])];
   };
+
+  useEffect(() => {
+    if (palette === 'actions' && core) void core.drafts().then(setDrafts);
+  }, [palette, core]);
+
+  /** Reopen a draft where it was left. */
+  function openDraft(id: number) {
+    void core?.draft(id).then((d) => {
+      if (!d) return setNote('That draft is gone.');
+      setCompose({
+        accountId: d.accountId, ...(d.from ? { from: d.from } : {}), draftId: id, toText: d.to, ccText: d.cc, bccText: d.bcc, subject: d.subject, body: d.body,
+        ...(d.inReplyTo ? { inReplyTo: d.inReplyTo } : {}), ...(d.references ? { references: d.references } : {}), ...(d.attachments ? { attachments: d.attachments } : {}),
+      });
+    });
+  }
 
   return (
     <main className="app">
@@ -416,7 +440,18 @@ function Inbox({ core }: { core: CoreClient | null }) {
           <ThreadList rows={rows} selected={selected} />
           {compose && (
             <Suspense fallback={<section className="composer" />}>
-              <Composer start={compose} identities={identities} onSend={sendMessage} onClose={() => setCompose(null)} />
+              <Composer
+                key={composeKey(compose)}
+                start={compose}
+                identities={identities}
+                onSend={sendMessage}
+                onClose={() => setCompose(null)}
+                onSaveDraft={(id, content) => core!.saveDraft(id, content)}
+                onDiscard={(id) => {
+                  if (id !== null) void core?.deleteDraft(id);
+                  setNote('Draft discarded');
+                }}
+              />
             </Suspense>
           )}
           {open && !compose && (
@@ -442,6 +477,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
           onRun={(item) => {
             setPalette(null);
             if (item.id.startsWith(LABEL_ITEM)) applyLabel(item.id.slice(LABEL_ITEM.length));
+            else if (item.id.startsWith(DRAFT_ITEM)) openDraft(Number(item.id.slice(DRAFT_ITEM.length)));
             else runAction([item.id]);
           }}
         />

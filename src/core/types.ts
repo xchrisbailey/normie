@@ -110,6 +110,37 @@ export interface OutgoingMessage {
   attachments?: { filename: string; contentType: string; content: Uint8Array }[];
 }
 
+/** A draft as the composer holds it: address fields as typed, since they may not parse yet. */
+export interface DraftContent {
+  accountId: AccountId;
+  from?: Address;
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  body: string;
+  inReplyTo?: string;
+  references?: string[];
+  attachments?: { filename: string; contentType: string; content: Uint8Array }[];
+}
+
+/** A draft in the list the palette shows. */
+export interface DraftSummary {
+  id: number;
+  accountId: AccountId;
+  subject: string;
+  to: string;
+  updatedAt: number;
+}
+
+/** A draft whose latest version the server doesn't have yet. */
+export interface DraftToSync {
+  id: number;
+  updatedAt: number;
+  messageId: string;
+  content: DraftContent;
+}
+
 /** A message in the Outbox, as the sync process sends it. */
 export interface OutboxItem {
   id: number;
@@ -179,8 +210,10 @@ export interface MailProvider {
   fetchBodies(mailbox: string, uids: number[]): Promise<RawMessage[]>;
   /** Change flags and Labels on the server. */
   edit(mailbox: string, uids: number[], edit: MessageEdit): Promise<void>;
-  /** Add a message to a mailbox, such as a sent copy to Sent. */
-  append(mailbox: string, raw: Uint8Array, flags: string[]): Promise<void>;
+  /** Add a message to a mailbox, such as a sent copy to Sent. Returns its UID when the server says (UIDPLUS). */
+  append(mailbox: string, raw: Uint8Array, flags: string[]): Promise<{ uid?: number }>;
+  /** Delete messages for good (flag deleted, then expunge), such as an old copy of a draft. */
+  remove(mailbox: string, uids: number[]): Promise<void>;
   /** Live events for one mailbox (IMAP IDLE). Ends when the signal aborts. */
   watch(mailbox: string, signal: AbortSignal): AsyncIterable<MailEvent>;
 }

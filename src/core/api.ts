@@ -1,6 +1,6 @@
 // The contract between the renderer and the core. No runtime dependencies, so the renderer can import it.
 import type { Original } from './reply';
-import type { OutgoingMessage, PendingStatus, SplitId, ThreadAction, ThreadMessage, ThreadRow } from './types';
+import type { DraftContent, DraftSummary, OutgoingMessage, PendingStatus, SplitId, ThreadAction, ThreadMessage, ThreadRow } from './types';
 
 /** What the renderer can ask of the core. Every method is async because it crosses a MessagePort in the app. */
 export interface CoreApi {
@@ -8,8 +8,13 @@ export interface CoreApi {
   thread(key: string): Promise<ThreadMessage[]>;
   /** A triage action on a Thread. The store changes at once; the server catches up. Returns the pending change ids. */
   act(key: string, action: ThreadAction): Promise<number[]>;
-  /** Put a message in the Outbox; it goes out after the undo window. Returns its Outbox id. */
-  send(message: OutgoingMessage): Promise<number>;
+  /** Put a message in the Outbox; it goes out after the undo window. Returns its Outbox id. Its draft, if any, goes. */
+  send(message: OutgoingMessage, draftId?: number): Promise<number>;
+  /** Save a draft (new when `id` is null); kept here and synced to the Drafts mailbox. Returns its id. */
+  saveDraft(id: number | null, content: DraftContent): Promise<number>;
+  deleteDraft(id: number): Promise<void>;
+  drafts(): Promise<DraftSummary[]>;
+  draft(id: number): Promise<DraftContent | null>;
   /** Take a message back out of the Outbox (undo send, or after it failed). Null once it's on its way. */
   cancelSend(id: number): Promise<OutgoingMessage | null>;
   /** What a reply or forward needs from a message (attachments only for a forward). */
@@ -26,4 +31,4 @@ export interface CoreApi {
   pending(): Promise<PendingStatus>;
 }
 
-export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment', 'send', 'cancelSend', 'original'] as const satisfies readonly (keyof CoreApi)[];
+export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment', 'send', 'cancelSend', 'original', 'saveDraft', 'deleteDraft', 'drafts', 'draft'] as const satisfies readonly (keyof CoreApi)[];

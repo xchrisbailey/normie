@@ -99,6 +99,7 @@ process.parentPort.on('message', (e) => {
     });
     dataClient.on('replay', (payload) => engines.get((payload as { accountId: string }).accountId)?.replaySoon());
     dataClient.on('outbox', (payload) => engines.get((payload as { accountId: string }).accountId)?.outboxSoon());
+    dataClient.on('drafts', (payload) => engines.get((payload as { accountId: string }).accountId)?.draftsSoon());
   } else if (msg.type === 'main-port' && e.ports[0]) mainClient = connect(mainPortChannel(e.ports[0] as MessagePortMain));
   void reconcile();
 });
