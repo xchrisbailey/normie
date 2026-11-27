@@ -3,10 +3,11 @@
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual';
 import type { Range } from '@tanstack/react-virtual';
 import { Listbox, ListboxItem, createListboxController } from '@ui-sdk/react/listbox';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@ui-sdk/react/tooltip';
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import type { ThreadRow } from '../core/types';
+import { ActionTip } from './ActionTip';
+import type { ActionRunner } from './ActionTip';
 import { DoneIcon, SnoozeIcon } from './icons';
 
 const ROW_HEIGHT = 44;
@@ -28,47 +29,37 @@ function keysBelongToApp(e: KeyboardEvent) {
   }
 }
 
-export type RowAction = 'thread.done' | 'thread.snooze';
+type RowAction = 'thread.done' | 'thread.snooze';
 
-/** The selected row's buttons, with the keys that do the same. */
-export interface RowActions {
-  run: (id: RowAction) => void;
-  /** Key labels, as the keymap has them. */
-  keys: Partial<Record<RowAction, string>>;
-}
-
-function Act({ id, label, actions, children }: { id: RowAction; label: string; actions: RowActions; children: ReactNode }) {
-  const key = actions.keys[id];
+function Act({ id, label, runner, children }: { id: RowAction; label: string; runner: ActionRunner; children: ReactNode }) {
   return (
-    <Tooltip delay={400}>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            className="act"
-            data-act={id}
-            aria-label={label}
-            tabIndex={-1}
-            // The row is already selected: the press is the button's alone.
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              actions.run(id);
-            }}
-          />
-        }
-      >
-        {children}
-      </TooltipTrigger>
-      <TooltipContent className="tip" side="bottom" sideOffset={6}>
-        {label}
-        {key && <kbd>{key}</kbd>}
-      </TooltipContent>
-    </Tooltip>
+    <ActionTip
+      id={id}
+      label={label}
+      runner={runner}
+      render={
+        <button
+          type="button"
+          className="act"
+          data-act={id}
+          aria-label={label}
+          tabIndex={-1}
+          // The row is already selected: the press is the button's alone.
+          onPointerDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            runner.run(id);
+          }}
+        />
+      }
+    >
+      {children}
+    </ActionTip>
   );
 }
 
-const RowFace = memo(function RowFace({ row, marker, actions }: { row: ThreadRow; marker?: string; actions?: RowActions }) {
+const RowFace = memo(function RowFace({ row, marker, actions }: { row: ThreadRow; marker?: string; actions?: ActionRunner }) {
   return (
     <>
       <span className="from">
@@ -87,10 +78,10 @@ const RowFace = memo(function RowFace({ row, marker, actions }: { row: ThreadRow
       </span>
       {actions ? (
         <span className="acts">
-          <Act id="thread.done" label="Done" actions={actions}>
+          <Act id="thread.done" label="Done" runner={actions}>
             <DoneIcon />
           </Act>
-          <Act id="thread.snooze" label="Snooze" actions={actions}>
+          <Act id="thread.snooze" label="Snooze" runner={actions}>
             <SnoozeIcon />
           </Act>
         </span>
@@ -118,6 +109,7 @@ export const ThreadList = memo(function ThreadList({
   markers,
   view,
   onSelect,
+  onOpen,
   actions,
 }: {
   rows: Array<ThreadRow>;
@@ -128,7 +120,10 @@ export const ThreadList = memo(function ThreadList({
   view: string;
   /** A row was chosen with the pointer. */
   onSelect: (key: string) => void;
-  actions: RowActions;
+  /** A row was double-clicked. */
+  onOpen: (key: string) => void;
+  /** Runs the selected row's buttons. */
+  actions: ActionRunner;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   // The selected row stays rendered even when scrolled away, so the list always has its active option.
@@ -203,6 +198,7 @@ export const ThreadList = memo(function ThreadList({
               className={row.unread ? 'row unread' : 'row'}
               style={{ top: item.start }}
               data-key={row.key}
+              onDoubleClick={() => onOpen(row.key)}
             >
               <RowFace row={row} marker={markers?.get(row.accountId)} actions={item.index === selected ? actions : undefined} />
             </ListboxItem>

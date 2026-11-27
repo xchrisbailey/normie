@@ -45,6 +45,16 @@ export const SnoozeIcon = () => (
     <path d="M12 9v4.5l3 2" {...S} />
   </Icon>
 );
+export const ReplyIcon = () => (
+  <Icon>
+    <path d="M10 6L4 12l6 6M4.5 12H14a6 6 0 016 6v1" {...S} />
+  </Icon>
+);
+export const BackIcon = () => (
+  <Icon>
+    <path d="M14.5 6l-6 6 6 6" {...S} strokeWidth={1.8} />
+  </Icon>
+);
 
 const AllIcon = () => (
   <Icon>

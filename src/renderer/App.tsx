@@ -1,3 +1,4 @@
+import { flushSync } from 'react-dom';
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DraftSummary, LabelSet, OutgoingMessage, ScheduledSummary, ThreadAction, ThreadMessage, ThreadRow } from '../core/types';
 import type { ComposerHandle, ComposeStart, Identity } from './Composer';
@@ -28,7 +29,7 @@ import { splitSummaries, splitsFrom } from './splits';
 import { Header } from './Header';
 import { note, Toasts, useProblems } from './Toasts';
 import { ThreadList } from './ThreadList';
-import type { RowActions } from './ThreadList';
+import type { ActionRunner } from './ActionTip';
 import { useKeymap, useKeys, useSnippets, useSplitsFile } from './useKeys';
 import type { Handlers } from './useKeys';
 
@@ -570,12 +571,23 @@ function Inbox({ core }: { core: CoreClient | null }) {
     }
   }, []);
   useEffect(() => window.normie.onMenuAction((ids) => runAction(ids, true)), [runAction]);
-  const rowActions = useMemo((): RowActions => {
-    const keyOf = (id: string) => {
-      const key = keymap.actions.find((a) => a.id === id)?.keys[0];
-      return key && keyLabel(key);
+  /** A row double-clicked: open it, as Enter does, once the selection is on it. */
+  const openKey = useCallback(
+    (key: string) => {
+      flushSync(() => selectKey(key));
+      runAction(['list.open']);
+    },
+    [selectKey, runAction],
+  );
+  const runner = useMemo((): ActionRunner => {
+    const keys = new Map(keymap.actions.map((a) => [a.id, a.keys[0]]));
+    return {
+      run: (id) => runAction([id]),
+      key: (id) => {
+        const key = keys.get(id);
+        return key ? keyLabel(key) : undefined;
+      },
     };
-    return { run: (id) => runAction([id]), keys: { 'thread.done': keyOf('thread.done'), 'thread.snooze': keyOf('thread.snooze') } };
   }, [keymap.actions, runAction]);
 
   /** Show the open Thread's hidden images; `always` also remembers each sender. */
@@ -875,7 +887,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   }
 
   return (
-    <main className={open || compose ? 'app wide' : 'app'}>
+    <main className="app">
       <Header
         splits={splits}
         openId={split.id}
@@ -937,8 +949,18 @@ function Inbox({ core }: { core: CoreClient | null }) {
       {empty ? (
         <EmptyState />
       ) : (
-        <div className={open || compose ? 'panes reading' : 'panes'}>
-          <ThreadList rows={rows} selected={selected} markers={markers} view={search ? 'search' : split.id} onSelect={selectKey} actions={rowActions} />
+        <div className={compose ? 'view composing' : open ? 'view reading' : 'view'}>
+          <div className="lists" inert={!!(open || compose)}>
+            <ThreadList
+              rows={rows}
+              selected={selected}
+              markers={markers}
+              view={search ? 'search' : split.id}
+              onSelect={selectKey}
+              onOpen={openKey}
+              actions={runner}
+            />
+          </div>
           {compose && (
             <Suspense fallback={<section className="composer" />}>
               <Composer
@@ -971,6 +993,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
               onAlwaysLoadImages={() => loadImages(true)}
               onAttachment={onAttachment}
               theme={theme.theme.id}
+              back={search ? 'Search' : split.name}
+              runner={runner}
             />
           )}
         </div>

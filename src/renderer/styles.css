@@ -78,13 +78,11 @@ body {
 }
 .app {
   --column: 720px;
+  --ease: cubic-bezier(0.65, 0, 0.25, 1);
   display: flex;
   flex-direction: column;
   height: 100%;
   padding: 0 24px;
-}
-.app.wide {
-  --column: 1200px;
 }
 .app > * {
   width: 100%;
@@ -939,7 +937,6 @@ button.primary:disabled {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  border-left: 1px solid var(--surface0);
   background: var(--base);
 }
 .composer .fields {
@@ -1104,30 +1101,85 @@ button.primary:disabled {
 .dev-overlay.over b {
   color: var(--red);
 }
-.panes {
+/* Below the header: the list, or a Thread in its place. The list stays laid out underneath, so Esc is instant. */
+.view {
+  position: relative;
   flex: 1;
-  display: flex;
   min-height: 0;
+  margin-top: 12px;
 }
-.panes .thread-list {
-  flex: 1;
+.lists,
+.view > .reader,
+.view > .composer {
+  position: absolute;
+  inset: 0;
 }
-.panes.reading .thread-list {
-  flex: 0 0 38%;
-  border-right: 1px solid var(--surface0);
+.lists {
+  display: flex;
+  flex-direction: column;
+  transition:
+    transform 0.45s var(--ease),
+    opacity 0.3s ease;
 }
-.panes.reading .row {
-  grid-template-columns: 120px 1fr 64px;
+.view.reading .lists,
+.view.composing .lists {
+  transform: translateX(-56px);
+  opacity: 0;
+  pointer-events: none;
 }
-.panes.reading .snippet {
-  display: none;
+.view > .reader,
+.view > .composer {
+  animation: enter-column 0.4s var(--ease) both;
+}
+@keyframes enter-column {
+  from {
+    transform: translateX(56px);
+    opacity: 0;
+  }
 }
 .reader {
-  flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding-top: 20px;
+}
+.reader-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 14px;
+}
+.reader-bar .grow {
+  flex: 1;
+}
+.reader-bar .back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 2px;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg3);
+  background: none;
+}
+.reader-bar .back:hover {
+  color: var(--fg);
+}
+.reader-bar .back .icon {
+  width: 16px;
+  height: 16px;
+}
+.reader-bar .back kbd {
+  margin-left: 4px;
+  padding: 1px 5px;
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  font: 500 10px/1.2 var(--font-mono);
+  color: var(--fg2);
+}
+.reader-bar .act {
+  color: var(--fg3);
 }
 .mail-frame {
   flex: 1;
@@ -1139,7 +1191,7 @@ button.primary:disabled {
   display: flex;
   gap: 10px;
   align-items: center;
-  margin: 0 28px 12px;
+  margin: 0 0 12px;
   padding: 6px 10px;
   border-radius: 6px;
   background: var(--surface0);
@@ -1164,13 +1216,16 @@ button.primary:disabled {
   margin-left: 4px;
 }
 .reader h1 {
-  font-size: 18px;
-  font-weight: 600;
-  margin: 0 28px 16px;
-  color: var(--text);
+  margin: 0 0 18px;
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  color: var(--fg);
 }
 .reader > .pending {
-  margin: 0 28px;
+  margin: 0;
   color: var(--overlay);
 }
 .message {
@@ -1210,4 +1265,13 @@ button.primary:disabled {
 .pending {
   color: var(--overlay);
   font-style: italic;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lists,
+  .view > .reader,
+  .view > .composer {
+    transition: none;
+    animation: none;
+  }
 }

@@ -52,10 +52,10 @@ export function drive(w: BrowserWindow) {
     },
 
     /**
-     * Click the middle of an element, as the mouse would. `hit` says whether the element (or something inside it) was
-     * really what's under the pointer: false when something covers it.
+     * Click the middle of an element, as the mouse would (`clicks: 2` double-clicks). `hit` says whether the element
+     * (or something inside it) was really what's under the pointer: false when something covers it.
      */
-    clickAt: async (selector: string, offset = { x: 0.5, y: 0.5 }) => {
+    clickAt: async (selector: string, offset = { x: 0.5, y: 0.5 }, clicks = 1) => {
       const at = await js<{ x: number; y: number; hit: boolean } | null>(`(() => {
         const el = document.querySelector(${JSON.stringify(selector)});
         if (!el) return null;
@@ -67,8 +67,10 @@ export function drive(w: BrowserWindow) {
       if (!at) {
         return { found: false, hit: false };
       }
-      for (const type of ['mouseDown', 'mouseUp'] as const) {
-        wc.sendInputEvent({ type, x: Math.round(at.x), y: Math.round(at.y), button: 'left', clickCount: 1 });
+      for (let clickCount = 1; clickCount <= clicks; clickCount++) {
+        for (const type of ['mouseDown', 'mouseUp'] as const) {
+          wc.sendInputEvent({ type, x: Math.round(at.x), y: Math.round(at.y), button: 'left', clickCount });
+        }
       }
       await pause(100);
       return { found: true, hit: at.hit };
