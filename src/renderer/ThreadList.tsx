@@ -6,18 +6,29 @@ import { Listbox, ListboxItem, createListboxController } from '@ui-sdk/react/lis
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { ROW_HEIGHT } from '../core/appearance';
+import { hour12Of } from '../core/prefs';
+import type { Clock } from '../core/prefs';
 import type { ThreadRow } from '../core/types';
 import { ActionTip } from './ActionTip';
 import { reducedMotion, useAppearance } from './appearance';
+import { usePrefs } from './prefs';
 import type { ActionRunner } from './ActionTip';
 import { DoneIcon, SnoozeIcon } from './icons';
 
 const dateFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
-const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+const timeFmts = new Map<Clock, Intl.DateTimeFormat>();
+function timeFmt(clock: Clock) {
+  let f = timeFmts.get(clock);
+  if (!f) {
+    f = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', hour12: hour12Of(clock) });
+    timeFmts.set(clock, f);
+  }
+  return f;
+}
 
-function when(ms: number) {
+function when(ms: number, clock: Clock) {
   const d = new Date(ms);
-  return d.toDateString() === new Date().toDateString() ? timeFmt.format(d) : dateFmt.format(d);
+  return d.toDateString() === new Date().toDateString() ? timeFmt(clock).format(d) : dateFmt.format(d);
 }
 
 /**
@@ -60,7 +71,7 @@ function Act({ id, label, runner, children }: { id: RowAction; label: string; ru
   );
 }
 
-const RowFace = memo(function RowFace({ row, marker, actions }: { row: ThreadRow; marker?: string; actions?: ActionRunner }) {
+const RowFace = memo(function RowFace({ row, marker, actions, clock }: { row: ThreadRow; marker?: string; actions?: ActionRunner; clock: Clock }) {
   return (
     <>
       <span className="from">
@@ -92,10 +103,10 @@ const RowFace = memo(function RowFace({ row, marker, actions }: { row: ThreadRow
         </time>
       ) : row.tags?.snoozedUntil !== undefined ? (
         <time className="date snoozed" title="Snoozed until">
-          ⏰ {when(row.tags.snoozedUntil)}
+          ⏰ {when(row.tags.snoozedUntil, clock)}
         </time>
       ) : (
-        <time className="date">{when(row.date)}</time>
+        <time className="date">{when(row.date, clock)}</time>
       )}
     </>
   );
@@ -136,6 +147,7 @@ export const ThreadList = memo(function ThreadList({
     return s < range.count && !indexes.includes(s) ? [...indexes, s].sort((a, b) => a - b) : indexes;
   }, []);
   const rowHeight = ROW_HEIGHT[useAppearance().density];
+  const { clock } = usePrefs();
   // oxlint-disable-next-line react/incompatible-library -- no React Compiler here: the list is memoized by hand and redraws when its props change
   const v = useVirtualizer({ count: rows.length, getScrollElement: () => scroller.current, estimateSize: () => rowHeight, overscan: 12, rangeExtractor });
   useLayoutEffect(() => v.measure(), [v, rowHeight]);
@@ -201,7 +213,7 @@ export const ThreadList = memo(function ThreadList({
               data-key={row.key}
               onDoubleClick={() => onOpen(row.key)}
             >
-              <RowFace row={row} marker={markers?.get(row.accountId)} actions={item.index === selected ? actions : undefined} />
+              <RowFace row={row} marker={markers?.get(row.accountId)} actions={item.index === selected ? actions : undefined} clock={clock} />
             </ListboxItem>
           ) : null;
         })}

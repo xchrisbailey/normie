@@ -2,6 +2,7 @@
 // It forwards the core's MessagePort into the page and exposes a tiny API. No Node APIs reach the page.
 import { contextBridge, ipcRenderer, webFrame } from 'electron';
 import type { Appearance } from '../core/appearance';
+import type { Prefs } from '../core/prefs';
 import type { ActiveTheme, ThemeChoice, ThemeList } from '../core/vscode-theme';
 
 ipcRenderer.on('core-port', (e) => window.postMessage('normie:core-port', '*', e.ports));
@@ -63,6 +64,15 @@ contextBridge.exposeInMainWorld('normie', {
       return a as Appearance;
     },
     set: (a: Appearance): Promise<Appearance> => ipcRenderer.invoke('appearance:set', a),
+  },
+  prefs: {
+    /** Reading, sending, notification, menu bar and clock choices, read before the first frame. */
+    current: (): Prefs => {
+      const p: unknown = ipcRenderer.sendSync('prefs:current');
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- main answers with prefsFrom(), typed there
+      return p as Prefs;
+    },
+    set: (p: Prefs): Promise<Prefs> => ipcRenderer.invoke('prefs:set', p),
   },
   /** The Inbox count, for the menu bar. */
   setInboxCount: (n: number) => ipcRenderer.send('inbox-count', n),

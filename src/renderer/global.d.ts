@@ -1,5 +1,6 @@
 import type { ThreadRow } from '../core/types';
 import type { Appearance } from '../core/appearance';
+import type { Prefs } from '../core/prefs';
 import type { ActiveTheme, ThemeChoice, ThemeList } from '../core/vscode-theme';
 
 export {};
@@ -44,6 +45,10 @@ declare global {
       appearance: {
         current(): Appearance;
         set(a: Appearance): Promise<Appearance>;
+      };
+      prefs: {
+        current(): Prefs;
+        set(p: Prefs): Promise<Prefs>;
       };
       toggleLoginItem(): Promise<{ on: boolean; packaged: boolean }>;
       loginItem(): Promise<{ on: boolean; packaged: boolean }>;

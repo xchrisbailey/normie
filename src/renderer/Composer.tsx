@@ -4,7 +4,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { formatAddresses, parseAddresses } from '../core/addresses';
 import { AddressField } from './AddressField';
 import { WhenPicker } from './WhenPicker';
+import { fromKey } from '../core/prefs';
 import { describeWhen } from '../core/when';
+import { hour12, prefsNow } from './prefs';
 import { expandAt, insertAt } from './commands/snippets';
 import type { Snippet } from './commands/snippets';
 import type { Address, DraftContent, OutgoingMessage } from '../core/types';
@@ -72,6 +74,8 @@ export default function Composer({
   const first =
     identities.find((i) => i.accountId === start.accountId && same(i.from, start.from)) ??
     identities.find((i) => i.accountId === start.accountId) ??
+    // New mail starts from the identity Settings names, when it's still there.
+    identities.find((i) => fromKey(i.accountId, i.from.address) === prefsNow().defaultFrom) ??
     identities[0];
   const [identity, setIdentity] = useState(first ? identities.indexOf(first) : 0);
   const [to, setTo] = useState(start.toText ?? formatAddresses(start.to ?? []));
@@ -396,7 +400,7 @@ export default function Composer({
       )}
       {remindAt !== undefined && (
         <div className="reminder-line">
-          ⏰ Back in the Inbox {describeWhen(new Date(remindAt), new Date(remindShownAt))} if nobody replies
+          ⏰ Back in the Inbox {describeWhen(new Date(remindAt), new Date(remindShownAt), hour12())} if nobody replies
           <button type="button" className="quiet" onClick={() => setRemindAt(undefined)} aria-label="Remove the Reminder">
             ×
           </button>

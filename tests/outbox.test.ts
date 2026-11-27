@@ -92,6 +92,20 @@ describe('the Outbox', () => {
     expect(await c.cancelSend(id)).toBeNull();
   });
 
+  it('holds for the undo window Settings chose, or not at all', async () => {
+    const { c, transport } = await start();
+    const held = await c.send(message({ subject: 'Held' }), undefined, undefined, 20_000);
+    await c.send(message({ subject: 'Now' }), undefined, undefined, 0);
+    await c.engine.sendOutbox();
+    expect(transport.sent.map((s) => s.raw.match(/^Subject: (.*)$/m)?.[1])).toEqual(['Now']);
+    now += 10_000;
+    await c.engine.sendOutbox();
+    expect(transport.sent).toHaveLength(1);
+    // Still in its window, so it isn't listed as scheduled and can be taken back.
+    expect(await c.scheduled()).toEqual([]);
+    expect(await c.cancelSend(held)).toMatchObject({ subject: 'Held' });
+  });
+
   it("can't be undone once it has gone", async () => {
     const { c } = await start();
     const id = await c.send(message());

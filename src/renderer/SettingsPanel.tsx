@@ -2,6 +2,7 @@
 import { Button } from '@ui-sdk/react/button';
 import { createListboxController, Listbox, ListboxItem } from '@ui-sdk/react/listbox';
 import { SegmentedControl, SegmentedControlIndicator, SegmentedControlItem } from '@ui-sdk/react/segmented-control';
+import { Select, SelectContent, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@ui-sdk/react/select';
 import { Switch, SwitchThumb } from '@ui-sdk/react/switch';
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/react/tabs';
 import { useEffect, useId, useMemo, useState } from 'react';
@@ -9,10 +10,13 @@ import type { KeyboardEvent, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { DENSITIES, FONTS, TEXT_SIZES, WIDTHS } from '../core/appearance';
 import type { Appearance } from '../core/appearance';
+import { AFTER_TRIAGE, CLOCK, fromKey, MARK_READ, MENU_COUNT, NOTIFY, REMOTE_IMAGES, UNDO_SEND } from '../core/prefs';
+import type { Prefs } from '../core/prefs';
 import type { ActiveTheme, ThemeChoice, ThemeSummary } from '../core/vscode-theme';
 import { DEFAULT_DARK, DEFAULT_LIGHT } from '../core/vscode-theme';
 import { useAddGmail } from './AccountBar';
 import { setAppearance, useAppearance } from './appearance';
+import { setPrefs, usePrefs } from './prefs';
 import { BackIcon } from './icons';
 import { AddPasswordAccount } from './AddAccount';
 import type { PasswordProvider } from './AddAccount';
@@ -20,7 +24,7 @@ import { IdentitiesEditor } from './Identities';
 import { Panel } from './Panel';
 import { themeTokens } from './theme-tokens';
 
-export type SettingsTab = 'accounts' | 'appearance' | 'general';
+export type SettingsTab = 'accounts' | 'appearance' | 'mail' | 'general';
 
 export function SettingsPanel({
   accounts,
@@ -51,6 +55,7 @@ export function SettingsPanel({
         <TabsList aria-label="Settings" className="settings-tabs">
           <TabsTab value="accounts">Accounts</TabsTab>
           <TabsTab value="appearance">Appearance</TabsTab>
+          <TabsTab value="mail">Mail</TabsTab>
           <TabsTab value="general">General</TabsTab>
         </TabsList>
         <TabsPanel value="accounts" className="settings-body">
@@ -59,6 +64,9 @@ export function SettingsPanel({
         <TabsPanel value="appearance" className="settings-body">
           <LookSettings />
           <ThemeSettings theme={theme} themes={themes} onChoose={onChooseTheme} />
+        </TabsPanel>
+        <TabsPanel value="mail" className="settings-body">
+          <MailSettings accounts={accounts} />
         </TabsPanel>
         <TabsPanel value="general" className="settings-body">
           <GeneralSettings />
@@ -204,8 +212,11 @@ function Choice<T extends string>({
   onChange,
   itemClass,
   glyph,
+  note,
 }: {
   label: string;
+  /** A line under the label, saying what the choice means. */
+  note?: string;
   value: T;
   options: ReadonlyArray<T>;
   names: Record<T, string>;
@@ -214,11 +225,20 @@ function Choice<T extends string>({
   glyph?: (value: T) => ReactNode;
 }) {
   const id = useId();
+  const noteId = useId();
   return (
     <div className="settings-row">
-      <span id={id}>{label}</span>
+      <span>
+        <span id={id}>{label}</span>
+        {note && (
+          <span className="settings-note" id={noteId}>
+            {note}
+          </span>
+        )}
+      </span>
       <SegmentedControl
         aria-labelledby={id}
+        aria-describedby={note ? noteId : undefined}
         className="segmented"
         value={value}
         onValueChange={(v) => {
@@ -382,23 +402,122 @@ function GeneralSettings() {
   useEffect(() => {
     void window.normie.loginItem().then(setLogin);
   }, []);
+  const prefs = usePrefs();
+  const heading = useId();
   return (
-    <label className="settings-switch">
-      <span>
-        Start at Login
-        {login && !login.packaged && <span className="settings-note">Applies to the installed app.</span>}
-      </span>
-      <Switch
-        checked={login?.on ?? false}
-        disabled={!login}
-        aria-label="Start at Login"
-        onCheckedChange={(on) => {
-          flushSync(() => setLogin((l) => l && { ...l, on }));
-          void window.normie.setLoginItem(on).then(setLogin);
-        }}
-      >
-        <SwitchThumb />
-      </Switch>
-    </label>
+    <section className="settings-section" aria-labelledby={heading}>
+      <h3 className="settings-heading" id={heading}>
+        General
+      </h3>
+      <label className="settings-switch">
+        <span>
+          Start at Login
+          {login && !login.packaged && <span className="settings-note">Applies to the installed app.</span>}
+        </span>
+        <Switch
+          checked={login?.on ?? false}
+          disabled={!login}
+          aria-label="Start at Login"
+          onCheckedChange={(on) => {
+            flushSync(() => setLogin((l) => l && { ...l, on }));
+            void window.normie.setLoginItem(on).then(setLogin);
+          }}
+        >
+          <SwitchThumb />
+        </Switch>
+      </label>
+      <Choice
+        label="Notifications"
+        note="Important means the Splits set to notify: Important, unless you changed splits.json."
+        value={prefs.notify}
+        options={NOTIFY}
+        names={NOTIFY_NAMES}
+        onChange={(notify) => setPrefs({ notify })}
+      />
+      <Choice label="Menu bar count" value={prefs.menuCount} options={MENU_COUNT} names={MENU_COUNT_NAMES} onChange={(menuCount) => setPrefs({ menuCount })} />
+      <Choice label="Time format" value={prefs.clock} options={CLOCK} names={CLOCK_NAMES} onChange={(clock) => setPrefs({ clock })} />
+    </section>
+  );
+}
+
+const MARK_READ_NAMES: Record<Prefs['markRead'], string> = { open: 'When opened', delay: 'After 2 seconds', manual: 'By hand' };
+const IMAGES_NAMES: Record<Prefs['remoteImages'], string> = { ask: 'Ask', known: 'From people I know', always: 'Always' };
+const AFTER_NAMES: Record<Prefs['afterTriage'], string> = { next: 'Next Thread', previous: 'Previous Thread', list: 'Back to the list' };
+const UNDO_NAMES = { '0': 'Off', '5': '5 s', '10': '10 s', '20': '20 s', '30': '30 s' } satisfies Record<`${(typeof UNDO_SEND)[number]}`, string>;
+const NOTIFY_NAMES: Record<Prefs['notify'], string> = { off: 'Off', splits: 'Important', all: 'All new mail' };
+const MENU_COUNT_NAMES: Record<Prefs['menuCount'], string> = { inbox: 'Inbox', unread: 'Unread', off: 'None' };
+const CLOCK_NAMES: Record<Prefs['clock'], string> = { system: 'System', '12': '12-hour', '24': '24-hour' };
+
+/** Reading and sending: how Threads get marked read, remote images, where Done goes next, undo send and the From. */
+function MailSettings({ accounts }: { accounts: Array<AccountRecord> }) {
+  const prefs = usePrefs();
+  const reading = useId();
+  const sending = useId();
+  const froms = accounts
+    .filter((a) => a.status === 'ok')
+    .flatMap((a) => (a.identities?.length ? a.identities : [{ address: a.email }]).map((f) => ({ key: fromKey(a.id, f.address), from: f })))
+    .map((f) => ({ ...f, label: f.from.name ? `${f.from.name} <${f.from.address}>` : f.from.address }));
+  return (
+    <>
+      <section className="settings-section" aria-labelledby={reading}>
+        <h3 className="settings-heading" id={reading}>
+          Reading
+        </h3>
+        <Choice label="Mark as read" value={prefs.markRead} options={MARK_READ} names={MARK_READ_NAMES} onChange={(markRead) => setPrefs({ markRead })} />
+        <Choice
+          label="Remote images"
+          note="Loading them tells the sender you opened their mail. People you know: anyone you've written to, and VIPs."
+          value={prefs.remoteImages}
+          options={REMOTE_IMAGES}
+          names={IMAGES_NAMES}
+          onChange={(remoteImages) => setPrefs({ remoteImages })}
+        />
+        <Choice
+          label="After Done or Snooze"
+          value={prefs.afterTriage}
+          options={AFTER_TRIAGE}
+          names={AFTER_NAMES}
+          onChange={(afterTriage) => setPrefs({ afterTriage })}
+        />
+      </section>
+      <section className="settings-section" aria-labelledby={sending}>
+        <h3 className="settings-heading" id={sending}>
+          Sending
+        </h3>
+        <Choice
+          label="Undo send"
+          note="How long a sent message waits, so ⌘Z can take it back."
+          value={String(prefs.undoSend)}
+          options={UNDO_SEND.map(String)}
+          names={UNDO_NAMES}
+          onChange={(v) => setPrefs({ undoSend: UNDO_SEND.find((n) => String(n) === v) ?? 5 })}
+        />
+        {froms.length > 1 && (
+          <div className="settings-row">
+            <Select
+              items={froms.map((f) => ({ value: f.key, label: f.label }))}
+              value={froms.some((f) => f.key === prefs.defaultFrom) ? prefs.defaultFrom : (froms[0]?.key ?? null)}
+              onValueChange={(v) => {
+                if (typeof v === 'string') {
+                  flushSync(() => setPrefs({ defaultFrom: v }));
+                }
+              }}
+            >
+              <SelectLabel className="settings-label">New mail from</SelectLabel>
+              <SelectTrigger className="select-trigger">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="menu select-menu">
+                {froms.map((f) => (
+                  <SelectItem key={f.key} value={f.key} className="menu-item">
+                    {f.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </section>
+    </>
   );
 }

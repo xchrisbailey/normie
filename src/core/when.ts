@@ -203,8 +203,8 @@ export function suggestions(now: Date): Array<{ label: string; at: Date }> {
 }
 
 /** "Tomorrow, 8:00 AM", "Fri, Dec 4, 9:00 AM" — how a chosen time reads back. */
-export function describeWhen(d: Date, now: Date): string {
-  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+export function describeWhen(d: Date, now: Date, hour12?: boolean): string {
+  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12 });
   const days = Math.round((at(d, 0, 0).getTime() - at(now, 0, 0).getTime()) / 86_400_000);
   if (days === 0) {
     return `Today, ${time}`;

@@ -334,7 +334,10 @@ async function smokeSettings(w: BrowserWindow) {
   const restored = (await themeNow()) === before;
   await d.shot('settings-appearance');
   const look = await smokeLook(d);
-  await d.clickAt('.settings-tabs [data-slot="tabs-tab"]:nth-child(3)');
+  const mail = await smokeMailPrefs(d);
+  await d.press(',', 1, ['meta']);
+  await sleep(300);
+  await d.clickAt('.settings-tabs [data-slot="tabs-tab"]:nth-child(4)');
   await sleep(200);
   const checked = () => d.js<string>(`document.querySelector('.settings-switch [data-slot="switch"]')?.getAttribute('aria-checked') ?? ''`);
   const loginBefore = await checked();
@@ -353,7 +356,7 @@ async function smokeSettings(w: BrowserWindow) {
   const back = await d.clickAt('.settings-head [aria-label="Close Settings"]');
   await sleep(200);
   const byBack = back.hit && !(await d.js<boolean>(`!!document.querySelector('.settings-panel')`));
-  const ok = opened && full && picked && restored && look.ok && login && closed && byIcon && byBack;
+  const ok = opened && full && picked && restored && look.ok && mail.ok && login && closed && byIcon && byBack;
   return {
     ok,
     opened,
@@ -361,6 +364,7 @@ async function smokeSettings(w: BrowserWindow) {
     accounts: accounts.length,
     themes: { before, clicked, chosenBefore, arrowed, spots: [spotBefore, spotAfter], rowUp, tiles, restored },
     look,
+    mail,
     login,
     closed,
     byIcon,
@@ -373,12 +377,7 @@ async function smokeSettings(w: BrowserWindow) {
  * take at once (the list checked behind Settings), then everything goes back to the defaults.
  */
 async function smokeLook(d: ReturnType<typeof drive>) {
-  const pick = async (value: string) => {
-    await d.js(`document.querySelector('.segmented-item[data-value="${value}"]')?.scrollIntoView({ block: 'nearest' })`);
-    const r = await d.clickAt(`.segmented-item[data-value="${value}"]`);
-    await sleep(150);
-    return r.hit && (await d.js<boolean>(`document.querySelector('.segmented-item[data-value="${value}"]')?.hasAttribute('data-checked') ?? false`));
-  };
+  const pick = pickChoice(d);
   const motion = () => d.clickAt('.settings-switch [aria-label="Reduce motion"]');
   const hits = [await pick('serif'), await pick('15'), await pick('compact'), await pick('wide'), (await motion()).hit];
   await sleep(200);
@@ -415,6 +414,69 @@ async function smokeLook(d: ReturnType<typeof drive>) {
     reset.size === '13px' &&
     reset.motion === undefined;
   return { ok, hits, back, changed, laidOut, reset };
+}
+
+/** Click a choice in the Settings tab on screen, by its value; whether it's now the checked one. */
+const pickChoice = (d: ReturnType<typeof drive>) => async (value: string) => {
+  const at = `.settings-body:not([hidden]) .segmented-item[data-value="${value}"]`;
+  await d.js(`document.querySelector('${at}')?.scrollIntoView({ block: 'nearest' })`);
+  const r = await d.clickAt(at);
+  await sleep(150);
+  return r.hit && (await d.js<boolean>(`document.querySelector('${at}')?.hasAttribute('data-checked') ?? false`));
+};
+
+/**
+ * Settings > Mail and General, as the list shows them: "By hand" leaves an opened Thread unread, "Back to the list"
+ * closes the reader after Done, and 24-hour times have no AM or PM. Then the defaults again. Starts in Settings,
+ * ends with it closed.
+ */
+async function smokeMailPrefs(d: ReturnType<typeof drive>) {
+  const pick = pickChoice(d);
+  const tab = async (n: number) => {
+    await d.clickAt(`.settings-tabs [data-slot="tabs-tab"]:nth-child(${n})`);
+    await sleep(200);
+  };
+  await tab(3);
+  const hits = [await pick('manual'), await pick('list')];
+  await d.shot('settings-mail');
+  await tab(4);
+  hits.push(await pick('24'));
+  await d.press('Escape');
+  await sleep(300);
+  const subject = await d.js<string>(`document.querySelector('.row.unread .subject')?.textContent ?? ''`);
+  const rowOf = `[...document.querySelectorAll('.row')].find((r) => r.querySelector('.subject')?.textContent === ${JSON.stringify(subject)})`;
+  const openIt = async () => {
+    await d.js(`${rowOf}?.scrollIntoView({ block: 'nearest' })`);
+    await d.js(`${rowOf}?.click()`);
+    await sleep(100);
+    await d.press('Enter');
+    await sleep(400);
+  };
+  await openIt();
+  const opened = await d.js<boolean>(`!!document.querySelector('.reader')`);
+  await d.press('Escape');
+  await sleep(200);
+  const stillUnread = await d.js<boolean>(`!!${rowOf}?.classList.contains('unread')`);
+  const times = await d.js<Array<string>>(`[...document.querySelectorAll('.row .date')].map((t) => t.textContent)`);
+  const clock24 = times.some((t) => /^\d{1,2}:\d{2}$/.test(t)) && !times.some((t) => /AM|PM/i.test(t));
+  // Done in the reader goes back to the list; z brings the Thread back.
+  await openIt();
+  await d.press('e');
+  await sleep(300);
+  const backToList = !(await d.js<boolean>(`!!document.querySelector('.reader')`));
+  await d.press('z');
+  await sleep(300);
+  // The defaults again.
+  await d.press(',', 1, ['meta']);
+  await sleep(300);
+  await tab(3);
+  const back = [await pick('open'), await pick('next')];
+  await tab(4);
+  back.push(await pick('system'));
+  await d.press('Escape');
+  await sleep(300);
+  const ok = hits.every(Boolean) && back.every(Boolean) && subject !== '' && opened && stillUnread && clock24 && backToList;
+  return { ok, hits, back, subject, opened, stillUnread, times: times.slice(0, 3), backToList };
 }
 
 /** Moving through the list with keys fades the header; moving the mouse brings it back. */

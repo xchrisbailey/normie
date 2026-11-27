@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { afterEach, beforeAll, expect, test, vi } from 'vitest';
 import type { Appearance } from '../src/core/appearance';
+import type { Prefs } from '../src/core/prefs';
 import type { ActiveTheme, ThemeChoice, ThemeSummary } from '../src/core/vscode-theme';
 import { SettingsPanel } from '../src/renderer/SettingsPanel';
 
@@ -36,7 +37,10 @@ const active: ActiveTheme = {
   theme: { id: 'normie-light', name: 'Normie Light', type: 'light', colors: {} },
   choice: { mode: 'fixed', id: 'normie-light' },
 };
-const accounts: Array<AccountRecord> = [{ id: 'a1', kind: 'gmail', email: 'ada@example.com', status: 'ok' }];
+const accounts: Array<AccountRecord> = [
+  { id: 'a1', kind: 'gmail', email: 'ada@example.com', status: 'ok' },
+  { id: 'a2', kind: 'imap', email: 'ada@work.example', status: 'ok' },
+];
 
 let root: Root | undefined;
 afterEach(() => {
@@ -52,12 +56,14 @@ test('an agent can find and change every setting', async () => {
   const setLoginItem = vi.fn(async (on: boolean) => ({ on, packaged: true }));
   const remove = vi.fn(async () => {});
   const saveAppearance = vi.fn(async (a: Appearance) => a);
+  const savePrefs = vi.fn(async (p: Prefs) => p);
   Object.assign(window, {
     normie: {
       loginItem: async () => ({ on: true, packaged: true }),
       setLoginItem,
       accounts: { remove, addGmail: async () => accounts[0] },
       appearance: { set: saveAppearance },
+      prefs: { set: savePrefs },
     },
   });
   const chosen: Array<ThemeChoice> = [];
@@ -116,6 +122,40 @@ test('an agent can find and change every setting', async () => {
     '36px',
   ]);
   expect(saveAppearance).toHaveBeenLastCalledWith({ font: 'serif', size: 15, density: 'compact', width: 'wide', reduceMotion: true });
+
+  // Mail and General: each choice takes at once and is saved.
+  result = await act(async () => agent.act({ steps: [{ ref: 'Settings', action: 'setValue', args: ['mail'] }] }));
+  expect(result.ok, result.error?.message).toBe(true);
+  for (const [ref, value] of [
+    ['Mark as read', 'manual'],
+    ['Remote images', 'known'],
+    ['After Done or Snooze', 'list'],
+    ['Undo send', '20'],
+    ['New mail from', 'a2 ada@work.example'],
+  ] as const) {
+    result = await act(async () => agent.act({ steps: [{ ref, action: 'setValue', args: [value] }] }));
+    expect(result.ok, `${ref}: ${result.error?.message}`).toBe(true);
+  }
+  result = await act(async () => agent.act({ steps: [{ ref: 'Settings', action: 'setValue', args: ['general'] }] }));
+  expect(result.ok, result.error?.message).toBe(true);
+  for (const [ref, value] of [
+    ['Notifications', 'all'],
+    ['Menu bar count', 'unread'],
+    ['Time format', '24'],
+  ] as const) {
+    result = await act(async () => agent.act({ steps: [{ ref, action: 'setValue', args: [value] }] }));
+    expect(result.ok, `${ref}: ${result.error?.message}`).toBe(true);
+  }
+  expect(savePrefs).toHaveBeenLastCalledWith({
+    markRead: 'manual',
+    remoteImages: 'known',
+    afterTriage: 'list',
+    undoSend: 20,
+    defaultFrom: 'a2 ada@work.example',
+    notify: 'all',
+    menuCount: 'unread',
+    clock: '24',
+  });
 
   result = await act(async () => agent.act({ steps: [{ ref: 'Settings', action: 'setValue', args: ['general'] }] }));
   expect(result.ok, result.error?.message).toBe(true);
