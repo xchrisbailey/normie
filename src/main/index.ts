@@ -246,7 +246,7 @@ const openedAtLogin = process.platform === 'darwin' && app.isPackaged && app.get
 
 // --- The menu bar item: open Normie, the Inbox count, start at login, quit.
 
-/** Which build this is (set by scripts/build.mjs): commit and build time. */
+/** Which build this is (set by electron.vite.config.mts): commit and build time. */
 declare const __NORMIE_BUILD__: { commit: string; time: string } | undefined;
 const buildInfo = __NORMIE_BUILD__ === undefined ? { commit: 'dev', time: '' } : __NORMIE_BUILD__;
 const buildLabel = `${buildInfo.commit}${buildInfo.time ? `, built ${new Date(buildInfo.time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}` : ''}`;

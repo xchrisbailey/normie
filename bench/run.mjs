@@ -11,7 +11,7 @@ const fixture = path.resolve('bench/.fixtures/store-100k.sqlite');
 const electron = path.resolve('node_modules/.bin/electron');
 const appEnv = { NORMIE_DB: fixture, NORMIE_PROVIDER: 'none' };
 
-if (run('node', ['scripts/build.mjs']).status !== 0) {
+if (run('npm', ['run', 'build']).status !== 0) {
   process.exit(1);
 }
 if (!existsSync(fixture) || process.env.NORMIE_BENCH_REBUILD === '1') {

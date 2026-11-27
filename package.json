@@ -6,7 +6,7 @@
   "author": "Chris Bailey",
   "main": "out/main/index.js",
   "scripts": {
-    "build": "node scripts/build.mjs",
+    "build": "rm -rf out && electron-vite build --logLevel warn && node scripts/build-fixture.mjs",
     "verify": "npm run typecheck && npm run lint && npm run format:check && npm test && npm run build && node scripts/check-bundles.mjs && npm run smoke",
     "prepare": "git config core.hooksPath .githooks && git config blame.ignoreRevsFile .git-blame-ignore-revs",
     "start": "npm run build && electron .",
@@ -43,6 +43,7 @@
     "@vitejs/plugin-react": "6.3.0",
     "electron": "45.5.0",
     "electron-builder": "26.18.0",
+    "electron-vite": "6.0.0",
     "esbuild": "0.28.2",
     "jsdom": "31.0.1",
     "oxfmt": "0.80.0",

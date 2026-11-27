@@ -6,6 +6,7 @@ A keyboard-first desktop mail client for Gmail, iCloud and any IMAP/SMTP server.
 
 | Command                                   | What it does                                                                                                                                                                           |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run build`                           | Build every process into `out/` with electron-vite (`electron.vite.config.mts`)                                                                                                        |
 | `npm start`                               | Build and run the app                                                                                                                                                                  |
 | `npm run start:fake`                      | Run against a fake mailbox, no Account needed                                                                                                                                          |
 | `npm run verify`                          | Typecheck, lint, format check, tests, process-boundary check and smoke: what the pre-push hook runs                                                                                    |
