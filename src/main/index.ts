@@ -900,6 +900,11 @@ function buildMenu() {
 app.on('activate', openWindow);
 
 app.whenReady().then(() => {
+  app.setAboutPanelOptions({
+    applicationName: 'Normie',
+    applicationVersion: app.getVersion(),
+    credits: 'A keyboard-first mail client for Gmail, iCloud and IMAP.',
+  });
   if (app.isPackaged && !smoke) app.setLoginItemSettings({ openAtLogin: loginItem() });
   buildTray();
   watchUserFiles();
