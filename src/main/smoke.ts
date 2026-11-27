@@ -101,8 +101,24 @@ async function smokeHeader(w: BrowserWindow) {
   const icons = searchIcon.hit && searchFocus === 'input' && searchClosed;
   // A narrow window: the last tabs move into More, and choosing one from it opens that Split.
   const [width, height] = w.getSize();
+  // The resize lands a while later on a busy runner: wait until the page is narrow and the header has measured it.
+  const narrowed = async () => {
+    for (let waited = 0; waited < 3000; waited += 100) {
+      if (await d.js<boolean>(`innerWidth <= 460 && !!document.querySelector('.split.more')`)) {
+        return true;
+      }
+      await sleep(100);
+    }
+    return false;
+  };
   w.setSize(420, height ?? 820);
-  await sleep(500);
+  let narrow = await narrowed();
+  if (!narrow) {
+    w.setBounds({ ...w.getBounds(), width: 420 });
+    narrow = await narrowed();
+  }
+  const narrowSize = { narrow, window: w.getSize().join('x'), page: await d.js<number>(`innerWidth`) };
+  await sleep(200);
   await d.shot('header-narrow');
   const shownNarrow = await tabNames();
   const moreClick = await d.clickAt('.split.more');
@@ -136,6 +152,7 @@ async function smokeHeader(w: BrowserWindow) {
     icons,
     search: { hit: searchIcon.hit, focus: searchFocus, closed: searchClosed },
     shownNarrow,
+    narrowSize,
     items,
     opened,
     more,
