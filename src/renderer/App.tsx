@@ -562,11 +562,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
     }
     // From the menus while typing in a field, or with a form or the palette open: only Cmd commands run. (A plain key
     // can reach the menu as a key equivalent when the page answers slowly.) The palette's own choices always run.
-    if (
-      fromMenu &&
-      (typing || document.querySelector('.palette-backdrop, .panel')) &&
-      !ids.some((x) => ACTIONS.find((a) => a.id === x)?.keys.some((k) => k.startsWith('Cmd-')))
-    ) {
+    if (fromMenu && (typing || document.querySelector('.panel')) && !ids.some((x) => ACTIONS.find((a) => a.id === x)?.keys.some((k) => k.startsWith('Cmd-')))) {
       return;
     }
     const id = ids.find((x) => isActionId(x) && ACTIONS.some((a) => a.id === x && (a.contexts as ReadonlyArray<string>).includes(ctx)) && h[x]);

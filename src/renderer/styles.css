@@ -35,27 +35,6 @@
   --ansi-bright-cyan: #a8eded;
   --ansi-bright-white: #ece9f7;
 
-  /* The names the stylesheet used before themes were files, until the zen layout replaces the rules that use them. */
-  --base: var(--ground);
-  --mantle: var(--paper);
-  --crust: var(--well);
-  --surface0: var(--line);
-  --surface1: var(--line2);
-  --text: var(--fg);
-  --subtext: var(--fg2);
-  --overlay: var(--fg3);
-  --blue: var(--ansi-blue);
-  --lavender: var(--ansi-bright-blue);
-  --yellow: var(--ansi-yellow);
-  --red: var(--ansi-red);
-  --green: var(--ansi-green);
-  --peach: var(--ansi-bright-red);
-  --pink: var(--ansi-bright-magenta);
-  --teal: var(--ansi-cyan);
-  --mauve: var(--ansi-magenta);
-  --maroon: var(--ansi-red);
-  --sapphire: var(--ansi-bright-cyan);
-
   --font-sans: 'Geist Variable', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
   color-scheme: dark;
@@ -63,6 +42,8 @@
 }
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
 }
 html,
 body,
@@ -71,8 +52,8 @@ body,
   margin: 0;
 }
 body {
-  background: var(--base);
-  color: var(--text);
+  background: var(--ground);
+  color: var(--fg);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
@@ -537,12 +518,8 @@ body {
   font-weight: 400;
   margin-left: 2px;
 }
-.split.active {
-  color: var(--text);
-  background: var(--surface0);
-}
 .count {
-  color: var(--overlay);
+  color: var(--fg3);
   font-variant-numeric: tabular-nums;
 }
 .thread-list {
@@ -647,8 +624,8 @@ body {
   gap: 8px;
   padding: 6px 20px;
   font-size: 12px;
-  color: var(--subtext);
-  border-top: 1px solid var(--surface0);
+  color: var(--fg2);
+  border-top: 1px solid var(--line);
 }
 .acts {
   display: flex;
@@ -688,81 +665,27 @@ body {
   -webkit-app-region: no-drag;
 }
 .account {
-  color: var(--subtext);
+  color: var(--fg2);
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 10px;
-  background: var(--surface0);
+  background: var(--line);
   border: 0;
   font: inherit;
 }
-.account.add {
-  color: var(--blue);
-  cursor: pointer;
-}
-.account.add:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
 .account.needs-sign-in {
-  color: var(--base);
-  background: var(--yellow);
+  color: var(--ground);
+  background: var(--ansi-yellow);
   cursor: pointer;
 }
 .sync-badge {
-  color: var(--yellow);
+  color: var(--ansi-yellow);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 .sync-note {
-  color: var(--subtext);
+  color: var(--fg2);
   font-size: 12px;
-}
-.account-wrap {
-  position: relative;
-  display: inline-flex;
-}
-.accounts button.account {
-  cursor: pointer;
-}
-.popover {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  right: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
-  min-width: 180px;
-  max-width: 320px;
-  padding: 8px;
-  background: var(--mantle);
-  border: 1px solid var(--surface0);
-  border-radius: 8px;
-  box-shadow: 0 10px 30px var(--shadow);
-  font-size: 12px;
-  color: var(--subtext);
-  white-space: normal;
-}
-.popover .quiet,
-.popover .danger {
-  font: inherit;
-  text-align: left;
-  padding: 6px 8px;
-  border-radius: 5px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-}
-.popover .quiet:hover {
-  background: var(--surface0);
-}
-.popover .danger {
-  background: var(--red);
-  color: var(--base);
-  text-align: center;
 }
 .sheet {
   width: min(480px, calc(100vw - 32px));
@@ -770,19 +693,19 @@ body {
   flex-direction: column;
   gap: 10px;
   padding: 20px;
-  background: var(--mantle);
-  border: 1px solid var(--surface0);
+  background: var(--paper);
+  border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: 0 16px 48px var(--shadow);
 }
 .sheet h2 {
   margin: 0 0 4px;
   font-size: 16px;
-  color: var(--text);
+  color: var(--fg);
 }
 .sheet .help {
   margin: 0;
-  color: var(--subtext);
+  color: var(--fg2);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -793,7 +716,7 @@ body {
 }
 .sheet label > span {
   width: 72px;
-  color: var(--overlay);
+  color: var(--fg3);
   font-size: 12px;
 }
 .sheet input,
@@ -801,15 +724,15 @@ body {
   flex: 1;
   min-width: 0;
   font: inherit;
-  color: var(--text);
-  background: var(--base);
-  border: 1px solid var(--surface0);
+  color: var(--fg);
+  background: var(--ground);
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 8px;
   outline: none;
 }
 .sheet input:focus {
-  border-color: var(--blue);
+  border-color: var(--accent);
 }
 .sheet input.port {
   flex: 0 0 64px;
@@ -818,7 +741,7 @@ body {
   flex: 0 0 100px;
 }
 .sheet input.bad {
-  border-color: var(--red);
+  border-color: var(--ansi-red);
 }
 .sheet input[type='radio'] {
   flex: 0 0 auto;
@@ -853,7 +776,7 @@ body {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--overlay);
+  color: var(--fg3);
 }
 .key-help dl {
   margin: 0;
@@ -863,10 +786,10 @@ body {
   justify-content: space-between;
   gap: 12px;
   padding: 3px 0;
-  border-bottom: 1px solid var(--surface0);
+  border-bottom: 1px solid var(--line);
 }
 .key-help dt {
-  color: var(--text);
+  color: var(--fg);
 }
 .key-help dd {
   margin: 0;
@@ -877,14 +800,14 @@ body {
 }
 .key-help kbd {
   font: 11px var(--font-mono);
-  color: var(--text);
-  background: var(--surface0);
+  color: var(--fg);
+  background: var(--line);
   border-radius: 4px;
   padding: 1px 6px;
 }
 .sheet label.check {
   font-size: 12px;
-  color: var(--subtext);
+  color: var(--fg2);
 }
 .sheet label.check input {
   flex: 0;
@@ -901,16 +824,16 @@ body {
   font: inherit;
   background: none;
   border: 0;
-  color: var(--overlay);
+  color: var(--fg3);
   cursor: pointer;
   padding: 8px 12px;
 }
 .or {
   font-size: 12px;
-  color: var(--overlay);
+  color: var(--fg3);
 }
 .account-error {
-  color: var(--red);
+  color: var(--ansi-red);
   font-size: 12px;
 }
 .empty {
@@ -975,26 +898,14 @@ button.primary {
   padding: 8px 16px;
   border-radius: 8px;
   border: 0;
-  background: var(--blue);
-  color: var(--base);
+  background: var(--accent);
+  color: var(--accent-fg);
   font-weight: 600;
   cursor: pointer;
 }
 button.primary:disabled {
   opacity: 0.6;
   cursor: default;
-}
-/* Above the list and the top bar, and never part of the window's drag area, wherever it's rendered from. */
-.palette-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  -webkit-app-region: no-drag;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding-top: 14vh;
-  background: var(--scrim);
 }
 /* Panels drop from the header over the column; the list behind them blurs. */
 .panel-backdrop {
@@ -1111,12 +1022,12 @@ button.primary:disabled {
   display: flex;
   align-items: center;
   gap: 10px;
-  border-bottom: 1px solid var(--surface0);
+  border-bottom: 1px solid var(--line);
   padding: 6px 0;
 }
 .composer label span {
   width: 56px;
-  color: var(--overlay);
+  color: var(--fg3);
   font-size: 12px;
 }
 .composer input,
@@ -1124,7 +1035,7 @@ button.primary:disabled {
 .composer output {
   flex: 1;
   font: inherit;
-  color: var(--text);
+  color: var(--fg);
   background: transparent;
   border: 0;
   outline: none;
@@ -1135,7 +1046,7 @@ button.primary:disabled {
 .composer .link {
   font: inherit;
   font-size: 12px;
-  color: var(--overlay);
+  color: var(--fg3);
   background: none;
   border: 0;
   cursor: pointer;
@@ -1145,12 +1056,8 @@ button.primary:disabled {
   margin: 0;
   padding: 16px 20px;
   resize: none;
-  font:
-    14px/1.55 -apple-system,
-    BlinkMacSystemFont,
-    system-ui,
-    sans-serif;
-  color: var(--text);
+  font: 14px/1.55 var(--font-sans);
+  color: var(--fg);
   background: transparent;
   border: 0;
   outline: none;
@@ -1160,14 +1067,14 @@ button.primary:disabled {
   align-items: center;
   justify-content: space-between;
   padding: 10px 20px;
-  border-top: 1px solid var(--surface0);
+  border-top: 1px solid var(--line);
 }
 .composer .hint {
-  color: var(--overlay);
+  color: var(--fg3);
   font-size: 12px;
 }
 .composer.dragging {
-  box-shadow: inset 0 0 0 2px var(--blue);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 .composer .attachments {
   display: flex;
@@ -1183,15 +1090,15 @@ button.primary:disabled {
   gap: 8px;
   padding: 4px 6px 4px 10px;
   border-radius: 6px;
-  background: var(--surface0);
+  background: var(--line);
   font-size: 12px;
 }
 .composer .attachments .size {
-  color: var(--overlay);
+  color: var(--fg3);
 }
 .composer .attachments button {
   font: inherit;
-  color: var(--subtext);
+  color: var(--fg2);
   background: none;
   border: 0;
   cursor: pointer;
@@ -1213,23 +1120,23 @@ button.primary:disabled {
   list-style: none;
   margin: 0;
   padding: 4px;
-  background: var(--mantle);
-  border: 1px solid var(--surface0);
+  background: var(--paper);
+  border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: 0 10px 30px var(--shadow);
 }
 .composer .suggestions li {
   padding: 6px 10px;
   border-radius: 5px;
-  color: var(--text);
+  color: var(--fg);
   cursor: default;
   white-space: nowrap;
 }
 .composer .suggestions li.selected {
-  background: var(--surface0);
+  background: var(--line);
 }
 .composer .suggestions .address {
-  color: var(--overlay);
+  color: var(--fg3);
   margin-left: 6px;
 }
 .composer .actions {
@@ -1244,11 +1151,11 @@ button.primary:disabled {
   border-radius: 8px;
   border: 0;
   background: transparent;
-  color: var(--overlay);
+  color: var(--fg3);
   cursor: pointer;
 }
 .composer .error {
-  color: var(--red);
+  color: var(--ansi-red);
   font-size: 12px;
 }
 .dev-overlay {
@@ -1257,16 +1164,16 @@ button.primary:disabled {
   bottom: 12px;
   padding: 6px 10px;
   border-radius: 6px;
-  background: var(--crust);
-  color: var(--subtext);
+  background: var(--well);
+  color: var(--fg2);
   font: 12px var(--font-mono);
   pointer-events: none;
 }
 .dev-overlay b {
-  color: var(--green);
+  color: var(--ansi-green);
 }
 .dev-overlay.over b {
-  color: var(--red);
+  color: var(--ansi-red);
 }
 /* Below the header: the list, or a Thread in its place. The list stays laid out underneath, so Esc is instant. */
 .view {
@@ -1349,7 +1256,7 @@ button.primary:disabled {
   flex: 1;
   width: 100%;
   border: 0;
-  background: var(--base);
+  background: var(--ground);
 }
 .images-bar {
   display: flex;
@@ -1358,8 +1265,8 @@ button.primary:disabled {
   margin: 0 0 12px;
   padding: 6px 10px;
   border-radius: 6px;
-  background: var(--surface0);
-  color: var(--subtext);
+  background: var(--line);
+  color: var(--fg2);
   font-size: 12px;
 }
 .images-bar span {
@@ -1367,8 +1274,8 @@ button.primary:disabled {
 }
 .images-bar button {
   font: inherit;
-  color: var(--text);
-  background: var(--surface1);
+  color: var(--fg);
+  background: var(--line2);
   border: 0;
   border-radius: 4px;
   padding: 3px 8px;
@@ -1376,7 +1283,7 @@ button.primary:disabled {
 }
 .images-bar kbd {
   font: 11px var(--font-mono);
-  color: var(--subtext);
+  color: var(--fg2);
   margin-left: 4px;
 }
 .reader h1 {
@@ -1390,10 +1297,10 @@ button.primary:disabled {
 }
 .reader > .pending {
   margin: 0;
-  color: var(--overlay);
+  color: var(--fg3);
 }
 .message {
-  border-top: 1px solid var(--surface0);
+  border-top: 1px solid var(--line);
   padding: 14px 0;
 }
 .message header {
@@ -1403,31 +1310,27 @@ button.primary:disabled {
   margin-bottom: 10px;
 }
 .message .from {
-  color: var(--text);
+  color: var(--fg);
   font-weight: 600;
 }
 .message time {
-  color: var(--overlay);
+  color: var(--fg3);
   font-variant-numeric: tabular-nums;
 }
 .message .to {
   grid-column: 1 / -1;
-  color: var(--overlay);
+  color: var(--fg3);
   font-size: 12px;
 }
 .message .body {
   margin: 0;
   white-space: pre-wrap;
   word-wrap: break-word;
-  font:
-    14px/1.55 -apple-system,
-    BlinkMacSystemFont,
-    system-ui,
-    sans-serif;
-  color: var(--text);
+  font: 14px/1.55 var(--font-sans);
+  color: var(--fg);
 }
 .pending {
-  color: var(--overlay);
+  color: var(--fg3);
   font-style: italic;
 }
 

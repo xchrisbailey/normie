@@ -195,6 +195,9 @@ function createWindow() {
   const options: BrowserWindowConstructorOptions = {
     width: 1280,
     height: 820,
+    // Narrow enough for a side-by-side window: the header puts the tabs that don't fit in More.
+    minWidth: 420,
+    minHeight: 360,
     show: false,
     backgroundColor: groundOf(activeTheme().theme),
     title: 'Normie',
