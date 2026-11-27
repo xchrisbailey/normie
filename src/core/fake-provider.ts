@@ -297,6 +297,8 @@ export async function fakeExtractText(raw: Uint8Array): Promise<string> {
 /** A small demo mailbox for `npm run start:fake`. */
 export function seedDemo(p: FakeProvider, count = 40, now = Date.now()) {
   const people = ['Ada Lovelace', 'Grace Hopper', 'Alan Turing', 'Katherine Johnson', 'Linus Torvalds', 'Margaret Hamilton'];
+  // A few Labels to file into (Gmail-like mailboxes only).
+  if (p.caps.labels) for (const path of ['Receipts', 'Travel', 'Work/Projects']) p.addMailbox({ path });
   const topics = ['Quarterly budget', 'Flight to Lisbon', 'Release notes', 'Lunch on Friday', 'Invoice #4821', 'Design review', 'Hotel booking', 'CI is red again'];
   for (let i = 0; i < count; i++) {
     const name = people[i % people.length]!;

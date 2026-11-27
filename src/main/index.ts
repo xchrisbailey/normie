@@ -328,8 +328,13 @@ async function smokeKeys(w: BrowserWindow) {
   for (const ch of 'done') await press(ch);
   await press('Enter');
   const palette = paletteOpen && (await count()) === beforePalette - 1 && !((await w.webContents.executeJavaScript(`!!document.querySelector('.palette')`)) as boolean);
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette;
-  return { ok, start, afterJ, afterK, afterGG, reader, done, undone, starred, palette };
+  // l opens the Label picker with the Account's Labels.
+  await press('l');
+  const labelItems = (await w.webContents.executeJavaScript(`[...document.querySelectorAll('.palette li span')].map((s) => s.textContent)`)) as string[];
+  await press('Escape');
+  const label = labelItems.includes('Receipts');
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label;
+  return { ok, start, afterJ, afterK, afterGG, reader, done, undone, starred, palette, label };
 }
 
 ipcMain.handle('accounts:list', () => accounts.list());
