@@ -3,7 +3,7 @@
 import type { DataPort } from './data-service';
 import { parseAddresses } from './addresses';
 import { buildMime } from './compose';
-import { ServerRejectedError, type AccountId, type Mailbox, type MailProvider, type MailTransport } from './types';
+import { ServerRejectedError, SNOOZED, type AccountId, type Mailbox, type MailProvider, type MailTransport } from './types';
 
 export type TextExtractor = (raw: Uint8Array) => Promise<string>;
 
@@ -93,7 +93,8 @@ export class SyncEngine {
     if (!this.primary) return [];
     if (this.o.provider.caps.labels) return [this.primary.path];
     const byRole = (role: string) => this.mailboxes.find((m) => m.role === role)?.path;
-    return [this.primary.path, ...(['sent', 'archive', 'trash'] as const).map(byRole).filter((p): p is string => !!p && p !== this.primary!.path)];
+    const snoozed = this.mailboxes.find((m) => m.path === SNOOZED)?.path;
+    return [this.primary.path, ...[...(['sent', 'archive', 'trash'] as const).map(byRole), snoozed].filter((p): p is string => !!p && p !== this.primary!.path)];
   }
 
   /** Headers then bodies for every synced mailbox. */

@@ -15,6 +15,11 @@ export interface SplitDef {
 }
 
 const t = (r: ThreadRow) => r.tags ?? { newsletter: false, vip: false, known: false };
+const isSnoozed = (r: ThreadRow) => r.tags?.snoozedUntil !== undefined;
+
+/** Snoozed Threads wait in their own tab, always the last; every other tab leaves them out. */
+const SNOOZED_SPLIT: SplitDef = { id: 'snoozed', name: 'Snoozed', match: isSnoozed, notify: false };
+const awake = (s: SplitDef): SplitDef => ({ ...s, match: (r) => !isSnoozed(r) && s.match(r) });
 
 const BUILT_IN: Record<string, Omit<SplitDef, 'id'>> = {
   inbox: { name: 'Inbox', match: () => true, notify: false },
@@ -32,7 +37,7 @@ const accountSplits = (accounts: { id: string; name: string }[], notify = false)
  * non-newsletters), Newsletters, VIP; then one per Account when there's more than one. A Thread can be in several.
  */
 export function builtInSplits(accounts: { id: string; name: string }[]): SplitDef[] {
-  return [...Object.entries(BUILT_IN).map(([id, d]) => ({ id, ...d })), ...accountSplits(accounts)];
+  return [...[...Object.entries(BUILT_IN).map(([id, d]) => ({ id, ...d })), ...accountSplits(accounts)].map(awake), SNOOZED_SPLIT];
 }
 
 const RULE_KEYS = ['from', 'account', 'label', 'newsletter', 'vip'] as const;
@@ -66,6 +71,10 @@ export function splitsFrom(file: unknown, accounts: { id: string; name: string }
     const notify = typeof e.notify === 'boolean' ? e.notify : undefined;
     const name = typeof e.name === 'string' && e.name.trim() ? e.name.trim() : undefined;
     const hasRules = RULE_KEYS.some((k) => k in e);
+    if (id === 'snoozed') {
+      problems.push('"snoozed" is always the last tab; leave it out.');
+      continue;
+    }
     if (id === 'accounts') {
       seen.add(id);
       out.push(...accountSplits(accounts, notify ?? false));
@@ -116,9 +125,9 @@ export function splitsFrom(file: unknown, accounts: { id: string; name: string }
     seen.add(id);
     out.push({ id, name, notify: notify ?? false, match: (r) => tests.every((f) => f(r)) });
   }
-  // The Unified Inbox is always the first tab.
+  // The Unified Inbox is always the first tab, and Snoozed the last.
   const inbox = out.find((s) => s.id === 'inbox') ?? { id: 'inbox', ...BUILT_IN.inbox! };
-  return { splits: [inbox, ...out.filter((s) => s.id !== 'inbox')], problems };
+  return { splits: [inbox, ...out.filter((s) => s.id !== 'inbox')].map(awake).concat(SNOOZED_SPLIT), problems };
 }
 
 /** Each Split's count, in one pass over the rows. */

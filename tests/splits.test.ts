@@ -57,9 +57,9 @@ describe('Splits', () => {
   it('count each Split, and add one per Account when there are several', async () => {
     const c = await inbox();
     const rows = await c.rows('inbox');
-    expect(Object.fromEntries(splitCounts(builtInSplits([]), rows))).toEqual({ inbox: 4, important: 1, other: 1, newsletters: 2, vip: 0 });
+    expect(Object.fromEntries(splitCounts(builtInSplits([]), rows))).toEqual({ inbox: 4, important: 1, other: 1, newsletters: 2, vip: 0, snoozed: 0 });
     const two = builtInSplits([{ id: 'acct-1', name: 'Work' }, { id: 'icloud:me', name: 'Home' }]);
-    expect(two.map((s) => s.name)).toEqual(['Inbox', 'Important', 'Other', 'Newsletters', 'VIP', 'Work', 'Home']);
+    expect(two.map((s) => s.name)).toEqual(['Inbox', 'Important', 'Other', 'Newsletters', 'VIP', 'Work', 'Home', 'Snoozed']);
     expect(splitCounts(two, rows).get('account:acct-1')).toBe(4);
   });
 
@@ -95,13 +95,13 @@ describe('splits.json', () => {
   it('keeps the built-ins when there is no file', () => {
     const { splits, problems } = splitsFrom(undefined, accounts);
     expect(problems).toEqual([]);
-    expect(splits.map((s) => s.id)).toEqual(['inbox', 'important', 'other', 'newsletters', 'vip', 'account:gmail:work@acme.com', 'account:icloud:me']);
+    expect(splits.map((s) => s.id)).toEqual(['inbox', 'important', 'other', 'newsletters', 'vip', 'account:gmail:work@acme.com', 'account:icloud:me', 'snoozed']);
     expect(splits.filter((s) => s.notify).map((s) => s.id)).toEqual(['important']);
   });
 
   it('orders, renames and hides built-ins, places the Account tabs, and always starts with Inbox', () => {
     const { splits } = splitsFrom([{ id: 'newsletters', name: 'Reading' }, { id: 'accounts' }, { id: 'important', notify: false }], accounts);
-    expect(splits.map((s) => s.name)).toEqual(['Inbox', 'Reading', 'work@acme.com', 'me@icloud.com', 'Important']);
+    expect(splits.map((s) => s.name)).toEqual(['Inbox', 'Reading', 'work@acme.com', 'me@icloud.com', 'Important', 'Snoozed']);
     expect(splits.some((s) => s.notify)).toBe(false);
   });
 
@@ -133,8 +133,21 @@ describe('splits.json', () => {
     ], accounts);
     // Bad id, nameless, rules on a built-in, unknown Account, unknown setting, not an object. A broken Split is left out.
     expect(problems).toHaveLength(6);
-    expect(splits.map((s) => s.id)).toEqual(['inbox', 'vip', 'odd']);
+    expect(splits.map((s) => s.id)).toEqual(['inbox', 'vip', 'odd', 'snoozed']);
     expect(splitsFrom([{ id: 'vip' }, { id: 'vip' }], accounts).problems).toEqual(['"vip" is listed twice; the first one is kept.']);
     expect(splitsFrom({ not: 'a list' }, accounts).problems).toHaveLength(1);
+  });
+});
+
+describe('the Snoozed tab', () => {
+  it('holds snoozed Threads, always last, and every other tab leaves them out', () => {
+    const r = (key: string, snoozedUntil?: number): ThreadRow => ({
+      key, accountId: 'a', subject: key, from: 'f', date: 0, snippet: '', unread: false, starred: false, count: 1,
+      tags: { newsletter: false, vip: false, known: true, ...(snoozedUntil ? { snoozedUntil } : {}) },
+    });
+    const rows = [r('awake'), r('asleep', 123)];
+    const { splits } = splitsFrom([{ id: 'important' }], []);
+    expect(splits.at(-1)!.id).toBe('snoozed');
+    expect(Object.fromEntries(splitCounts(splits, rows))).toEqual({ inbox: 1, important: 1, snoozed: 1 });
   });
 });

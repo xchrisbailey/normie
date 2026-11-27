@@ -166,6 +166,9 @@ export interface MailTransport {
   send(raw: Uint8Array, envelope: { from: string; to: string[] }): Promise<void>;
 }
 
+/** The Label (Gmail) or folder snoozed mail waits in. */
+export const SNOOZED = 'Snoozed';
+
 /** The server answered and said no (as opposed to the connection failing). Counts toward giving up on a change. */
 export class ServerRejectedError extends Error {
   readonly rejected = true;
@@ -187,7 +190,11 @@ export type ThreadAction =
   /** Mute: Done now, and Done again whenever new mail arrives in the Thread. Off only unmutes. */
   | { type: 'mute'; on: boolean }
   /** Gmail: add or remove a Label. Folder servers, where a Label is a move, come in milestone 4. */
-  | { type: 'label'; label: string; on: boolean };
+  | { type: 'label'; label: string; on: boolean }
+  /** Out of the Inbox until `until` (ms): Gmail's Snoozed label, or a Snoozed folder. */
+  | { type: 'snooze'; until: number }
+  /** Back to the Inbox now. */
+  | { type: 'unsnooze' };
 
 /** An Account's Labels, or on folder servers its folders, where applying one moves the Thread. */
 export interface LabelSet {
@@ -268,6 +275,8 @@ export interface RowTags {
   sender?: string;
   /** The Thread's own Labels (Gmail; system ones left out). */
   labels?: string[];
+  /** Snoozed until then (ms). */
+  snoozedUntil?: number;
 }
 
 export interface ThreadMessage {

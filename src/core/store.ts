@@ -1,5 +1,6 @@
 // The local store: one SQLite file in WAL mode, owned by the data process.
 import Database from 'better-sqlite3';
+import { SNOOZED } from './types';
 import type {
   AccountId, Address, AttachmentInfo, ChangeResult, DraftContent, LabelSet, DraftSummary, DraftToSync, FlagChange, OutboxItem, OutgoingMessage, MailboxRole, MessageEdit, PendingChange, RemoteHeader, SplitId, SyncState, ThreadAction,
   ThreadMessage, ThreadRow,
@@ -233,6 +234,19 @@ const MIGRATIONS: string[] = [
   `
   alter table mailboxes add column checked_at integer;
   `,
+  // Snooze: when each snoozed Thread wakes, and the changes that snoozed it (undone to wake it). Woken Threads go on top.
+  `
+  create table snoozes (
+    account_id text not null,
+    thread_key text not null,
+    wake_at integer not null,
+    change_ids_json text not null,
+    primary key (account_id, thread_key)
+  );
+  create index snoozes_wake on snoozes (wake_at);
+  alter table threads add column woke_at integer;
+  create index threads_woke on threads (woke_at) where woke_at is not null;
+  `,
 ];
 
 /** Mail dated a little before the last check still counts as news (clocks differ; servers deliver late). */
@@ -242,6 +256,7 @@ const NEWS_SLACK_MS = 10 * 60_000;
 export const DELETE_HOLD_MS = 10_000;
 
 const FLAGGED = '\\Flagged';
+
 const DRAFT = '\\Draft';
 const SEEN = '\\Seen';
 const TRASH = '\\Trash';
@@ -276,19 +291,9 @@ function edited(xs: string[], add?: string[], remove?: string[]): string[] {
   return [...s];
 }
 
-/**
- * A Thread's key across Accounts: "account:thread", with the Account id escaped so it never holds a colon
- * (real ids do, as in "gmail:me@example.com"). Thread keys themselves may contain colons.
- */
-export function threadRowKey(accountId: AccountId, threadKey: string): string {
-  return `${encodeURIComponent(accountId)}:${threadKey}`;
-}
+export { parseThreadKey, threadRowKey } from './keys';
+import { parseThreadKey, threadRowKey } from './keys';
 
-/** Splits a key made by threadRowKey into its parts. */
-export function parseThreadKey(key: string): { accountId: AccountId; threadKey: string } {
-  const i = key.indexOf(':');
-  return { accountId: decodeURIComponent(key.slice(0, i)), threadKey: key.slice(i + 1) };
-}
 
 interface ActionMessage {
   mailbox: string;
@@ -308,6 +313,7 @@ interface ActionMessage {
 interface Folders {
   archive: string;
   trash: string;
+  snoozed: string;
 }
 
 function planAction(action: ThreadAction, msgs: ActionMessage[], folders?: Folders): { pick: ActionMessage[]; edit: MessageEdit }[] {
@@ -329,6 +335,11 @@ function planAction(action: ThreadAction, msgs: ActionMessage[], folders?: Folde
         ? { pick: labelled.filter((m) => !has(m)), edit: { addLabels: [action.label] } }
         : { pick: labelled.filter(has), edit: { removeLabels: [action.label] } }];
     }
+    case 'snooze':
+      // Gmail: out of the Inbox and into the Snoozed label, so the phone hides it too.
+      return [{ pick: inInbox, edit: { removeLabels: [INBOX_LABEL], addLabels: [SNOOZED] } }];
+    case 'unsnooze':
+      return [];
     case 'mute':
       // Muting is Done plus a local note (see recordAction); unmuting changes nothing on the server.
       return action.on ? [{ pick: inInbox, edit: { removeLabels: [INBOX_LABEL] } }] : [];
@@ -360,6 +371,8 @@ function planFolderAction(action: ThreadAction, msgs: ActionMessage[], f: Folder
       return [{ pick: inInbox, edit: { moveTo: f.archive } }];
     case 'mute':
       return action.on ? [{ pick: inInbox, edit: { moveTo: f.archive } }] : [];
+    case 'snooze':
+      return [{ pick: inInbox, edit: { moveTo: f.snoozed } }];
     case 'delete':
       return [{ pick: msgs.filter((m) => m.mailbox !== f.trash), edit: { moveTo: f.trash } }];
     case 'label':
@@ -452,7 +465,7 @@ export class Store {
   removeAccount(id: AccountId) {
     this.db.transaction(() => {
       this.sql('delete from bodies where message_id in (select id from messages where account_id = ?)').run(id);
-      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes', 'muted_threads', 'outbox', 'drafts', 'draft_deletions', 'thread_refs', 'identities']) this.sql(`delete from ${t} where account_id = ?`).run(id);
+      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes', 'muted_threads', 'outbox', 'drafts', 'draft_deletions', 'thread_refs', 'identities', 'snoozes']) this.sql(`delete from ${t} where account_id = ?`).run(id);
       this.sql('delete from accounts where id = ?').run(id);
     })();
   }
@@ -674,6 +687,10 @@ export class Store {
           for (const k of this.editMessages(accountId, mailbox, uids, edit)) if (this.refreshThread(accountId, k)) inboxChanged = true;
         }
       }
+      if (action.type === 'snooze' && changes.length) {
+        this.sql('insert or replace into snoozes(account_id, thread_key, wake_at, change_ids_json) values (?, ?, ?, ?)')
+          .run(accountId, threadKey, action.until, JSON.stringify(changes.map((c) => c.id)));
+      }
     })();
     return { changes, inboxChanged };
   }
@@ -685,6 +702,7 @@ export class Store {
     return {
       archive: boxes.find((b) => b.role === 'archive')?.path ?? 'Archive',
       trash: boxes.find((b) => b.role === 'trash')?.path ?? 'Trash',
+      snoozed: SNOOZED,
     };
   }
 
@@ -871,6 +889,44 @@ export class Store {
       }
     })();
     return { accounts: [...accounts], inboxChanged };
+  }
+
+  // --- Snooze
+
+  /** Snoozed Threads whose time has come. */
+  dueSnoozes(now: number): { accountId: AccountId; threadKey: string }[] {
+    return (this.sql('select account_id, thread_key from snoozes where wake_at <= ? order by wake_at').all(now) as { account_id: string; thread_key: string }[])
+      .map((r) => ({ accountId: r.account_id, threadKey: r.thread_key }));
+  }
+
+  nextWakeAt(): number | undefined {
+    return (this.sql('select min(wake_at) from snoozes').pluck().get() as number | null) ?? undefined;
+  }
+
+  /**
+   * Wake a snoozed Thread: undo the changes that snoozed it (back to the Inbox on the server too) and put it on top.
+   * Returns the Accounts with changes to replay, or undefined when it wasn't snoozed.
+   */
+  wake(accountId: AccountId, threadKey: string, now: number): AccountId[] | undefined {
+    const ids = this.sql('select change_ids_json from snoozes where account_id = ? and thread_key = ?').pluck().get(accountId, threadKey) as string | undefined;
+    if (ids === undefined) return undefined;
+    let accounts: AccountId[] = [];
+    this.db.transaction(() => {
+      this.sql('delete from snoozes where account_id = ? and thread_key = ?').run(accountId, threadKey);
+      accounts = this.undo(JSON.parse(ids) as number[]).accounts;
+      this.sql('update threads set woke_at = ? where account_id = ? and thread_key = ?').run(now, accountId, threadKey);
+    })();
+    return accounts;
+  }
+
+  /** Forget snoozes made by these changes (they were undone). */
+  dropSnoozesFor(changeIds: number[]) {
+    const rows = this.sql('select account_id, thread_key, change_ids_json from snoozes').all() as { account_id: string; thread_key: string; change_ids_json: string }[];
+    for (const r of rows) {
+      if ((JSON.parse(r.change_ids_json) as number[]).some((id) => changeIds.includes(id))) {
+        this.sql('delete from snoozes where account_id = ? and thread_key = ?').run(r.account_id, r.thread_key);
+      }
+    }
   }
 
   pendingStatus(): { count: number; waiting: number } {
@@ -1139,24 +1195,38 @@ export class Store {
   /** The Inbox's Threads, newest first, each tagged with what the Split rules need (the renderer splits them). */
   rows(split: SplitId, limit = 5000): ThreadRow[] {
     if (split !== 'inbox') return [];
-    return (this
-      .sql(`select t.account_id, t.thread_key, t.subject, t.from_label, t.last_date, t.snippet, t.unread, t.starred, t.count, t.is_list, t.sender, t.labels_json,
-                  t.sender in (select address from vip) vip,
-                  t.sender in (select address from contacts where sent_count > 0) known
-                from threads t where t.in_inbox = 1 order by t.last_date desc limit ?`)
-      .all(limit) as {
-        account_id: string; thread_key: string; subject: string; from_label: string; last_date: number; snippet: string;
-        unread: number; starred: number; count: number; is_list: number; sender: string | null; labels_json: string; vip: number | null; known: number | null;
-      }[])
-      .map((r) => ({
-        key: threadRowKey(r.account_id, r.thread_key), accountId: r.account_id, subject: r.subject, from: r.from_label,
-        date: r.last_date, snippet: r.snippet, unread: r.unread === 1, starred: r.starred === 1, count: r.count,
-        tags: {
-          newsletter: r.is_list === 1, vip: r.vip === 1, known: r.known === 1, ...(r.sender ? { sender: r.sender } : {}),
-          ...(r.labels_json !== '[]' ? { labels: JSON.parse(r.labels_json) as string[] } : {}),
-        },
-      }));
+    // Three queries that each use an index, merged here: an OR across them made SQLite scan and sort every Thread.
+    const cols = `t.account_id, t.thread_key, t.subject, t.from_label, t.last_date, t.snippet, t.unread, t.starred, t.count, t.is_list, t.sender,
+                  t.labels_json, t.woke_at, t.sender in (select address from vip) vip, t.sender in (select address from contacts where sent_count > 0) known`;
+    type Row = {
+      account_id: string; thread_key: string; subject: string; from_label: string; last_date: number; snippet: string;
+      unread: number; starred: number; count: number; is_list: number; sender: string | null; labels_json: string; woke_at: number | null;
+      vip: number | null; known: number | null; wake_at?: number;
+    };
+    // The Inbox, newest first; woken Threads (rare) are fetched apart, since waking puts an old Thread on top.
+    const inbox = this.sql(`select ${cols} from threads t where t.in_inbox = 1 order by t.last_date desc limit ?`).all(limit) as Row[];
+    const woken = this.sql(`select ${cols} from threads t where t.woke_at is not null and t.woke_at > t.last_date and t.in_inbox = 1`).all() as Row[];
+    const snoozed = this.sql(`select ${cols}, s.wake_at from snoozes s join threads t on t.account_id = s.account_id and t.thread_key = s.thread_key`).all() as Row[];
+    const seen = new Set<string>();
+    const all: (Row & { sort: number })[] = [];
+    for (const r of [...snoozed, ...woken, ...inbox]) {
+      const k = `${r.account_id}\u0000${r.thread_key}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      all.push({ ...r, sort: Math.max(r.last_date, r.woke_at ?? 0) });
+    }
+    all.sort((x, y) => y.sort - x.sort);
+    return all.slice(0, limit).map((r) => ({
+      key: threadRowKey(r.account_id, r.thread_key), accountId: r.account_id, subject: r.subject, from: r.from_label,
+      date: r.sort, snippet: r.snippet, unread: r.unread === 1, starred: r.starred === 1, count: r.count,
+      tags: {
+        ...(r.wake_at !== undefined ? { snoozedUntil: r.wake_at } : {}),
+        newsletter: r.is_list === 1, vip: r.vip === 1, known: r.known === 1, ...(r.sender ? { sender: r.sender } : {}),
+        ...(r.labels_json !== '[]' ? { labels: JSON.parse(r.labels_json) as string[] } : {}),
+      },
+    }));
   }
+
 
   /** Mark a sender as VIP, or not. */
   setVip(address: string, on: boolean) {

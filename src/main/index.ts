@@ -539,7 +539,7 @@ async function smokeKeys(w: BrowserWindow) {
   writeFileSync(splitsPath(), JSON.stringify([{ id: 'newsletters', name: 'Reading' }, { id: 'other' }]));
   await new Promise((r) => setTimeout(r, 600));
   const ownTabs = (await w.webContents.executeJavaScript(`[...document.querySelectorAll('.split')].map((s) => s.firstChild.textContent.trim()).join('|')`)) as string;
-  const splits = builtIns && ownTabs === 'Inbox|Reading|Other';
+  const splits = builtIns && ownTabs === 'Inbox|Reading|Other|Snoozed';
   // Clicking a notification opens its Thread (main sends open-thread with the key).
   const target = (await w.webContents.executeJavaScript(`(() => { const r = document.querySelectorAll('.row')[2]; return { key: r.dataset.key, subject: r.querySelector('.subject').firstChild.textContent }; })()`)) as { key: string; subject: string };
   w.webContents.send('open-thread', target.key);
@@ -547,8 +547,19 @@ async function smokeKeys(w: BrowserWindow) {
   const openedSubject = (await w.webContents.executeJavaScript(`document.querySelector('.reader h1')?.textContent ?? ''`)) as string;
   await press('Escape');
   const notifyClick = openedSubject === target.subject;
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick };
+  // h, "tomorrow 9", Enter: the Thread leaves the Inbox for the Snoozed tab.
+  const tabCount = (name: string) => w.webContents.executeJavaScript(`Number([...document.querySelectorAll('.split')].find((s) => s.firstChild.textContent.trim() === '${name}')?.querySelector('.count')?.textContent)`) as Promise<number>;
+  const inboxBefore = await tabCount('Inbox');
+  await press('h');
+  await new Promise((r) => setTimeout(r, 200));
+  for (const ch of 'tomorrow 9') w.webContents.sendInputEvent({ type: 'char', keyCode: ch });
+  await new Promise((r) => setTimeout(r, 100));
+  const pickerShows = (await w.webContents.executeJavaScript(`document.querySelector('.palette li span')?.textContent ?? ''`)) as string;
+  await press('Return');
+  await new Promise((r) => setTimeout(r, 300));
+  const snooze = pickerShows.startsWith('Tomorrow, 9') && (await tabCount('Inbox')) === inboxBefore - 1 && (await tabCount('Snoozed')) === 1;
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick && snooze;
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick, snooze, pickerShows };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };

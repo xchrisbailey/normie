@@ -24,6 +24,8 @@ export const ACTIONS = [
   { id: 'thread.delete', name: 'Delete', keys: ['#'], contexts: ['list', 'reader'] },
   { id: 'thread.toggleRead', name: 'Mark Read or Unread', keys: ['u'], contexts: ['list', 'reader'] },
   { id: 'thread.label', name: 'Apply Label', keys: ['l'], contexts: ['list', 'reader'] },
+  { id: 'thread.snooze', name: 'Snooze', keys: ['h'], contexts: ['list', 'reader'] },
+  { id: 'thread.unsnooze', name: 'Unsnooze', keys: ['Shift-U'], contexts: ['list', 'reader'] },
   { id: 'thread.mute', name: 'Mute', keys: ['m'], contexts: ['list', 'reader'] },
   { id: 'thread.unmute', name: 'Unmute', keys: [], contexts: ['list', 'reader'] },
   { id: 'undo', name: 'Undo', keys: ['z'], contexts: ['list', 'reader'] },
