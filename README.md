@@ -11,10 +11,20 @@ A keyboard-first desktop mail client for Gmail, iCloud and any IMAP/SMTP server.
 | `npm test` | Core tests over the fake provider |
 | `npm run typecheck` | TypeScript |
 | `npm run smoke` | Launch the app hidden with the fake provider and check the Inbox renders |
-| `npm run package` | Unsigned Mac build in `dist/` |
+| `npm run package` | The Mac app, a DMG and a zip in `dist/` (`npm run package:dir` for just the app) |
 | `npm run smoke:packaged` | The smoke check against the packaged app |
 | `npm run bench` | The performance budgets against a 100,000-message fixture |
 | `GMAIL_USER=you@domain npm run test:live` | Read-only checks against real Gmail (browser sign-in). Add `GMAIL_LIVE_WRITE=1` to also mark one message Done and put it back, and `GMAIL_LIVE_SEND=1` to send one message to yourself |
+
+## Installing
+
+1. `npm run package`, then open `dist/Normie-<version>-arm64.dmg` and drag Normie to Applications.
+2. Open it from Applications. It's signed ad-hoc (no Apple Developer account), so if macOS says it can't check the developer (for example, after copying it from another Mac), right-click → Open once.
+3. Normie starts at login and lives in the menu bar when its window is closed; Quit (⌘Q, or the menu bar envelope) really quits. Start at login can be turned off from the menu bar or `Cmd-K`.
+
+To update: quit Normie, build again, and replace the app in Applications. Your mail, Accounts and settings stay in `~/Library/Application Support/normie/`.
+
+The development build (`npm start`) and the installed app share that folder, so run one at a time. They may each keep their passwords under their own Keychain key: the first time the installed app runs, an Account can show "Sign in again"; signing in once fixes it.
 
 ## Keys
 
