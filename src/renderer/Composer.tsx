@@ -93,15 +93,18 @@ export default function Composer({
   const bodyField = useRef<HTMLTextAreaElement>(null);
   /** Where to put the cursor after the body changes from code (a snippet). */
   const nextCursor = useRef<number | null>(null);
+  const lastSelection = useRef({ start: (start.body ?? '').length, end: (start.body ?? '').length });
   useLayoutEffect(() => {
     if (nextCursor.current === null || !bodyField.current) {
       return;
     }
     bodyField.current.focus();
     bodyField.current.setSelectionRange(nextCursor.current, nextCursor.current);
+    // Setting the cursor from code fires no select event.
+    lastSelection.current = { start: nextCursor.current, end: nextCursor.current };
     nextCursor.current = null;
   }, [body]);
-  const lastSelection = useRef({ start: (start.body ?? '').length, end: (start.body ?? '').length });
+  const keepSelection = (el: HTMLTextAreaElement) => (lastSelection.current = { start: el.selectionStart, end: el.selectionEnd });
   // After every commit, so `insert` always sees the current body.
   useLayoutEffect(() => {
     if (handleRef) {
@@ -351,9 +354,12 @@ export default function Composer({
         ref={bodyField}
         className="body"
         value={body}
-        onChange={(e) => setBody(e.target.value)}
+        onChange={(e) => {
+          keepSelection(e.target);
+          setBody(e.target.value);
+        }}
         onKeyDown={onBodyKeyDown}
-        onSelect={(e) => (lastSelection.current = { start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd })}
+        onSelect={(e) => keepSelection(e.currentTarget)}
         placeholder="Write in Markdown"
       />
       {attachments.length > 0 && (

@@ -114,22 +114,38 @@ body {
 .search-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
+  gap: 10px;
+  height: 52px;
+  padding: 0 16px;
+  color: var(--fg3);
 }
 .search-bar input {
   flex: 1;
+  min-width: 0;
   font: inherit;
+  font-size: 15px;
   color: var(--fg);
-  background: var(--paper);
-  border: 1px solid var(--line2);
-  border-radius: 6px;
-  padding: 5px 10px;
+  background: transparent;
+  border: 0;
   outline: none;
 }
-.search-bar input:focus {
-  border-color: var(--accent);
+.search-bar svg,
+.search-chip svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.search-bar .count,
+.search-chip .count {
+  font: 12px var(--font-mono);
+  color: var(--fg3);
+}
+.search-bar .sync-note {
+  font-size: 12px;
+}
+.search-bar .search-server,
+.search-bar .sync-note {
+  white-space: nowrap;
 }
 .search-bar .search-server {
   font: inherit;
@@ -138,6 +154,46 @@ body {
   background: none;
   border: 0;
   cursor: pointer;
+}
+.panel-foot {
+  display: flex;
+  gap: 18px;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--fg3);
+  border-top: 1px solid var(--line);
+}
+.panel-foot kbd {
+  font: 11px var(--font-mono);
+  margin-right: 4px;
+}
+/* While the results fill the list: what was searched, in place of the tabs. A press edits it. */
+.search-chip {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  max-width: 60%;
+  height: 30px;
+  padding: 0 12px;
+  font: inherit;
+  color: var(--fg2);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  cursor: pointer;
+}
+.search-chip:hover {
+  color: var(--fg);
+}
+.search-chip-query {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.search-chip .sync-note {
+  font-size: 12px;
+  color: var(--fg3);
 }
 
 .split-room {
@@ -985,12 +1041,15 @@ button.primary:disabled {
     transition: none;
   }
 }
+.compose-panel {
+  height: min(620px, calc(100vh - 120px));
+}
 .composer {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: var(--base);
+  min-height: 0;
 }
 .composer .fields {
   padding: 12px 20px 0;
@@ -1122,7 +1181,9 @@ button.primary:disabled {
 }
 .composer .actions {
   display: flex;
+  flex: none;
   gap: 8px;
+  white-space: nowrap;
 }
 .composer .quiet {
   font: inherit;
@@ -1162,8 +1223,7 @@ button.primary:disabled {
   margin-top: 12px;
 }
 .lists,
-.view > .reader,
-.view > .composer {
+.view > .reader {
   position: absolute;
   inset: 0;
 }
@@ -1174,14 +1234,12 @@ button.primary:disabled {
     transform 0.45s var(--ease),
     opacity 0.3s ease;
 }
-.view.reading .lists,
-.view.composing .lists {
+.view.reading .lists {
   transform: translateX(-56px);
   opacity: 0;
   pointer-events: none;
 }
-.view > .reader,
-.view > .composer {
+.view > .reader {
   animation: enter-column 0.4s var(--ease) both;
 }
 @keyframes enter-column {
@@ -1322,8 +1380,7 @@ button.primary:disabled {
 
 @media (prefers-reduced-motion: reduce) {
   .lists,
-  .view > .reader,
-  .view > .composer {
+  .view > .reader {
     transition: none;
     animation: none;
   }
