@@ -4,6 +4,7 @@ import { AccountBar, EmptyState, useAccounts } from './AccountBar';
 import type { CoreClient } from './core-client';
 import { DevOverlay } from './DevOverlay';
 import { Reader } from './Reader';
+import { SyncBadge } from './SyncBadge';
 import { ThreadCache } from './thread-cache';
 import { ThreadList } from './ThreadList';
 import { useKeys } from './useKeys';
@@ -184,6 +185,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
       <header className="split-bar">
         <span className="split active">Inbox</span>
         <span className="count">{rows.length}</span>
+        <SyncBadge core={core} />
         {accounts && <AccountBar accounts={accounts} />}
       </header>
       {empty ? (

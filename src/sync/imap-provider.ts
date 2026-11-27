@@ -1,6 +1,7 @@
 // The IMAP provider over ImapFlow. Gmail, iCloud and generic servers all use it and differ in caps
 // (read from the server after login) and a few overrides. Facts it relies on are from spike #2.
 import { ImapFlow, type FetchMessageObject, type ListResponse, type MessageAddressObject } from 'imapflow';
+import { ServerRejectedError } from '../core/types';
 import type {
   Address, Caps, ChangeSet, ChangesOptions, FlagChange, Mailbox, MailboxRole, MailEvent, MailProvider, MessageEdit, RawMessage, RemoteHeader, SyncState,
 } from '../core/types';
@@ -245,7 +246,12 @@ export class ImapProvider implements MailProvider {
         const ok = op === 'add'
           ? await this.c.messageFlagsAdd(range, items, { uid: true, useLabels })
           : await this.c.messageFlagsRemove(range, items, { uid: true, useLabels });
-        if (!ok) throw new Error(`server refused to ${op} ${useLabels ? 'labels' : 'flags'} ${items.join(' ')}`);
+        if (!ok) {
+          // ImapFlow reports every STORE failure as false. A connection that's still up means the server said no.
+          const what = `${op} ${useLabels ? 'labels' : 'flags'} ${items.join(' ')}`;
+          if (this.client?.usable) throw new ServerRejectedError(`server refused to ${what}`);
+          throw new Error(`connection lost while trying to ${what}`);
+        }
       }
     }, false);
   }

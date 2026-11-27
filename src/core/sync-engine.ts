@@ -1,7 +1,7 @@
 // The sync side of the core: pulls changes from a MailProvider and hands them to the data side.
 // Runs in the sync process. Talks to the store only through DataPort.
 import type { DataPort } from './data-service';
-import type { AccountId, Mailbox, MailProvider } from './types';
+import { ServerRejectedError, type AccountId, type Mailbox, type MailProvider } from './types';
 
 export type TextExtractor = (raw: Uint8Array) => Promise<string>;
 
@@ -55,6 +55,9 @@ export class SyncEngine {
   private inbox?: Mailbox;
   /** A replay that's queued but hasn't started; later requests join it. */
   private replayQueued?: Promise<void>;
+  private replayRetry?: ReturnType<typeof setTimeout>;
+  private replayFailures = 0;
+  private stopped = false;
   /** Resolves after the next live sync pass completes; for tests. */
   private passWaiters: (() => void)[] = [];
 
@@ -212,19 +215,27 @@ export class SyncEngine {
     if (this.replayQueued) return this.replayQueued;
     const run = this.serial(async () => {
       this.replayQueued = undefined;
+      clearTimeout(this.replayRetry);
       const { provider, data, accountId } = this.o;
+      let failed = false;
       for (const c of await data.pendingChanges(accountId)) {
         try {
           await provider.edit(c.mailbox, c.uids, c.edit);
           await data.changeApplied(c.id);
         } catch (e) {
+          failed = true;
+          const rejected = e instanceof ServerRejectedError;
           const msg = (e as Error).message;
-          await data.changeFailed(c.id, msg);
-          this.log(`change ${c.id} not sent yet: ${msg}`);
-          // Most failures are the connection; the rest wait for the next pass too.
-          return;
+          const gaveUp = await data.changeFailed(c.id, msg, rejected);
+          this.log(gaveUp ? `change ${c.id} refused by the server, rolled back: ${msg}` : `change ${c.id} not sent yet: ${msg}`);
+          // A refusal is about this change only; anything else is most likely the connection, so stop here and keep order.
+          if (!rejected) break;
         }
       }
+      if (!failed) return void (this.replayFailures = 0);
+      if (this.stopped) return;
+      // Try again with backoff. While live, a full pass also reconnects if the connection is gone.
+      this.replayRetry = setTimeout(() => (this.live ? this.syncSoon(0) : this.replaySoon()), (this.o.backoffMs ?? defaultBackoff)(this.replayFailures++));
     });
     this.replayQueued = run;
     return run;
@@ -301,6 +312,8 @@ export class SyncEngine {
   }
 
   async stop() {
+    this.stopped = true;
+    clearTimeout(this.replayRetry);
     this.live?.abort();
     clearInterval(this.pollTimer);
     clearTimeout(this.debounceTimer);

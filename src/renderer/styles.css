@@ -27,6 +27,8 @@ body { background: var(--base); color: var(--text); overflow: hidden; -webkit-fo
 .account.add { color: var(--blue); cursor: pointer; }
 .account.add:disabled { opacity: 0.6; cursor: default; }
 .account.needs-sign-in { color: var(--base); background: #f9e2af; cursor: pointer; }
+.sync-badge { color: #f9e2af; font-size: 12px; font-variant-numeric: tabular-nums; }
+.sync-note { color: var(--subtext); font-size: 12px; }
 .account-error { color: #f38ba8; font-size: 12px; }
 .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--subtext); }
 button.primary { font: inherit; padding: 8px 16px; border-radius: 8px; border: 0; background: var(--blue); color: var(--base); font-weight: 600; cursor: pointer; }

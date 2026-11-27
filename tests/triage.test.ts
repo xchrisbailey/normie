@@ -72,7 +72,7 @@ describe('Done', () => {
     await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
     await c.engine.idle();
     expect(p.edits).toEqual([]);
-    expect(c.data.pendingChanges('acct-1')).toMatchObject([{ uids: lunch.inbox, attempts: 1 }]);
+    expect(c.data.pendingChanges('acct-1')).toMatchObject([{ uids: lunch.inbox, attempts: 0 }]);
     expect(await subjects(c)).toEqual(['Invoice']);
 
     await c.engine.syncOnce();
@@ -119,5 +119,82 @@ describe('Done', () => {
     p.deliver({ subject: 'Re: Lunch', threadId: 't-lunch', date: NOW });
     await c.engine.syncOnce();
     expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
+  });
+});
+
+describe('failed changes', () => {
+  const waitFor = async (cond: () => boolean | Promise<boolean>, ms = 2000) => {
+    const end = Date.now() + ms;
+    while (!(await cond())) {
+      if (Date.now() > end) throw new Error('timed out');
+      await new Promise((r) => setTimeout(r, 5));
+    }
+  };
+  const fastCore = async (p: FakeProvider) => {
+    const c = await createCore({ provider: p, extractText: fakeExtractText, now: () => NOW, backoffMs: () => 10 });
+    cores.push(c);
+    await c.engine.syncOnce();
+    return c;
+  };
+
+  it('retries with backoff by itself until the server takes the change', async () => {
+    const { p } = mailbox();
+    const c = await fastCore(p);
+    p.failNext = 3;
+    await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
+    await waitFor(() => c.data.pendingChanges('acct-1').length === 0);
+    expect(p.edits).toHaveLength(1);
+  });
+
+  it('reports how many changes are pending and how many are waiting after a failure', async () => {
+    const { p } = mailbox();
+    const c = await start(p);
+    p.failNext = 1;
+    await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
+    expect(await c.pending()).toEqual({ count: 1, waiting: 0 });
+    await c.engine.idle();
+    expect(await c.pending()).toEqual({ count: 1, waiting: 1 });
+    expect(c.notices).toContainEqual({ type: 'pending', count: 1, waiting: 1 });
+    await c.engine.replay();
+    expect(await c.pending()).toEqual({ count: 0, waiting: 0 });
+    expect(c.notices.at(-1)).toEqual({ type: 'pending', count: 0, waiting: 0 });
+  });
+
+  it('gives up after the server refuses three times, and puts the Thread back', async () => {
+    const { p } = mailbox();
+    const c = await fastCore(p);
+    p.rejectEdits = 3;
+    c.notices.length = 0;
+    await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
+    expect(await subjects(c)).toEqual(['Invoice']);
+    await waitFor(() => c.notices.some((n) => n.type === 'change-failed'));
+    expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
+    expect(c.notices).toContainEqual({ type: 'change-failed', subject: 'Lunch', error: 'fake: server refused the edit' });
+    expect(c.notices).toContainEqual({ type: 'rows-changed', split: 'inbox' });
+    expect(c.data.pendingChanges('acct-1')).toEqual([]);
+    expect(p.edits).toEqual([]);
+  });
+
+  it('never gives up on a change because the connection is down', async () => {
+    const { p } = mailbox();
+    const c = await fastCore(p);
+    p.failNext = 20;
+    await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
+    await waitFor(() => p.failNext === 0, 3000);
+    await c.engine.idle();
+    await waitFor(() => c.data.pendingChanges('acct-1').length === 0);
+    expect(await subjects(c)).toEqual(['Invoice']);
+    expect(c.notices.some((n) => n.type === 'change-failed')).toBe(false);
+  });
+
+  it('a refused change does not hold up the ones after it', async () => {
+    const { p } = mailbox();
+    const c = await start(p);
+    p.rejectEdits = 1;
+    await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
+    await c.act(await keyOf(c, 'Invoice'), { type: 'done' });
+    await c.engine.idle();
+    await c.engine.replay();
+    expect(p.edits.map((e) => e.uids)).toContainEqual([mailbox().invoice]);
   });
 });
