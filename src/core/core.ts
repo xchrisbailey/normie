@@ -68,7 +68,7 @@ export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
   const notices: CoreNotice[] = [];
   data.onNotice((n) => notices.push(n));
   const engine = new SyncEngine({
-    accountId: o.accountId ?? 'acct-1',
+    accountId: o.accountId ?? 'gmail:me@example.com',
     kind: o.kind ?? 'fake',
     email: o.email ?? 'me@example.com',
     ...(o.identities ? { identities: o.identities } : {}),

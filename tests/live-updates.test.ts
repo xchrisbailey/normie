@@ -81,7 +81,7 @@ describe('sync state', () => {
     await c.close();
     p.setFlags(1, { flags: ['\\Seen'] });
     c = core = await createCore({ provider: p, extractText: fakeExtractText, now: () => NOW, dbPath });
-    expect(c.data.mailboxState('acct-1', '[Gmail]/All Mail')).toEqual(before);
+    expect(c.data.mailboxState('gmail:me@example.com', '[Gmail]/All Mail')).toEqual(before);
     p.calls.length = 0;
     await c.engine.syncHeaders();
     // Resumed from the stored modseq: an incremental fetch, not a full resync.

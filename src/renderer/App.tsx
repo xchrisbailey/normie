@@ -53,7 +53,7 @@ function useLabels(core: CoreClient | null) {
   useEffect(() => {
     if (!core) return;
     const load = (id: string) => void core.labels(id).then((l) => setLabels((m) => new Map(m).set(id, l)));
-    const ids = window.normie.fake ? ['fake-1'] : (accounts ?? []).map((a) => a.id);
+    const ids = window.normie.fake ? ['fake:me@example.com'] : (accounts ?? []).map((a) => a.id);
     ids.forEach(load);
     return core.onNotice((n) => {
       if (n.type === 'labels-changed') load(n.accountId);
@@ -459,7 +459,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
 
   /** The Identities mail can go out from: one per Account for now (several come with milestone 4). */
   const identities: Identity[] = window.normie.fake
-    ? [{ accountId: 'fake-1', from: { address: 'me@example.com' } }]
+    ? [{ accountId: 'fake:me@example.com', from: { address: 'me@example.com' } }]
     : (accounts ?? []).filter((a) => a.status === 'ok').flatMap((a) =>
       (a.identities?.length ? a.identities : [{ address: a.email }]).map((from) => ({ accountId: a.id, from })));
 

@@ -7,6 +7,8 @@
   "main": "out/main/index.js",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "verify": "npm run typecheck && npm test && npm run build && node scripts/check-bundles.mjs && npm run smoke",
+    "prepare": "git config core.hooksPath .githooks",
     "start": "npm run build && electron .",
     "start:fake": "npm run build && NORMIE_PROVIDER=fake electron .",
     "smoke": "npm run build && NORMIE_PROVIDER=fake NORMIE_SMOKE=1 electron . && NORMIE_SMOKE=1 electron .",
@@ -14,6 +16,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "package": "npm run build && electron-builder --mac",
     "package:dir": "npm run build && electron-builder --mac dir",
+    "install-app": "node scripts/install-app.mjs",
+    "real-copy": "node scripts/real-copy.mjs",
     "smoke:packaged": "NORMIE_PROVIDER=fake NORMIE_SMOKE=1 ./dist/mac-arm64/Normie.app/Contents/MacOS/Normie",
     "bench": "node bench/run.mjs",
     "test:live": "vitest run --config vitest.live.config.mts"
