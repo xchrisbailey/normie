@@ -80,8 +80,8 @@ export function useKeys(context: Context, handlers: Handlers, actions: ReadonlyA
       if (target?.closest('[role="menu"]')) {
         return;
       }
-      // While a form or the palette is open, keys are its own: none reach the list behind it.
-      if (document.querySelector('.palette-backdrop')) {
+      // While a form, the palette or a panel is open, keys are its own: none reach the list behind it.
+      if (document.querySelector('.palette-backdrop, .panel')) {
         return;
       }
       const token = tokenOf(e, window.normie.platform);

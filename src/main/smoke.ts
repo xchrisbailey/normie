@@ -338,7 +338,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   const palette = paletteOpen && (await count()) === beforePalette - 1 && !(await d.js<boolean>(`!!document.querySelector('.palette')`));
   // l opens the Label picker with the Account's Labels.
   await press('l');
-  const labelItems = await d.js<Array<string>>(`[...document.querySelectorAll('.palette li span')].map((s) => s.textContent)`);
+  const labelItems = await d.js<Array<string>>(`[...document.querySelectorAll('.palette .palette-item span')].map((s) => s.textContent)`);
   await press('Escape');
   const label = labelItems.includes('Receipts');
   // keymap.json is picked up without a restart: bind star to y, and y toggles the selected Thread's star.
@@ -391,7 +391,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   await press('K', 1, ['meta']);
   await sleep(300);
   await typeText('draft');
-  const draftListed = await d.js<boolean>(`[...document.querySelectorAll('.palette li span')].some((s) => s.textContent.startsWith('Draft:'))`);
+  const draftListed = await d.js<boolean>(`[...document.querySelectorAll('.palette .palette-item span')].some((s) => s.textContent.startsWith('Draft:'))`);
   await press('Return');
   await sleep(300);
   const draftTo = await d.js<string>(`document.querySelector('.composer input')?.value ?? ''`);
@@ -401,7 +401,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   await press('K', 1, ['meta']);
   await sleep(300);
   await typeText('draft');
-  const draftGone = !(await d.js<boolean>(`[...document.querySelectorAll('.palette li span')].some((s) => s.textContent.startsWith('Draft:'))`));
+  const draftGone = !(await d.js<boolean>(`[...document.querySelectorAll('.palette .palette-item span')].some((s) => s.textContent.startsWith('Draft:'))`));
   await press('Escape');
   const drafts = draftListed && draftTo === 'grace@example.com' && draftGone;
   // Attach by dropping a file on the composer; it goes with the message and comes back with Undo Send.
@@ -480,7 +480,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   await sleep(200);
   await drive(w).type('tomorrow 9');
   await sleep(100);
-  const pickerShows = await d.js<string>(`document.querySelector('.palette li span')?.textContent ?? ''`);
+  const pickerShows = await d.js<string>(`document.querySelector('.palette .palette-item span')?.textContent ?? ''`);
   await press('Return');
   await sleep(300);
   const snooze = pickerShows.startsWith('Tomorrow, 9') && (await tabCount('Inbox')) === inboxBefore - 1 && (await tabCount('Snoozed')) === 1;
@@ -498,7 +498,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   await press('K', 1, ['meta']);
   await sleep(300);
   await typeText('scheduled');
-  const listed = await d.js<string>(`[...document.querySelectorAll('.palette li span')].map((s) => s.textContent).join('|')`);
+  const listed = await d.js<string>(`[...document.querySelectorAll('.palette .palette-item span')].map((s) => s.textContent).join('|')`);
   await press('Return');
   await sleep(300);
   const reopenedTo = await d.js<string>(`document.querySelector('.composer input:not([type=file])')?.value ?? ''`);
