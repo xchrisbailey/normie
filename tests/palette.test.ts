@@ -57,11 +57,13 @@ describe('native menus', () => {
     expect(acceleratorOf('g i')).toBeUndefined();
   });
 
-  it('lists every action once, registering only Cmd shortcuts so plain keys stay with the page', () => {
+  it('lists every action once, with only Cmd shortcuts as accelerators, so plain keys stay with the page', () => {
     const entries = menuSections(ACTIONS).flatMap((s) => s.entries);
     expect(entries.flatMap((e) => e.ids).sort()).toEqual(ACTIONS.map((a) => a.id).sort());
     expect(entries.find((e) => e.ids.includes('palette.open'))).toMatchObject({ accelerator: 'CommandOrControl+K', registerAccelerator: true });
-    expect(entries.find((e) => e.ids.includes('thread.done'))).toMatchObject({ accelerator: 'E', registerAccelerator: false });
+    // Plain keys never become menu key equivalents (they'd fire while typing in a field).
+    expect(entries.find((e) => e.ids.includes('thread.done'))).toEqual({ label: 'Mark Done', ids: ['thread.done'], registerAccelerator: false });
+    expect(entries.filter((e) => e.accelerator).every((e) => e.accelerator!.startsWith('CommandOrControl+'))).toBe(true);
     // Next Thread in the list and in the reader is one menu item.
     expect(entries.find((e) => e.label === 'Next Thread')!.ids).toEqual(['list.down', 'reader.next']);
   });

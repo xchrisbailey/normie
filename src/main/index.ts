@@ -445,13 +445,24 @@ async function smokeAddAccountForm(w: BrowserWindow) {
   const field = (await w.webContents.executeJavaScript(`(() => { const r = document.querySelector('.sheet input').getBoundingClientRect(); return { x: r.left + 20, y: r.top + r.height / 2 }; })()`)) as { x: number; y: number };
   for (const type of ['mouseDown', 'mouseUp'] as const) w.webContents.sendInputEvent({ type, x: Math.round(field.x), y: Math.round(field.y), button: 'left', clickCount: 1 });
   const selectedBefore = (await w.webContents.executeJavaScript(`document.querySelector('.row.selected')?.dataset.key ?? ''`)) as string;
-  for (const ch of 'jje') w.webContents.sendInputEvent({ type: 'char', keyCode: ch });
-  await new Promise((r) => setTimeout(r, 150));
-  const typed = (await w.webContents.executeJavaScript(`document.querySelector('.sheet input').value`)) as string;
+  const countBefore = (await w.webContents.executeJavaScript(`Number(document.querySelector('.split.active .count')?.textContent)`)) as number;
+  // A menu command arriving while typing in the form (as a key equivalent would, when the page answers slowly) is ignored.
+  w.webContents.send('menu:action', ['thread.done']);
+  await new Promise((r) => setTimeout(r, 100));
+  // Real key presses (down, char, up), as fast as the events go: none may reach the app's keys.
+  const fast = 'jjekzs#gg';
+  for (const ch of fast) {
+    w.webContents.sendInputEvent({ type: 'keyDown', keyCode: ch });
+    w.webContents.sendInputEvent({ type: 'char', keyCode: ch });
+    w.webContents.sendInputEvent({ type: 'keyUp', keyCode: ch });
+  }
+  await new Promise((r) => setTimeout(r, 300));
+  const typed = (await w.webContents.executeJavaScript(`document.querySelector('.sheet input')?.value ?? '(no form)'`)) as string;
   const selectedAfter = (await w.webContents.executeJavaScript(`document.querySelector('.row.selected')?.dataset.key ?? ''`)) as string;
   await w.webContents.executeJavaScript(`document.querySelector('.sheet .quiet').click()`);
   await new Promise((r) => setTimeout(r, 100));
-  return { ok: onTop && typed === 'jje' && selectedBefore === selectedAfter, onTop, typed };
+  const countAfter = (await w.webContents.executeJavaScript(`Number(document.querySelector('.split.active .count')?.textContent)`)) as number;
+  return { ok: onTop && typed === fast && selectedBefore === selectedAfter && countBefore === countAfter, onTop, typed, moved: selectedBefore !== selectedAfter, menuRan: countBefore !== countAfter };
 }
 
 /** Smoke check with no Accounts: the iCloud form explains that the login must be the @icloud.com address. */
