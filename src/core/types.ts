@@ -111,7 +111,9 @@ export type ThreadAction =
   /** Delete: to Trash. */
   | { type: 'delete' }
   | { type: 'star'; on: boolean }
-  | { type: 'read'; on: boolean };
+  | { type: 'read'; on: boolean }
+  /** Mute: Done now, and Done again whenever new mail arrives in the Thread. Off only unmutes. */
+  | { type: 'mute'; on: boolean };
 
 /** A triage action recorded by the core and waiting to reach the server. */
 export interface PendingChange {

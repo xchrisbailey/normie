@@ -371,3 +371,46 @@ describe('star, read and delete', () => {
     expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[1]], edit: { removeFlags: ['\\Flagged'] } });
   });
 });
+
+describe('mute', () => {
+  it('marks the Thread Done and keeps new mail in it out of the Inbox', async () => {
+    const { p, lunch } = mailbox();
+    const c = await start(p);
+    const key = await keyOf(c, 'Lunch');
+    await c.act(key, { type: 'mute', on: true });
+    expect(await subjects(c)).toEqual(['Invoice']);
+    await c.engine.replay();
+    expect(p.edits).toEqual([{ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeLabels: ['\\Inbox'] } }]);
+
+    const reply = p.deliver({ subject: 'Re: Lunch', threadId: 't-lunch', date: NOW });
+    await c.engine.syncOnce();
+    expect(await subjects(c)).toEqual(['Invoice']);
+    await c.engine.idle();
+    await c.engine.replay();
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [reply], edit: { removeLabels: ['\\Inbox'] } });
+    // The server agrees on the next pass.
+    await c.engine.syncOnce();
+    expect(await subjects(c)).toEqual(['Invoice']);
+  });
+
+  it('unmuting lets new mail bring the Thread back', async () => {
+    const { p } = mailbox();
+    const c = await start(p);
+    const key = await keyOf(c, 'Lunch');
+    await c.act(key, { type: 'mute', on: true });
+    expect(await c.act(key, { type: 'mute', on: false })).toEqual([]);
+    p.deliver({ subject: 'Re: Lunch', threadId: 't-lunch', date: NOW });
+    await c.engine.syncOnce();
+    expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
+  });
+
+  it('leaves other Threads alone', async () => {
+    const { p } = mailbox();
+    const c = await start(p);
+    await c.act(await keyOf(c, 'Lunch'), { type: 'mute', on: true });
+    p.deliver({ subject: 'Re: Invoice', threadId: 't-invoice', date: NOW });
+    await c.engine.syncOnce();
+    expect(await subjects(c)).toEqual(['Invoice']);
+    expect((await c.rows('inbox'))[0]!.count).toBe(2);
+  });
+});

@@ -152,6 +152,12 @@ export class DataService {
 
   applyChanges(accountId: AccountId, mailbox: string, cs: Partial<ChangeSet>) {
     if (this.store.applyChanges(accountId, mailbox, cs)) this.emit({ type: 'rows-changed', split: 'inbox' });
+    if (this.store.replayNeeded.size) {
+      const accounts = [...this.store.replayNeeded];
+      this.store.replayNeeded.clear();
+      this.emitPending();
+      for (const a of accounts) this.replayRequester?.(a);
+    }
   }
 
   putBodies(accountId: AccountId, mailbox: string, bodies: BodyInput[]) {

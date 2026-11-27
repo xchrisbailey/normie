@@ -92,6 +92,14 @@ const MIGRATIONS: string[] = [
     select 1 from messages m where m.account_id = threads.account_id and m.thread_key = threads.thread_key and m.starred = 1);
   alter table pending_changes add column send_after integer not null default 0;
   `,
+  // Muted Threads: kept here, since Gmail doesn't offer mute over IMAP.
+  `
+  create table muted_threads (
+    account_id text not null,
+    thread_key text not null,
+    primary key (account_id, thread_key)
+  );
+  `,
 ];
 
 /** How long a delete waits before it's sent, so it can still be undone. */
@@ -147,6 +155,9 @@ function planAction(action: ThreadAction, msgs: ActionMessage[]): { pick: Action
     case 'done':
       // Gmail: remove the Inbox label from the messages that carry it. Sent copies don't, so they're untouched.
       return [{ pick: inInbox, edit: { removeLabels: [INBOX_LABEL] } }];
+    case 'mute':
+      // Muting is Done plus a local note (see recordAction); unmuting changes nothing on the server.
+      return action.on ? [{ pick: inInbox, edit: { removeLabels: [INBOX_LABEL] } }] : [];
     case 'delete':
       // Gmail: the whole Thread goes to Trash, as in Gmail itself.
       return [{ pick: labelled, edit: { addLabels: [TRASH] } }, { pick: inInbox, edit: { removeLabels: [INBOX_LABEL] } }];
@@ -179,6 +190,8 @@ const addressLabel = (a?: Address) => (a ? a.name || a.address : '');
 
 export class Store {
   readonly db: Database.Database;
+  /** Accounts with changes queued by the store itself (Done on new mail in a muted Thread), waiting to be replayed. */
+  readonly replayNeeded = new Set<AccountId>();
 
   constructor(path: string) {
     this.db = new Database(path);
@@ -213,7 +226,7 @@ export class Store {
   removeAccount(id: AccountId) {
     this.db.transaction(() => {
       this.db.prepare('delete from bodies where message_id in (select id from messages where account_id = ?)').run(id);
-      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes']) this.db.prepare(`delete from ${t} where account_id = ?`).run(id);
+      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes', 'muted_threads']) this.db.prepare(`delete from ${t} where account_id = ?`).run(id);
       this.db.prepare('delete from accounts where id = ?').run(id);
     })();
   }
@@ -265,6 +278,8 @@ export class Store {
     batch: { state?: SyncState; reset?: boolean; headers?: RemoteHeader[]; flagChanges?: FlagChange[]; vanished?: number[] },
   ): boolean {
     const touched = new Set<string>();
+    /** Threads that got a message not seen before. */
+    const arrived = new Set<string>();
     let inboxChanged = false;
     // On folder servers, being in the Inbox mailbox is what puts a message in the Inbox; on Gmail it's the \Inbox label.
     const isInboxMailbox = this.db.prepare('select role from mailboxes where account_id = ? and path = ?').pluck().get(accountId, mailbox) === 'inbox';
@@ -295,6 +310,7 @@ export class Store {
         const old = threadOf.get(accountId, mailbox, h.uid) as string | undefined;
         if (old) touched.add(old);
         const threadKey = h.threadId ?? h.messageId ?? h.remoteId;
+        if (!old) arrived.add(threadKey);
         touched.add(threadKey);
         insert.run({
           accountId, mailbox, uid: h.uid, remoteId: h.remoteId, threadKey, messageId: h.messageId ?? null,
@@ -334,6 +350,12 @@ export class Store {
           .run(batch.state.uidValidity, batch.state.uidNext, batch.state.highestModseq ?? null, accountId, mailbox);
       }
       for (const key of touched) if (this.refreshThread(accountId, key)) inboxChanged = true;
+      // New mail in a muted Thread is marked Done straight away, so it never shows in the Inbox.
+      const muted = this.db.prepare('select 1 from muted_threads where account_id = ? and thread_key = ?').pluck();
+      for (const key of arrived) {
+        if (!muted.get(accountId, key)) continue;
+        if (this.recordAction(`${accountId}:${key}`, { type: 'done' }).changes.length) this.replayNeeded.add(accountId);
+      }
     })();
     return inboxChanged;
   }
@@ -357,6 +379,11 @@ export class Store {
     const changes: PendingChange[] = [];
     let inboxChanged = false;
     this.db.transaction(() => {
+      if (action.type === 'mute') {
+        this.db.prepare(action.on
+          ? 'insert into muted_threads(account_id, thread_key) values (?, ?) on conflict do nothing'
+          : 'delete from muted_threads where account_id = ? and thread_key = ?').run(accountId, threadKey);
+      }
       for (const { pick, edit } of planAction(action, msgs)) {
         const targets = new Map<string, number[]>();
         for (const m of pick) targets.set(m.mailbox, [...(targets.get(m.mailbox) ?? []), m.uid]);
