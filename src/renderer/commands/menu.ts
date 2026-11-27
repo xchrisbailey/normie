@@ -39,7 +39,7 @@ const SECTION_OF = (id: string) =>
     ? 'Message'
     : id.startsWith('thread.') || id === 'undo'
       ? 'Thread'
-      : /^(dev|palette|help|theme|app)\./.test(id)
+      : /^(dev|palette|help|theme|app|settings)\./.test(id)
         ? 'View'
         : 'Go';
 

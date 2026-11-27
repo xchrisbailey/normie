@@ -343,6 +343,11 @@ function setLoginItem(on: boolean) {
   }
   updateTray();
 }
+ipcMain.handle('login-item:get', () => ({ on: loginItem(), packaged: app.isPackaged }));
+ipcMain.handle('login-item:set', (_e, on: unknown) => {
+  setLoginItem(on === true);
+  return { on: loginItem(), packaged: app.isPackaged };
+});
 ipcMain.handle('login-item:toggle', () => {
   setLoginItem(!loginItem());
   return { on: loginItem(), packaged: app.isPackaged };

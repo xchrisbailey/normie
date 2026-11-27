@@ -1,6 +1,6 @@
 // Editing an Account's Identities: the From names and addresses it sends as. The first is the default.
 import { useState } from 'react';
-import { createPortal } from 'react-dom';
+import { Panel } from './Panel';
 
 type Row = { name: string; address: string };
 
@@ -23,10 +23,11 @@ export function IdentitiesEditor({ account, onDone }: { account: AccountRecord; 
     }
   };
 
-  return createPortal(
-    <div className="palette-backdrop" onMouseDown={onDone}>
-      <form className="sheet" onSubmit={(e) => void save(e)} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onDone()}>
-        <h2>Identities for {account.email}</h2>
+  const title = `Identities for ${account.email}`;
+  return (
+    <Panel title={title} className="sheet-panel" onClose={onDone} initialFocus=".sheet input:not([type])">
+      <form className="sheet" onSubmit={(e) => void save(e)}>
+        <h2 aria-hidden="true">{title}</h2>
         <p className="help">
           The names and addresses this Account sends from. A reply goes out from the one the message was sent to; new mail uses the default. The server must
           allow sending as each address (an iCloud custom domain, a Gmail “Send mail as” address).
@@ -71,7 +72,6 @@ export function IdentitiesEditor({ account, onDone }: { account: AccountRecord; 
           </button>
         </footer>
       </form>
-    </div>,
-    document.body,
+    </Panel>
   );
 }

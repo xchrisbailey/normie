@@ -57,6 +57,8 @@ contextBridge.exposeInMainWorld('normie', {
   /** The Inbox count, for the menu bar. */
   setInboxCount: (n: number) => ipcRenderer.send('inbox-count', n),
   toggleLoginItem: (): Promise<{ on: boolean; packaged: boolean }> => ipcRenderer.invoke('login-item:toggle'),
+  loginItem: (): Promise<{ on: boolean; packaged: boolean }> => ipcRenderer.invoke('login-item:get'),
+  setLoginItem: (on: boolean): Promise<{ on: boolean; packaged: boolean }> => ipcRenderer.invoke('login-item:set', on),
   /** Show a notification for new mail. */
   notify: (n: { key: string; title: string; body: string }) => ipcRenderer.send('notify', n),
   /** A notification was clicked: open that Thread. */

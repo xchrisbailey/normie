@@ -8,7 +8,7 @@ import { memo, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import type { ActionDef } from './commands/keys';
 import { keyLabel } from './commands/palette';
-import { ComposeIcon, MailIcon, MoreIcon, SearchIcon, splitIcon } from './icons';
+import { ComposeIcon, MailIcon, MoreIcon, SearchIcon, SettingsIcon, splitIcon } from './icons';
 import type { SplitSummary } from './splits';
 import { splitTabs, tabsThatFit } from './tab-fit';
 
@@ -35,6 +35,7 @@ interface HeaderProps {
   onInbox: () => void;
   onSearch: () => void;
   onCompose: () => void;
+  onSettings: () => void;
 }
 
 export function Header(props: HeaderProps) {
@@ -54,6 +55,9 @@ export function Header(props: HeaderProps) {
             </Tool>
             <Tool label="Compose" keys={keyOf('compose.new')} onPress={props.onCompose}>
               <ComposeIcon />
+            </Tool>
+            <Tool label="Settings" keys={keyOf('settings.open')} onPress={props.onSettings}>
+              <SettingsIcon />
             </Tool>
           </Toolbar>
         </div>

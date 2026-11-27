@@ -29,6 +29,8 @@ import { splitSummaries, splitsFrom } from './splits';
 import { Header } from './Header';
 import { Panel } from './Panel';
 import { SearchChip, SearchPanel } from './SearchPanel';
+import { SettingsPanel } from './SettingsPanel';
+import type { SettingsTab } from './SettingsPanel';
 import { note, Toasts, useProblems } from './Toasts';
 import { ThreadList } from './ThreadList';
 import type { ActionRunner } from './ActionTip';
@@ -153,6 +155,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const reported = useRef(false);
   const [overlay, setOverlay] = useState(false);
   const [keyHelp, setKeyHelp] = useState(false);
+  const [settings, setSettings] = useState<SettingsTab | null>(null);
   const theme = useTheme();
   const themeList = useThemes();
   const themeProblems = theme.problem ? [theme.problem, ...themeList.problems] : themeList.problems;
@@ -501,6 +504,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
       searchInput.current?.focus();
     },
     'search.close': () => closeSearch(),
+    'settings.open': () => setSettings('accounts'),
     'theme.system': () => followSystem(),
     'thread.snooze': () => {
       if (rows[clamp(selected)]) {
@@ -902,6 +906,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
         }}
         onSearch={() => runAction(['search.open'])}
         onCompose={() => runAction(['compose.new'])}
+        onSettings={() => runAction(['settings.open'])}
         search={search ? <SearchChip search={searchState(search)} onEdit={() => runAction(['search.open'])} /> : null}
       />
       {search && searchPanel && (
@@ -979,6 +984,16 @@ function Inbox({ core }: { core: CoreClient | null }) {
       )}
       <Toasts />
       {overlay && <DevOverlay />}
+      {settings && (
+        <SettingsPanel
+          accounts={accounts ?? []}
+          theme={theme}
+          themes={themeList.themes}
+          onChooseTheme={(choice) => void chooseTheme(choice)}
+          start={settings}
+          onClose={() => setSettings(null)}
+        />
+      )}
       {keyHelp && <KeyHelp actions={keymap.actions} onClose={() => setKeyHelp(false)} />}
       {picker === 'snooze' && (
         <WhenPicker

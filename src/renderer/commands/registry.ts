@@ -48,6 +48,7 @@ export const ACTIONS = [
   { id: 'go.inbox', name: 'Go to Inbox', keys: ['g i'], contexts: ['list', 'reader'] },
   { id: 'help.keys', name: 'Show Keyboard Shortcuts', keys: ['?'], contexts: ['list', 'reader'] },
   { id: 'palette.open', name: 'Command Palette', keys: ['Cmd-K'], contexts: ['list', 'reader', 'composer'] },
+  { id: 'settings.open', name: 'Settings', keys: ['Cmd-,'], contexts: ['list', 'reader'] },
   { id: 'theme.system', name: 'Theme: Follow the System', keys: [], contexts: ['list', 'reader'] },
   { id: 'app.loginItem', name: 'Start at Login: On or Off', keys: [], contexts: ['list', 'reader'] },
   { id: 'dev.overlay', name: 'Toggle Performance Overlay', keys: ['Cmd-Shift-D'], contexts: ['list', 'reader', 'composer'] },

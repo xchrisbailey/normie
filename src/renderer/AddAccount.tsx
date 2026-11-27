@@ -1,6 +1,6 @@
 // Adding an iCloud or IMAP/SMTP Account: a short form, checked against the real servers before it's saved.
-import { useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useState } from 'react';
+import { Panel } from './Panel';
 
 interface FormError {
   message: string;
@@ -31,13 +31,8 @@ export function AddPasswordAccount({
   const [smtpPort, setSmtpPort] = useState(String(s?.smtp.port ?? 587));
   const [smtpSecurity, setSmtpSecurity] = useState<Security>(s?.smtp.security ?? 'starttls');
   const [savesSent, setSavesSent] = useState(s?.savesSent ?? false);
-  const passwordField = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
-  const first = useRef<HTMLInputElement>(null);
-  // Signing in again: straight to the password.
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- focus once, when the form opens
-  useLayoutEffect(() => (existing ? passwordField.current : first.current)?.focus(), []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,15 +79,12 @@ export function AddPasswordAccount({
     </select>
   );
 
-  return createPortal(
-    <div className="palette-backdrop" onMouseDown={() => !busy && onDone()}>
-      <form
-        className="sheet"
-        onSubmit={(e) => void submit(e)}
-        onMouseDown={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.key === 'Escape' && !busy && onDone()}
-      >
-        <h2>{existing ? `Sign in to ${existing.email} again` : provider === 'icloud' ? 'Add iCloud Account' : 'Add IMAP Account'}</h2>
+  const title = existing ? `Sign in to ${existing.email} again` : provider === 'icloud' ? 'Add iCloud Account' : 'Add IMAP Account';
+  // Signing in again goes straight to the password.
+  return (
+    <Panel title={title} className="sheet-panel" onClose={onDone} dismissible={!busy} initialFocus={existing ? '.sheet input[type=password]' : '.sheet input'}>
+      <form className="sheet" onSubmit={(e) => void submit(e)}>
+        <h2 aria-hidden="true">{title}</h2>
         {provider === 'icloud' && (
           <p className="help">
             Sign in with your <b>@icloud.com</b> address and an <b>app-specific password</b> from account.apple.com → Sign-In and Security → App-Specific
@@ -102,7 +94,6 @@ export function AddPasswordAccount({
         <label>
           <span>Email</span>
           <input
-            ref={first}
             className={bad('email')}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -120,7 +111,6 @@ export function AddPasswordAccount({
         <label>
           <span>Password</span>
           <input
-            ref={passwordField}
             className={bad('password')}
             type="password"
             value={password}
@@ -169,7 +159,6 @@ export function AddPasswordAccount({
           </button>
         </footer>
       </form>
-    </div>,
-    document.body,
+    </Panel>
   );
 }

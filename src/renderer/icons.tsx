@@ -17,6 +17,13 @@ export const MailIcon = () => (
     <path d="M4 7l8 6 8-6" {...S} />
   </Icon>
 );
+export const SettingsIcon = () => (
+  <Icon>
+    <path d="M4 7h9M17 7h3M4 17h3M11 17h9" {...S} />
+    <circle cx="15" cy="7" r="2" {...S} />
+    <circle cx="9" cy="17" r="2" {...S} />
+  </Icon>
+);
 export const SearchIcon = () => (
   <Icon>
     <circle cx="11" cy="11" r="6.5" {...S} />

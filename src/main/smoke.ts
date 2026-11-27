@@ -23,14 +23,15 @@ export async function runSmoke(w: BrowserWindow, info: { rows: number; view: 'li
   const reauth = info.view === 'list' ? await smokeReauth(w) : undefined;
   const form = info.view === 'list' ? await smokeAddAccountForm(w) : undefined;
   const header = info.view === 'list' ? await smokeHeader(w) : undefined;
+  const settings = info.view === 'list' ? await smokeSettings(w) : undefined;
   const list = info.view === 'list' ? await smokeList(w) : undefined;
   const keys = info.view === 'list' ? await smokeKeys(w, ctx) : undefined;
   const empty = info.view === 'empty' ? await smokeEmpty(w) : undefined;
   const ok =
     info.view === 'list'
-      ? info.rows > 0 && !!keys?.ok && !!header?.ok && !!list?.ok && !!form?.ok && !!reauth?.ok
+      ? info.rows > 0 && !!keys?.ok && !!header?.ok && !!list?.ok && !!form?.ok && !!reauth?.ok && !!settings?.ok
       : !ctx.noRealAccounts && info.view === 'empty' && !!empty?.ok;
-  return { ok, report: { ...info, msSinceLaunch, packaged: app.isPackaged, reauth, form, keys, header, list, empty } };
+  return { ok, report: { ...info, msSinceLaunch, packaged: app.isPackaged, reauth, form, settings, keys, header, list, empty } };
 }
 
 /** "Sign in again" on an iCloud Account opens that Account's password form, filled in, not Google's sign-in. */
@@ -213,12 +214,12 @@ async function smokeList(w: BrowserWindow) {
 }
 
 /** Smoke check with no Accounts: the iCloud form explains that the login must be the @icloud.com address. */
-/** The Add Account form, opened from the top bar as a person would: on top of everything, and it gets the keys. */
+/** The Add Account form, opened from Settings as a person would: on top of everything, and it gets the keys. */
 async function smokeAddAccountForm(w: BrowserWindow) {
   const d = drive(w);
-  await w.webContents.executeJavaScript(`document.querySelector('.accounts .account.add').click()`);
-  await sleep(100);
-  await w.webContents.executeJavaScript(`[...document.querySelectorAll('.popover .quiet')].find((b) => b.textContent.startsWith('iCloud')).click()`);
+  await d.menuAction('settings.open');
+  await sleep(200);
+  await w.webContents.executeJavaScript(`document.querySelector('.settings-add [data-provider=icloud]').click()`);
   await sleep(200);
   const onTop = await d.js<boolean>(`(() => {
     const s = document.querySelector('.sheet').getBoundingClientRect();
@@ -244,6 +245,8 @@ async function smokeAddAccountForm(w: BrowserWindow) {
   const selectedAfter = await d.js<string>(`document.querySelector('.row[data-selected]')?.dataset.key ?? ''`);
   await w.webContents.executeJavaScript(`document.querySelector('.sheet .quiet').click()`);
   await sleep(100);
+  await d.press('Escape');
+  await sleep(100);
   const countAfter = await d.js<number>(`Number(document.querySelector('.split[data-selected] .count')?.textContent)`);
   return {
     ok: onTop && typed === fast && selectedBefore === selectedAfter && countBefore === countAfter,
@@ -252,6 +255,67 @@ async function smokeAddAccountForm(w: BrowserWindow) {
     moved: selectedBefore !== selectedAfter,
     menuRan: countBefore !== countAfter,
   };
+}
+
+/**
+ * Settings: Cmd-, opens it on Accounts; Appearance lists the themes, and a click or an arrow key changes the app's theme;
+ * Start at Login is a switch; Esc closes it. The header icon opens it too.
+ */
+async function smokeSettings(w: BrowserWindow) {
+  const d = drive(w);
+  await d.press(',', 1, ['meta']);
+  await sleep(300);
+  const accounts = await d.js<Array<string>>(`[...document.querySelectorAll('.settings-account-email')].map((e) => e.textContent)`);
+  const opened = (await d.js<string>(`document.querySelector('.settings-tabs [data-selected]')?.textContent ?? ''`)) === 'Accounts' && accounts.length > 0;
+  await d.shot('settings-accounts');
+  await d.clickAt('.settings-tabs [data-slot="tabs-tab"]:nth-child(2)');
+  await sleep(200);
+  const themeNow = () => d.js<string>(`document.documentElement.dataset.theme ?? ''`);
+  const before = await themeNow();
+  const pickTheme = async (id: string) => {
+    await d.js(`document.querySelector('.theme-item[data-theme-id="${id}"]')?.scrollIntoView({ block: 'nearest' })`);
+    const r = await d.clickAt(`.theme-item[data-theme-id="${id}"]`);
+    await sleep(300);
+    return r.hit;
+  };
+  const hit = await pickTheme('solarized-light');
+  const clicked = await themeNow();
+  // An arrow key moves through the list and picks as it goes. Following the system, a dark pick is the dark half of
+  // the pair (marked in the list) while the light one stays on screen.
+  const chosen = () =>
+    d.js<string>(
+      `[document.documentElement.dataset.theme, ...[...document.querySelectorAll('.theme-item[data-paired]')].map((i) => i.dataset.themeId)].join('|')`,
+    );
+  const chosenBefore = await chosen();
+  await d.press('Up');
+  await sleep(300);
+  const arrowed = await chosen();
+  const picked = hit && clicked === 'solarized-light' && arrowed !== chosenBefore;
+  // Back to the pair it started with.
+  await pickTheme('normie-dark');
+  await pickTheme(before);
+  const restored = (await themeNow()) === before;
+  await d.shot('settings-appearance');
+  await d.clickAt('.settings-tabs [data-slot="tabs-tab"]:nth-child(3)');
+  await sleep(200);
+  const checked = () => d.js<string>(`document.querySelector('.settings-switch [data-slot="switch"]')?.getAttribute('aria-checked') ?? ''`);
+  const loginBefore = await checked();
+  await d.clickAt('.settings-switch [data-slot="switch"]');
+  await sleep(300);
+  const loginFlipped = await checked();
+  await d.clickAt('.settings-switch [data-slot="switch"]');
+  await sleep(300);
+  const login = loginBefore !== '' && loginFlipped !== loginBefore && (await checked()) === loginBefore;
+  await d.press('Escape');
+  await sleep(200);
+  const closed = await d.js<boolean>(`!document.querySelector('.settings-panel')`);
+  const icon = await d.clickAt('.tool[aria-label="Settings"]');
+  await sleep(300);
+  const byIcon = icon.hit && (await d.js<boolean>(`!!document.querySelector('.settings-panel')`));
+  await d.press('Escape');
+  await sleep(200);
+  const ok = opened && picked && restored && login && closed && byIcon && !(await d.js<boolean>(`!!document.querySelector('.settings-panel')`));
+  return { ok, opened, accounts: accounts.length, themes: { before, clicked, arrowed, restored }, login, closed, byIcon };
 }
 
 /** Smoke check with no Accounts: the iCloud form explains that the login must be the @icloud.com address. */
