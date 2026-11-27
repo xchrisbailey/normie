@@ -41,6 +41,8 @@ declare global {
         onListChanged(fn: (l: ThemeList) => void): () => void;
       };
       toggleLoginItem(): Promise<{ on: boolean; packaged: boolean }>;
+      loginItem(): Promise<{ on: boolean; packaged: boolean }>;
+      setLoginItem(on: boolean): Promise<{ on: boolean; packaged: boolean }>;
       onOpenThread(fn: (key: string) => void): () => void;
       openLink(url: string): void;
       trimMemory(): void;

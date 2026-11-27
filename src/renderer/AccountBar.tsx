@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 import { errorMessage } from '../core/errors';
 import { AddPasswordAccount } from './AddAccount';
 import type { PasswordProvider } from './AddAccount';
-import { IdentitiesEditor } from './Identities';
 
 export function useAccounts() {
   const [accounts, setAccounts] = useState<Array<AccountRecord> | null>(null);
@@ -31,65 +30,16 @@ export function useAddGmail() {
   return { add, busy, error };
 }
 
+/** Below the list, only when an Account needs attention: its sign-in expired. Everything else is in Settings. */
 export function AccountBar({ accounts }: { accounts: Array<AccountRecord> }) {
   const { add, busy, error } = useAddGmail();
-  const [menu, setMenu] = useState(false);
-  const [form, setForm] = useState<PasswordProvider | null>(null);
-  /** The Account whose chip was clicked: offers Remove, with a confirmation. */
-  const [selected, setSelected] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState(false);
-  const [editing, setEditing] = useState<AccountRecord | null>(null);
   /** An iCloud or IMAP Account to sign in to again, with its own password form (not Google's). */
   const [reauth, setReauth] = useState<AccountRecord | null>(null);
   return (
     <div className="accounts">
-      {accounts.map((a) =>
-        a.status === 'ok' ? (
-          <span key={a.id} className="account-wrap">
-            <button
-              type="button"
-              className="account"
-              title={`Signed in as ${a.email}`}
-              onClick={() => {
-                setSelected((s) => (s === a.id ? null : a.id));
-                setConfirming(false);
-              }}
-            >
-              {a.email}
-            </button>
-            {selected === a.id && (
-              <span className="popover" onMouseLeave={() => setSelected(null)}>
-                {confirming ? (
-                  <>
-                    <span>Remove {a.email}? Its mail on this Mac is deleted; the server keeps it.</span>
-                    <button type="button" className="danger" onClick={() => void window.normie.accounts.remove(a.id).then(() => setSelected(null))}>
-                      Remove
-                    </button>
-                    <button type="button" className="quiet" onClick={() => setConfirming(false)}>
-                      Cancel
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="quiet"
-                      onClick={() => {
-                        setSelected(null);
-                        setEditing(a);
-                      }}
-                    >
-                      Identities…
-                    </button>
-                    <button type="button" className="quiet" onClick={() => setConfirming(true)}>
-                      Remove Account…
-                    </button>
-                  </>
-                )}
-              </span>
-            )}
-          </span>
-        ) : (
+      {accounts
+        .filter((a) => a.status !== 'ok')
+        .map((a) => (
           <button
             type="button"
             key={a.id}
@@ -100,51 +50,7 @@ export function AccountBar({ accounts }: { accounts: Array<AccountRecord> }) {
           >
             {a.email} · Sign in again
           </button>
-        ),
-      )}
-      {
-        <span className="account-wrap">
-          <button type="button" className="account add" disabled={busy} onClick={() => setMenu((m) => !m)} title="Add an Account">
-            {busy ? 'Waiting for Google…' : '+ Add Account'}
-          </button>
-          {menu && (
-            <span className="popover" onMouseLeave={() => setMenu(false)}>
-              <button
-                type="button"
-                className="quiet"
-                onClick={() => {
-                  setMenu(false);
-                  void add();
-                }}
-              >
-                Gmail…
-              </button>
-              <button
-                type="button"
-                className="quiet"
-                onClick={() => {
-                  setMenu(false);
-                  setForm('icloud');
-                }}
-              >
-                iCloud…
-              </button>
-              <button
-                type="button"
-                className="quiet"
-                onClick={() => {
-                  setMenu(false);
-                  setForm('imap');
-                }}
-              >
-                Other IMAP…
-              </button>
-            </span>
-          )}
-        </span>
-      }
-      {form && <AddPasswordAccount provider={form} onDone={() => setForm(null)} />}
-      {editing && <IdentitiesEditor account={editing} onDone={() => setEditing(null)} />}
+        ))}
       {reauth && <AddPasswordAccount provider={reauth.settings?.provider ?? 'imap'} existing={reauth} onDone={() => setReauth(null)} />}
       {error && <span className="account-error">{error}</span>}
     </div>
