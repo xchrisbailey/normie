@@ -26,3 +26,22 @@ export function gmailTransport(user: string, accessToken: () => Promise<string>)
     },
   };
 }
+
+/** SMTP with a password (iCloud, other servers). */
+export function passwordTransport(server: { host: string; port: number; security: 'tls' | 'starttls' | 'none' }, user: string, pass: string): MailTransport {
+  return {
+    async send(raw, envelope) {
+      const t = nodemailer.createTransport({
+        host: server.host, port: server.port, secure: server.security === 'tls', requireTLS: server.security === 'starttls',
+        auth: { user, pass }, connectionTimeout: 20_000, socketTimeout: 60_000,
+      });
+      try {
+        await t.sendMail({ envelope, raw: Buffer.from(raw) });
+      } catch (e) {
+        throw classify(e);
+      } finally {
+        t.close();
+      }
+    },
+  };
+}

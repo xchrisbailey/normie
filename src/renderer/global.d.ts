@@ -3,7 +3,7 @@ export {};
 declare global {
   interface AccountRecord {
     id: string;
-    kind: 'gmail';
+    kind: 'gmail' | 'imap';
     email: string;
     status: 'ok' | 'needs-sign-in';
   }
@@ -28,6 +28,11 @@ declare global {
         list(): Promise<AccountRecord[]>;
         addGmail(loginHint?: string): Promise<AccountRecord>;
         remove(id: string): Promise<void>;
+        addPassword(input: {
+          provider: 'icloud' | 'imap'; email: string; user?: string; password: string; savesSent?: boolean;
+          imap?: { host: string; port: number; security: 'tls' | 'starttls' | 'none' };
+          smtp?: { host: string; port: number; security: 'tls' | 'starttls' | 'none' };
+        }): Promise<{ ok: true; account: AccountRecord } | { ok: false; error: string; field?: string }>;
         onChanged(fn: (list: AccountRecord[]) => void): () => void;
       };
     };

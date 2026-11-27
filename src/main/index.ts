@@ -10,6 +10,8 @@ import type { AccountConfig } from '../sync/index';
 import { Accounts, type AccountRecord } from './auth/accounts';
 import { JsonAccountList, SafeStorageSecrets } from './auth/electron-stores';
 import { loadGoogleClient } from './auth/google-oauth';
+import { AccountSetupError, type PasswordAccountInput } from './auth/password-accounts';
+import { verifyPasswordAccount } from './auth/verify';
 import { BUDGETS } from '../core/budgets';
 import { mergeKeymap } from '../renderer/commands/keymap';
 import { menuSections } from '../renderer/commands/menu';
@@ -65,7 +67,9 @@ function syncAccounts(): AccountConfig[] {
     const seed = Number(process.env.NORMIE_FAKE_SEED) || undefined;
     return [{ kind: 'fake', accountId: 'fake-1', email: 'me@example.com', seed }];
   }
-  return accounts.list().map((a) => ({ kind: a.kind, accountId: a.id, email: a.email, status: a.status }));
+  return accounts.list().map((a): AccountConfig => (a.kind === 'imap'
+    ? { kind: 'imap', accountId: a.id, email: a.email, status: a.status, settings: a.settings }
+    : { kind: 'gmail', accountId: a.id, email: a.email, status: a.status }));
 }
 
 /** The data process starts at once: the first frame needs rows. */
@@ -85,7 +89,7 @@ function startSync() {
   syncProc.postMessage({ type: 'data-port' }, [dataSync.port2]);
   // Sync asks main for access tokens; main holds the secrets and refreshes them.
   const mainSync = new MessageChannelMain();
-  serve(mainPortChannel(mainSync.port1), { accessToken: (id: string) => accounts.accessToken(id) });
+  serve(mainPortChannel(mainSync.port1), { accessToken: (id: string) => accounts.accessToken(id), password: (id: string) => accounts.password(id) });
   syncProc.postMessage({ type: 'main-port' }, [mainSync.port2]);
   syncProc.postMessage({ type: 'accounts', accounts: syncAccounts() });
   watchExit('sync', syncProc);
@@ -198,9 +202,10 @@ ipcMain.on('renderer-ready', async (_e, info: { rows: number; view: 'list' | 'em
   if (!smoke || !win) return;
   const msSinceLaunch = Math.round(performance.now() - launchedAt);
   const keys = info.view === 'list' ? await smokeKeys(win) : undefined;
-  console.log(`[smoke] ${JSON.stringify({ ...info, msSinceLaunch, packaged: app.isPackaged, keys })}`);
+  const empty = info.view === 'empty' ? await smokeEmpty(win) : undefined;
+  console.log(`[smoke] ${JSON.stringify({ ...info, msSinceLaunch, packaged: app.isPackaged, keys, empty })}`);
   quitting = true;
-  const ok = info.view === 'list' ? info.rows > 0 && keys!.ok : !noRealAccounts && info.view === 'empty';
+  const ok = info.view === 'list' ? info.rows > 0 && keys!.ok : !noRealAccounts && info.view === 'empty' && empty!.ok;
   app.exit(ok ? 0 : 1);
 });
 
@@ -286,6 +291,22 @@ function measureMemory(): { mb: number; detail: string } {
     }
   }
   return { mb: metrics.reduce((a, m) => a + m.memory.workingSetSize, 0) / 1024, detail: `working set over ${metrics.length} processes` };
+}
+
+/** Smoke check with no Accounts: the iCloud form explains that the login must be the @icloud.com address. */
+async function smokeEmpty(w: BrowserWindow) {
+  await w.webContents.executeJavaScript(`document.querySelector('.or .link').click()`);
+  await new Promise((r) => setTimeout(r, 200));
+  for (const ch of 'me@custom.example') w.webContents.sendInputEvent({ type: 'char', keyCode: ch });
+  await w.webContents.executeJavaScript(`(() => {
+    const pw = document.querySelector('.sheet input[type=password]');
+    pw.focus();
+  })()`);
+  for (const ch of 'abcd-efgh-ijkl-mnop') w.webContents.sendInputEvent({ type: 'char', keyCode: ch });
+  await w.webContents.executeJavaScript(`document.querySelector('.sheet button[type=submit]').click()`);
+  await new Promise((r) => setTimeout(r, 300));
+  const error = (await w.webContents.executeJavaScript(`document.querySelector('.sheet .account-error')?.textContent ?? ''`)) as string;
+  return { ok: /@icloud\.com address to sign in/.test(error), error: error.slice(0, 60) };
 }
 
 /** Smoke check: real key presses move the selection through the registry. */
@@ -504,6 +525,14 @@ ipcMain.handle('accounts:add-gmail', async (_e, loginHint?: string): Promise<Acc
   return acct;
 });
 ipcMain.handle('accounts:remove', (_e, id: string) => accounts.remove(id));
+/** Add an iCloud or IMAP Account. Errors come back as plain messages the form shows. */
+ipcMain.handle('accounts:add-password', async (_e, input: PasswordAccountInput): Promise<{ ok: true; account: AccountRecord } | { ok: false; error: string; field?: string }> => {
+  try {
+    return { ok: true, account: await accounts.addPassword(input, verifyPasswordAccount) };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message, ...(e instanceof AccountSetupError && e.field ? { field: e.field } : {}) };
+  }
+});
 
 // --- Keymap: the user's key overrides, in keymap.json next to the store. Read at launch and whenever it changes.
 

@@ -31,6 +31,27 @@ body { background: var(--base); color: var(--text); overflow: hidden; -webkit-fo
 .sync-badge { color: #f9e2af; font-size: 12px; font-variant-numeric: tabular-nums; }
 .keymap-note { color: #f9e2af; font-size: 12px; cursor: help; }
 .sync-note { color: var(--subtext); font-size: 12px; }
+.account-wrap { position: relative; display: inline-flex; }
+.accounts button.account { cursor: pointer; }
+.popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 180px; max-width: 320px; padding: 8px; background: var(--mantle); border: 1px solid var(--surface0); border-radius: 8px; box-shadow: 0 10px 30px rgb(0 0 0 / 0.35); font-size: 12px; color: var(--subtext); white-space: normal; }
+.popover .quiet, .popover .danger { font: inherit; text-align: left; padding: 6px 8px; border-radius: 5px; border: 0; background: transparent; color: var(--text); cursor: pointer; }
+.popover .quiet:hover { background: var(--surface0); }
+.popover .danger { background: #f38ba8; color: var(--base); text-align: center; }
+.sheet { width: min(480px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 10px; padding: 20px; background: var(--mantle); border: 1px solid var(--surface0); border-radius: 12px; box-shadow: 0 16px 48px rgb(0 0 0 / 0.4); }
+.sheet h2 { margin: 0 0 4px; font-size: 16px; color: var(--text); }
+.sheet .help { margin: 0; color: var(--subtext); font-size: 12px; line-height: 1.5; }
+.sheet label { display: flex; align-items: center; gap: 8px; }
+.sheet label > span { width: 72px; color: var(--overlay); font-size: 12px; }
+.sheet input, .sheet select { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--base); border: 1px solid var(--surface0); border-radius: 6px; padding: 6px 8px; outline: none; }
+.sheet input:focus { border-color: var(--blue); }
+.sheet input.port { flex: 0 0 64px; }
+.sheet select { flex: 0 0 100px; }
+.sheet input.bad { border-color: #f38ba8; }
+.sheet label.check { font-size: 12px; color: var(--subtext); }
+.sheet label.check input { flex: 0; }
+.sheet footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.sheet .quiet, .empty .link, .or .link { font: inherit; background: none; border: 0; color: var(--overlay); cursor: pointer; padding: 8px 12px; }
+.or { font-size: 12px; color: var(--overlay); }
 .account-error { color: #f38ba8; font-size: 12px; }
 .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--subtext); }
 button.primary { font: inherit; padding: 8px 16px; border-radius: 8px; border: 0; background: var(--blue); color: var(--base); font-weight: 600; cursor: pointer; }

@@ -95,3 +95,21 @@ describe('drafts', () => {
     expect(new TextDecoder().decode(back!.attachments![0]!.content)).toBe('hi');
   });
 });
+
+describe('removing an Account', () => {
+  it('deletes its mail, drafts, Outbox and pending changes', async () => {
+    const provider = new FakeProvider();
+    provider.deliver({ subject: 'Hello', date: now - 60_000 });
+    const { c } = await start(provider);
+    const [row] = await c.rows('inbox');
+    await c.act(row!.key, { type: 'star', on: true });
+    await c.saveDraft(null, draft());
+    await c.send({ accountId: ACCOUNT, from: { address: 'me@example.com' }, to: [{ address: 'a@b.co' }], cc: [], bcc: [], subject: 'x', body: 'y' });
+    c.data.removeAccount(ACCOUNT);
+    expect(await c.rows('inbox')).toEqual([]);
+    expect(await c.drafts()).toEqual([]);
+    expect(await c.pending()).toEqual({ count: 0, waiting: 0 });
+    const left = (t: string) => c.data.store.db.prepare(`select count(*) from ${t}`).pluck().get();
+    for (const t of ['messages', 'threads', 'mailboxes', 'pending_changes', 'outbox', 'drafts', 'bodies']) expect(left(t), t).toBe(0);
+  });
+});

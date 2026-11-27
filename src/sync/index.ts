@@ -6,13 +6,15 @@ import { FakeProvider, FakeTransport, seedDemo, seedNewsletter } from '../core/f
 import { connect, mainPortChannel, proxy, type Client } from '../core/rpc';
 import { SyncEngine } from '../core/sync-engine';
 import type { MailProvider, MailTransport } from '../core/types';
+import type { PasswordAccountSettings } from '../main/auth/password-accounts';
 import { extractText } from './extract-text';
 import { gmailConfig, ImapProvider } from './imap-provider';
-import { gmailTransport } from './smtp';
+import { gmailTransport, passwordTransport } from './smtp';
 
 export type AccountConfig =
   | { kind: 'fake'; accountId: string; email: string; seed?: number }
-  | { kind: 'gmail'; accountId: string; email: string; status?: 'ok' | 'needs-sign-in' };
+  | { kind: 'gmail'; accountId: string; email: string; status?: 'ok' | 'needs-sign-in' }
+  | { kind: 'imap'; accountId: string; email: string; status?: 'ok' | 'needs-sign-in'; settings: PasswordAccountSettings };
 
 type Message =
   | { type: 'accounts'; accounts: AccountConfig[] }
@@ -28,10 +30,20 @@ let wanted: AccountConfig[] | undefined;
 const engines = new Map<string, SyncEngine>();
 const starting = new Set<string>();
 
-/** Access tokens come from main, which holds the secrets. */
+/** Access tokens and passwords come from main, which holds the secrets. */
 const accessToken = (accountId: string) => mainClient!.call<string>('accessToken', accountId);
+const password = (accountId: string) => mainClient!.call<string>('password', accountId);
 
-function providerFor(a: AccountConfig): { provider: MailProvider; transport: MailTransport; extractText: (raw: Uint8Array) => Promise<string> } {
+async function providerFor(a: AccountConfig): Promise<{ provider: MailProvider; transport: MailTransport; extractText: (raw: Uint8Array) => Promise<string> }> {
+  if (a.kind === 'imap') {
+    const s = a.settings;
+    const pass = await password(a.accountId);
+    return {
+      provider: new ImapProvider({ host: s.imap.host, port: s.imap.port, security: s.imap.security, user: s.user, password: pass, savesSent: s.savesSent, log }),
+      transport: passwordTransport(s.smtp, s.user, pass),
+      extractText,
+    };
+  }
   if (a.kind === 'gmail') {
     const token = () => accessToken(a.accountId);
     return { provider: new ImapProvider(gmailConfig(a.email, token, log)), transport: gmailTransport(a.email, token), extractText };
@@ -52,9 +64,17 @@ function providerFor(a: AccountConfig): { provider: MailProvider; transport: Mai
 
 async function startAccount(a: AccountConfig) {
   if (!data || engines.has(a.accountId) || starting.has(a.accountId)) return;
-  if (a.kind === 'gmail' && a.status === 'needs-sign-in') return;
+  if (a.kind !== 'fake' && a.status === 'needs-sign-in') return;
   starting.add(a.accountId);
-  const { provider, transport, extractText: extract } = providerFor(a);
+  let made;
+  try {
+    made = await providerFor(a);
+  } catch (e) {
+    log(`${a.accountId}: ${(e as Error).message}`);
+    starting.delete(a.accountId);
+    return;
+  }
+  const { provider, transport, extractText: extract } = made;
   const engine = new SyncEngine({ accountId: a.accountId, kind: a.kind, email: a.email, provider, transport, data, extractText: extract, log });
   try {
     await engine.start();
@@ -77,7 +97,7 @@ async function reconcile() {
   const ids = new Set(wanted.map((a) => a.accountId));
   for (const [id, engine] of engines) {
     const w = wanted.find((a) => a.accountId === id);
-    if (!w || (w.kind === 'gmail' && w.status === 'needs-sign-in')) {
+    if (!w || (w.kind !== 'fake' && w.status === 'needs-sign-in')) {
       engines.delete(id);
       await engine.stop().catch(() => {});
       if (!w) await data.removeAccount(id);
