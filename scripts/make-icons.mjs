@@ -1,8 +1,8 @@
-// Draws Normie's icons as PNGs, so there's no binary design file to keep: the menu bar's envelope (a template
-// image: black with alpha, which macOS tints for light and dark menu bars), and the app icon (build/icon.png,
-// which electron-builder turns into the .icns).
+// Draws the menu bar's envelope as PNGs, so there's no binary design file to keep: a template image (black with
+// alpha), which macOS tints for light and dark menu bars. The app icon is build/icon.svg; scripts/render-icon.mjs
+// turns it into build/icon.png.
 //   node scripts/make-icons.mjs
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 
 function png(size, draw, rgba) {
@@ -65,48 +65,6 @@ function envelope(set, size) {
   line(size / 2, 8.6 * s, r, t);
 }
 
-/**
- * The app icon: a Catppuccin mauve-to-blue rounded square (macOS's icon grid: 824 of 1024, centred), with a white
- * envelope. Drawn with signed distances, so every edge is anti-aliased.
- */
-function appIcon(size = 1024) {
-  const px = new Uint8Array(size * size * 4);
-  const k = size / 1024;
-  const [x0, y0, w, h, r] = [100 * k, 100 * k, 824 * k, 824 * k, 185 * k];
-  const mauve = [203, 166, 247];
-  const blue = [137, 180, 250];
-  const clamp = (v) => Math.max(0, Math.min(1, v));
-  const roundRect = (x, y) => {
-    const qx = Math.abs(x - (x0 + w / 2)) - (w / 2 - r);
-    const qy = Math.abs(y - (y0 + h / 2)) - (h / 2 - r);
-    return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
-  };
-  const seg = (x, y, ax, ay, bx, by) => {
-    const [dx, dy] = [bx - ax, by - ay];
-    const t = clamp(((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy));
-    return Math.hypot(x - (ax + t * dx), y - (ay + t * dy));
-  };
-  // The envelope: an outlined rounded rectangle and its flap, in white strokes.
-  const [el, er, et, eb, stroke] = [280 * k, 744 * k, 340 * k, 684 * k, 44 * k];
-  const lines = [[el, et, er, et], [er, et, er, eb], [er, eb, el, eb], [el, eb, el, et], [el, et, 512 * k, 540 * k], [512 * k, 540 * k, er, et]];
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const i = (y * size + x) * 4;
-      const bg = clamp(0.5 - roundRect(x + 0.5, y + 0.5));
-      if (!bg) continue;
-      const t = (x + y) / (2 * size);
-      const base = mauve.map((m, c) => m + (blue[c] - m) * t);
-      const d = Math.min(...lines.map((l) => seg(x + 0.5, y + 0.5, ...l)));
-      const ink = clamp(stroke / 2 - d + 0.5);
-      for (let c = 0; c < 3; c++) px[i + c] = Math.round(base[c] * (1 - ink) + 255 * ink);
-      px[i + 3] = Math.round(bg * 255);
-    }
-  }
-  return png(size, null, px);
-}
-
-mkdirSync('build', { recursive: true });
-writeFileSync('build/icon.png', appIcon());
 writeFileSync('src/main/assets/trayTemplate.png', png(16, envelope));
 writeFileSync('src/main/assets/trayTemplate@2x.png', png(32, envelope));
 console.log('icons written');
