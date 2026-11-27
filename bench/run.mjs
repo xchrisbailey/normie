@@ -1,7 +1,7 @@
 // The benchmark: builds, makes the 100,000-message fixture if needed, then runs the app against it.
 // Exits non-zero when a budget slips.  npm run bench   (NORMIE_BENCH_REBUILD=1 regenerates the fixture)
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -17,8 +17,12 @@ if (!existsSync(fixture) || process.env.NORMIE_BENCH_REBUILD === '1') {
   if (run('node', ['out/bench/make-fixture.js', fixture]).status !== 0) process.exit(1);
 }
 
-// Key movement, opening Threads and memory, in one run.
-const main = run(electron, ['.'], { ...appEnv, NORMIE_BENCH: '1' }).status ?? 1;
+// Key movement, opening Threads, triage and memory, in one run. Triage changes the store, so it runs on a copy.
+const scratch = mkdtempSync(path.join(tmpdir(), 'normie-bench-'));
+const copy = path.join(scratch, 'store.sqlite');
+copyFileSync(fixture, copy);
+const main = run(electron, ['.'], { ...appEnv, NORMIE_DB: copy, NORMIE_USER_DATA: path.join(scratch, 'user-data'), NORMIE_BENCH: '1' }).status ?? 1;
+rmSync(scratch, { recursive: true, force: true });
 
 // Cold start: fresh processes against the same store and a snapshot from the run before.
 // One warm-up launch writes the snapshot, then the median of 5.

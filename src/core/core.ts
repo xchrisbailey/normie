@@ -13,6 +13,7 @@ export function coreApiOf(ds: DataService): CoreApi {
   return {
     rows: async (split, limit) => ds.rows(split, limit),
     thread: async (key) => ds.thread(key),
+    act: async (key, action) => ds.act(key, action),
   };
 }
 
@@ -57,6 +58,7 @@ export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
     backoffMs: o.backoffMs,
   });
   data.bodyRequester = (loc) => void engine.fetchBodies(loc.mailbox, [loc.uid]).catch(() => {});
+  data.replayRequester = () => engine.replaySoon();
   await engine.start();
   return {
     ...coreApiOf(data),

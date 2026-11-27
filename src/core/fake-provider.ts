@@ -1,7 +1,7 @@
 // An in-memory MailProvider that plays a scripted mailbox. Used by core tests,
 // the performance fixture and `npm run start:fake`.
 import type {
-  Address, Caps, ChangeSet, ChangesOptions, FlagChange, Mailbox, MailEvent, MailProvider, RawMessage, RemoteHeader, SyncState,
+  Address, Caps, ChangeSet, ChangesOptions, FlagChange, Mailbox, MailEvent, MailProvider, MessageEdit, RawMessage, RemoteHeader, SyncState,
 } from './types';
 
 export interface FakeMessageInput {
@@ -47,6 +47,8 @@ export class FakeProvider implements MailProvider {
   /** Set to make the next calls fail, to simulate network trouble. */
   failNext = 0;
   calls: string[] = [];
+  /** Every edit the core sent, in order. */
+  edits: { mailbox: string; uids: number[]; edit: MessageEdit }[] = [];
 
   constructor(opts: { caps?: Partial<Caps>; mailboxes?: Mailbox[] } = {}) {
     this.caps = { ...GMAIL_CAPS, ...opts.caps };
@@ -224,6 +226,30 @@ export class FakeProvider implements MailProvider {
       const raw = `Subject: ${m.header.subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${m.text}`;
       return [{ uid, raw: new TextEncoder().encode(raw) }];
     });
+  }
+
+  async edit(path: string, uids: number[], edit: MessageEdit) {
+    this.check('edit');
+    if (!this.connected) throw new Error('fake: not connected');
+    const b = this.box(path);
+    this.edits.push({ mailbox: path, uids: [...uids], edit });
+    const apply = (xs: string[], add?: string[], remove?: string[]) => {
+      const set = new Set(xs);
+      remove?.forEach((x) => set.delete(x));
+      add?.forEach((x) => set.add(x));
+      return [...set];
+    };
+    for (const uid of uids) {
+      const m = b.messages.get(uid);
+      if (!m) continue;
+      const before = m.header.labels;
+      this.setFlags(uid, {
+        flags: apply(m.header.flags, edit.addFlags, edit.removeFlags),
+        ...(this.caps.labels ? { labels: apply(m.header.labels, edit.addLabels, edit.removeLabels) } : {}),
+      }, path);
+      // Removing the Inbox label is also an event on INBOX, as on Gmail.
+      if (before.includes('\\Inbox') && !m.header.labels.includes('\\Inbox')) this.emit({ type: 'flags', mailbox: path, uid, flags: m.header.flags }, before);
+    }
   }
 
   async *watch(path: string, signal: AbortSignal): AsyncIterable<MailEvent> {

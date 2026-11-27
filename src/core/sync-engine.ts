@@ -53,6 +53,8 @@ export class SyncEngine {
   private syncing?: Promise<void>;
   private again = false;
   private inbox?: Mailbox;
+  /** A replay that's queued but hasn't started; later requests join it. */
+  private replayQueued?: Promise<void>;
   /** Resolves after the next live sync pass completes; for tests. */
   private passWaiters: (() => void)[] = [];
 
@@ -148,6 +150,7 @@ export class SyncEngine {
       do {
         this.again = false;
         try {
+          await this.replay();
           await this.syncHeaders();
           await this.syncBodies();
         } catch (e) {
@@ -170,6 +173,7 @@ export class SyncEngine {
       try {
         await provider.close().catch(() => {});
         await provider.connect();
+        await this.replay();
         await this.syncHeaders();
         await this.syncBodies();
         return;
@@ -182,9 +186,48 @@ export class SyncEngine {
 
   /** One full sync pass: window headers, then window bodies, then older history as headers only. */
   async syncOnce() {
+    await this.replay();
     await this.syncHeaders();
     await this.syncBodies();
     await this.backfillHeaders();
+  }
+
+  // --- Pending changes
+
+  /** Resolves once work already queued on the connection is done; for tests. */
+  async idle() {
+    await this.queue;
+  }
+
+  /** Send pending changes soon, such as right after the user acts. */
+  replaySoon() {
+    void this.replay().catch((e) => this.log(`replay failed: ${(e as Error).message}`));
+  }
+
+  /**
+   * Send pending changes to the server, oldest first, dropping each once the server has it.
+   * A change that fails stays pending and is tried again on the next pass.
+   */
+  replay(): Promise<void> {
+    if (this.replayQueued) return this.replayQueued;
+    const run = this.serial(async () => {
+      this.replayQueued = undefined;
+      const { provider, data, accountId } = this.o;
+      for (const c of await data.pendingChanges(accountId)) {
+        try {
+          await provider.edit(c.mailbox, c.uids, c.edit);
+          await data.changeApplied(c.id);
+        } catch (e) {
+          const msg = (e as Error).message;
+          await data.changeFailed(c.id, msg);
+          this.log(`change ${c.id} not sent yet: ${msg}`);
+          // Most failures are the connection; the rest wait for the next pass too.
+          return;
+        }
+      }
+    });
+    this.replayQueued = run;
+    return run;
   }
 
   /** Headers for mail older than the window, newest first, in batches. Resumes where it left off. */

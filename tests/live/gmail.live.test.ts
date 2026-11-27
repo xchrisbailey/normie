@@ -1,6 +1,7 @@
 // Live contract test against the real Gmail Account. Opt-in, run by hand, never in CI:
 //   GMAIL_USER=you@yourdomain npm run test:live
-// It opens the browser for Google sign-in, then only reads.
+// It opens the browser for Google sign-in, then only reads, unless GMAIL_LIVE_WRITE=1 is set too: then it
+// also marks the newest Inbox message Done and puts it straight back (#21).
 import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -62,6 +63,20 @@ describe.skipIf(!user)('Gmail provider against the real server', () => {
     const [raw] = await p.fetchBodies(allMail, [Math.max(...(await p.uids(allMail, { windowStart: Date.now() - 7 * DAY })))]);
     expect(raw).toBeDefined();
     expect((await extractText(raw!.raw)).length).toBeGreaterThan(0);
+  });
+
+  it.skipIf(process.env.GMAIL_LIVE_WRITE !== '1')('marks a message Done by removing the Inbox label, then puts it back', async () => {
+    const recent = await p.changes(allMail, null, { windowStart: Date.now() - 7 * DAY });
+    const target = recent.headers.filter((h) => h.labels.includes('\\Inbox')).sort((a, b) => b.date - a.date)[0];
+    expect(target, 'an Inbox message from the last 7 days').toBeDefined();
+    const labelsNow = async () => (await p.headers(allMail, [target!.uid]))[0]!.labels;
+    try {
+      await p.edit(allMail, [target!.uid], { removeLabels: ['\\Inbox'] });
+      expect(await labelsNow()).not.toContain('\\Inbox');
+    } finally {
+      await p.edit(allMail, [target!.uid], { addLabels: ['\\Inbox'] });
+    }
+    expect(await labelsNow()).toContain('\\Inbox');
   });
 
   it('holds an IDLE connection on INBOX and closes it cleanly', async () => {

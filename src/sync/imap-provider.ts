@@ -2,7 +2,7 @@
 // (read from the server after login) and a few overrides. Facts it relies on are from spike #2.
 import { ImapFlow, type FetchMessageObject, type ListResponse, type MessageAddressObject } from 'imapflow';
 import type {
-  Address, Caps, ChangeSet, ChangesOptions, FlagChange, Mailbox, MailboxRole, MailEvent, MailProvider, RawMessage, RemoteHeader, SyncState,
+  Address, Caps, ChangeSet, ChangesOptions, FlagChange, Mailbox, MailboxRole, MailEvent, MailProvider, MessageEdit, RawMessage, RemoteHeader, SyncState,
 } from '../core/types';
 
 export interface ImapConfig {
@@ -131,8 +131,12 @@ export class ImapProvider implements MailProvider {
       });
   }
 
-  private async withMailbox<T>(path: string, fn: (info: { uidValidity: string; uidNext: number; highestModseq?: string }) => Promise<T>): Promise<T> {
-    const lock = await this.c.getMailboxLock(path, { readOnly: true });
+  private async withMailbox<T>(
+    path: string,
+    fn: (info: { uidValidity: string; uidNext: number; highestModseq?: string }) => Promise<T>,
+    readOnly = true,
+  ): Promise<T> {
+    const lock = await this.c.getMailboxLock(path, { readOnly });
     try {
       const mb = this.c.mailbox;
       if (!mb) throw new Error(`could not open ${path}`);
@@ -225,6 +229,25 @@ export class ImapProvider implements MailProvider {
       }
       return out;
     });
+  }
+
+  /** Flag and Label changes. Opens the mailbox read-write (SELECT): a read-only one drops added flags. */
+  async edit(path: string, uids: number[], edit: MessageEdit) {
+    if (!uids.length) return;
+    await this.withMailbox(path, async () => {
+      const range = uids.join(',');
+      const steps: [string[] | undefined, 'add' | 'remove', boolean][] = [
+        [edit.addFlags, 'add', false], [edit.removeFlags, 'remove', false],
+        [this.gmail ? edit.addLabels : undefined, 'add', true], [this.gmail ? edit.removeLabels : undefined, 'remove', true],
+      ];
+      for (const [items, op, useLabels] of steps) {
+        if (!items?.length) continue;
+        const ok = op === 'add'
+          ? await this.c.messageFlagsAdd(range, items, { uid: true, useLabels })
+          : await this.c.messageFlagsRemove(range, items, { uid: true, useLabels });
+        if (!ok) throw new Error(`server refused to ${op} ${useLabels ? 'labels' : 'flags'} ${items.join(' ')}`);
+      }
+    }, false);
   }
 
   /**

@@ -84,6 +84,7 @@ process.parentPort.on('message', (e) => {
       const loc = payload as { accountId: string; mailbox: string; uid: number };
       engines.get(loc.accountId)?.fetchBodies(loc.mailbox, [loc.uid]).catch((err) => log(`body fetch failed: ${err.message}`));
     });
+    dataClient.on('replay', (payload) => engines.get((payload as { accountId: string }).accountId)?.replaySoon());
   } else if (msg.type === 'main-port' && e.ports[0]) mainClient = connect(mainPortChannel(e.ports[0] as MessagePortMain));
   void reconcile();
 });
