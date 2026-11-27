@@ -28,7 +28,7 @@ export function acceleratorOf(key: string): string | undefined {
 const SECTION_OF = (id: string) =>
   id.startsWith('compose.') || id.startsWith('send.') ? 'Message'
   : id.startsWith('thread.') || id === 'undo' ? 'Thread'
-  : id.startsWith('dev.') || id.startsWith('palette.') ? 'View' : 'Go';
+  : /^(dev|palette|help|theme|app)\./.test(id) ? 'View' : 'Go';
 
 /** Shortcuts the Edit menu owns (main builds it): shown on registry items, never registered twice. */
 const EDIT_MENU_KEYS = new Set(['Cmd-Z', 'Cmd-Shift-Z', 'Cmd-X', 'Cmd-C', 'Cmd-V', 'Cmd-A']);

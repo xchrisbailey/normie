@@ -37,6 +37,8 @@ export function AccountBar({ accounts }: { accounts: AccountRecord[] }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [editing, setEditing] = useState<AccountRecord | null>(null);
+  /** An iCloud or IMAP Account to sign in to again, with its own password form (not Google's). */
+  const [reauth, setReauth] = useState<AccountRecord | null>(null);
   return (
     <div className="accounts">
       {accounts.map((a) =>
@@ -64,7 +66,7 @@ export function AccountBar({ accounts }: { accounts: AccountRecord[] }) {
             )}
           </span>
         ) : (
-          <button key={a.id} className="account needs-sign-in" disabled={busy} onClick={() => void add(a.email)}
+          <button key={a.id} className="account needs-sign-in" disabled={busy} onClick={() => (a.kind === 'imap' ? setReauth(a) : void add(a.email))}
             title={a.kind === 'gmail' ? 'Google sign-in expired or was revoked' : 'The password stopped working'}>
             {a.email} · Sign in again
           </button>
@@ -86,6 +88,7 @@ export function AccountBar({ accounts }: { accounts: AccountRecord[] }) {
       )}
       {form && <AddPasswordAccount provider={form} onDone={() => setForm(null)} />}
       {editing && <IdentitiesEditor account={editing} onDone={() => setEditing(null)} />}
+      {reauth && <AddPasswordAccount provider={reauth.settings?.provider ?? 'imap'} existing={reauth} onDone={() => setReauth(null)} />}
       {error && <span className="account-error">{error}</span>}
     </div>
   );

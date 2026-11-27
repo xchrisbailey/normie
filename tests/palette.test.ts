@@ -66,3 +66,21 @@ describe('native menus', () => {
     expect(entries.find((e) => e.label === 'Next Thread')!.ids).toEqual(['list.down', 'reader.next']);
   });
 });
+
+describe('the ? sheet', () => {
+  it('lists every action with a key, once per name, grouped like the menus, plus the composer keys', async () => {
+    const { helpSections } = await import('../src/renderer/commands/help');
+    const sections = helpSections(ACTIONS);
+    const rows = sections.flatMap((s) => s.rows.map((r) => [s.title, r.name, r.keys.join(' ')]));
+    expect(rows).toContainEqual(['Thread', 'Snooze', 'H']);
+    expect(rows).toContainEqual(['Go', 'Next Thread', 'J ↓']);
+    expect(rows).toContainEqual(['View', 'Show Keyboard Shortcuts', '?']);
+    expect(rows).toContainEqual(['Go', "Show an Account's Tab", '1–9']);
+    expect(sections.at(-1)!.title).toBe('Composer');
+    // Actions without a key (Unmute, VIP) aren't listed.
+    expect(rows.some((r) => r[1] === 'Add Sender to VIP')).toBe(false);
+    const withKeys = new Set<string>(ACTIONS.filter((a) => a.keys.length && !/^Show Account \d$/.test(a.name)).map((a) => a.name));
+    withKeys.add("Show an Account's Tab");
+    expect(new Set(sections.slice(0, -1).flatMap((s) => s.rows.map((r) => r.name)))).toEqual(withKeys);
+  });
+});

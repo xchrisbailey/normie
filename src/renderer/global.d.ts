@@ -6,6 +6,12 @@ declare global {
     kind: 'gmail' | 'imap';
     email: string;
     status: 'ok' | 'needs-sign-in';
+    /** iCloud and IMAP Accounts: their servers (never the password). */
+    settings?: {
+      provider: 'icloud' | 'imap'; email: string; user: string; savesSent: boolean;
+      imap: { host: string; port: number; security: 'tls' | 'starttls' | 'none' };
+      smtp: { host: string; port: number; security: 'tls' | 'starttls' | 'none' };
+    };
     /** From names and addresses this Account sends as, the default first. Absent: just the login address. */
     identities?: { name?: string; address: string }[];
   }
