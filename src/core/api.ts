@@ -1,6 +1,6 @@
 // The contract between the renderer and the core. No runtime dependencies, so the renderer can import it.
 import type { Original } from './reply';
-import type { DraftContent, DraftSummary, OutgoingMessage, PendingStatus, SplitId, ThreadAction, ThreadMessage, ThreadRow } from './types';
+import type { Address, DraftContent, DraftSummary, OutgoingMessage, PendingStatus, SplitId, ThreadAction, ThreadMessage, ThreadRow } from './types';
 
 /** What the renderer can ask of the core. Every method is async because it crosses a MessagePort in the app. */
 export interface CoreApi {
@@ -21,6 +21,8 @@ export interface CoreApi {
   original(messageId: number, withAttachments: boolean): Promise<Original | null>;
   /** One attachment's bytes. */
   attachment(messageId: number, index: number): Promise<{ filename: string; contentType: string; content: Uint8Array } | null>;
+  /** People to suggest in an address field, best first. */
+  contacts(query: string, limit?: number): Promise<Address[]>;
   /** Always load remote images from this sender. */
   allowImagesFrom(address: string): Promise<void>;
   /** An Account's own Labels, for the Label picker. Kept current by 'labels-changed' notices. */
@@ -31,4 +33,4 @@ export interface CoreApi {
   pending(): Promise<PendingStatus>;
 }
 
-export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment', 'send', 'cancelSend', 'original', 'saveDraft', 'deleteDraft', 'drafts', 'draft'] as const satisfies readonly (keyof CoreApi)[];
+export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment', 'send', 'cancelSend', 'original', 'saveDraft', 'deleteDraft', 'drafts', 'draft', 'contacts'] as const satisfies readonly (keyof CoreApi)[];

@@ -4,7 +4,7 @@ import { newMessageId } from './ids';
 import type { Original } from './reply';
 import { Store, type BodyInput } from './store';
 import type {
-  AccountId, AttachmentInfo, ChangeSet, DraftContent, DraftSummary, DraftToSync, OutboxItem, OutgoingMessage, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
+  AccountId, Address, AttachmentInfo, ChangeSet, DraftContent, DraftSummary, DraftToSync, OutboxItem, OutgoingMessage, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
 } from './types';
 
 /** Reads stored messages (mailparser in the app). Injected, so the core can run without it. */
@@ -186,6 +186,11 @@ export class DataService {
     const raw = this.store.rawOf(messageId);
     if (!raw || !this.mime) return null;
     return this.mime.attachmentContent(raw, index);
+  }
+
+  /** People to suggest in an address field. */
+  contacts(query: string, limit?: number): Address[] {
+    return this.store.contacts(query, limit, this.now());
   }
 
   /** Always load remote images from this sender. */

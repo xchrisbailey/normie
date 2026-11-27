@@ -351,6 +351,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
     ? [{ accountId: 'fake-1', from: { address: 'me@example.com' } }]
     : (accounts ?? []).filter((a) => a.status === 'ok').map((a) => ({ accountId: a.id, from: { address: a.email } }));
 
+  const suggestContacts = useCallback((q: string) => (core ? core.contacts(q, 6) : Promise.resolve([])), [core]);
+
   const sendMessage = (m: OutgoingMessage, draftId?: number) => {
     if (!core) return;
     setCompose(null);
@@ -447,6 +449,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
                 onSend={sendMessage}
                 onClose={() => setCompose(null)}
                 onSaveDraft={(id, content) => core!.saveDraft(id, content)}
+                suggest={suggestContacts}
                 onDiscard={(id) => {
                   if (id !== null) void core?.deleteDraft(id);
                   setNote('Draft discarded');

@@ -58,6 +58,12 @@ button.primary:disabled { opacity: 0.6; cursor: default; }
 .composer .attachments li { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; border-radius: 6px; background: var(--surface0); font-size: 12px; }
 .composer .attachments .size { color: var(--overlay); }
 .composer .attachments button { font: inherit; color: var(--subtext); background: none; border: 0; cursor: pointer; }
+.composer .address-field { flex: 1; position: relative; display: flex; }
+.composer .address-field input { flex: 1; }
+.composer .suggestions { position: absolute; top: calc(100% + 6px); left: -8px; z-index: 10; min-width: 320px; list-style: none; margin: 0; padding: 4px; background: var(--mantle); border: 1px solid var(--surface0); border-radius: 8px; box-shadow: 0 10px 30px rgb(0 0 0 / 0.35); }
+.composer .suggestions li { padding: 6px 10px; border-radius: 5px; color: var(--text); cursor: default; white-space: nowrap; }
+.composer .suggestions li.selected { background: var(--surface0); }
+.composer .suggestions .address { color: var(--overlay); margin-left: 6px; }
 .composer .actions { display: flex; gap: 8px; }
 .composer .quiet { font: inherit; padding: 8px 12px; border-radius: 8px; border: 0; background: transparent; color: var(--overlay); cursor: pointer; }
 .composer .error { color: #f38ba8; font-size: 12px; }
