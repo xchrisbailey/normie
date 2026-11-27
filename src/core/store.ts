@@ -172,6 +172,16 @@ const MIGRATIONS: string[] = [
   );
   `,
   REBUILD_CONTACTS,
+  // Local threading on folder servers: every Message-ID seen (in a message or its references) and its Thread.
+  `
+  create table thread_refs (
+    account_id text not null,
+    message_id text not null,
+    thread_key text not null,
+    primary key (account_id, message_id)
+  );
+  create index thread_refs_thread on thread_refs (account_id, thread_key);
+  `,
 ];
 
 /** How long a delete waits before it's sent, so it can still be undone. */
@@ -330,7 +340,7 @@ export class Store {
   removeAccount(id: AccountId) {
     this.db.transaction(() => {
       this.db.prepare('delete from bodies where message_id in (select id from messages where account_id = ?)').run(id);
-      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes', 'muted_threads', 'outbox', 'drafts', 'draft_deletions']) this.db.prepare(`delete from ${t} where account_id = ?`).run(id);
+      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes', 'muted_threads', 'outbox', 'drafts', 'draft_deletions', 'thread_refs']) this.db.prepare(`delete from ${t} where account_id = ?`).run(id);
       this.db.prepare('delete from accounts where id = ?').run(id);
     })();
   }
@@ -438,7 +448,7 @@ export class Store {
           if (old) del.run(accountId, mailbox, h.uid);
           continue;
         }
-        const threadKey = h.threadId ?? h.messageId ?? h.remoteId;
+        const threadKey = h.threadId ?? this.localThread(accountId, h, touched);
         if (!old) {
           arrived.add(threadKey);
           this.noteContacts(h.from, h.to, h.date);
@@ -854,6 +864,36 @@ export class Store {
     if (attempts === undefined || attempts < maxRejections) return false;
     this.db.prepare(`update outbox set state = 'failed' where id = ?`).run(id);
     return true;
+  }
+
+  /**
+   * The Thread of a message on a server without thread ids, from its Message-ID, In-Reply-To and References.
+   * It joins the Thread of the first id already known (oldest reference first); when none is, the Thread is named
+   * after the oldest reference, so a parent arriving later lands in it too. A message that links two Threads merges
+   * them. Threads never span Accounts.
+   */
+  private localThread(accountId: AccountId, h: RemoteHeader, touched: Set<string>): string {
+    const ids = [...new Set([...(h.references ?? []), ...(h.inReplyTo ? [h.inReplyTo] : []), ...(h.messageId ? [h.messageId] : [])])];
+    if (!ids.length) return h.remoteId;
+    const keyOf = this.db.prepare('select thread_key from thread_refs where account_id = ? and message_id = ?').pluck();
+    const known = [...new Set(ids.map((id) => keyOf.get(accountId, id) as string | undefined).filter((k): k is string => !!k))];
+    const key = known[0] ?? ids[0]!;
+    for (const other of known.slice(1)) this.mergeThreads(accountId, other, key, touched);
+    const put = this.db.prepare('insert into thread_refs(account_id, message_id, thread_key) values (?, ?, ?) on conflict(account_id, message_id) do update set thread_key = excluded.thread_key');
+    for (const id of ids) put.run(accountId, id, key);
+    return key;
+  }
+
+  /** Fold Thread `from` into Thread `into`: its messages, known ids, mute and pending changes. */
+  private mergeThreads(accountId: AccountId, from: string, into: string, touched: Set<string>) {
+    for (const t of ['messages', 'thread_refs', 'pending_changes']) {
+      this.db.prepare(`update ${t} set thread_key = ? where account_id = ? and thread_key = ?`).run(into, accountId, from);
+    }
+    if (this.db.prepare('delete from muted_threads where account_id = ? and thread_key = ?').run(accountId, from).changes) {
+      this.db.prepare('insert into muted_threads(account_id, thread_key) values (?, ?) on conflict do nothing').run(accountId, into);
+    }
+    touched.add(from);
+    touched.add(into);
   }
 
   /** Store bodies. Returns the keys of the Threads touched and whether the Inbox Split was affected. */
