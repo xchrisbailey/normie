@@ -94,6 +94,17 @@ export interface MessageEdit {
   removeLabels?: string[];
 }
 
+/** The server answered and said no (as opposed to the connection failing). Counts toward giving up on a change. */
+export class ServerRejectedError extends Error {
+  readonly rejected = true;
+}
+
+/** How many pending changes are waiting for the server, and how many of those have failed at least once. */
+export interface PendingStatus {
+  count: number;
+  waiting: number;
+}
+
 /** A triage action on a Thread, as the user takes it. */
 export type ThreadAction = { type: 'done' };
 
@@ -159,4 +170,9 @@ export interface ThreadMessage {
 }
 
 /** Change notices the core sends to the renderer. */
-export type CoreNotice = { type: 'rows-changed'; split: SplitId } | { type: 'thread-changed'; key: string };
+export type CoreNotice =
+  | { type: 'rows-changed'; split: SplitId }
+  | { type: 'thread-changed'; key: string }
+  | ({ type: 'pending' } & PendingStatus)
+  /** A change the server kept refusing was undone locally. */
+  | { type: 'change-failed'; subject: string; error: string };

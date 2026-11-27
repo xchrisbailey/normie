@@ -1,7 +1,12 @@
 // The data side of the core: wraps the Store, answers the renderer's queries,
 // takes writes from sync, and emits change notices. Runs in the data process.
 import { Store, type BodyInput } from './store';
-import type { AccountId, ChangeSet, CoreNotice, MailboxRole, PendingChange, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow } from './types';
+import type {
+  AccountId, ChangeSet, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
+} from './types';
+
+/** A change the server refuses this many times is given up on and undone locally. */
+export const MAX_REJECTIONS = 3;
 
 export type NoticeListener = (n: CoreNotice) => void;
 
@@ -49,6 +54,7 @@ export class DataService {
    */
   act(key: string, action: ThreadAction): number[] {
     const { changes } = this.store.recordAction(key, action);
+    if (changes.length) this.emitPending();
     const accounts = new Set(changes.map((c) => c.accountId));
     for (const a of accounts) this.replayRequester?.(a);
     return changes.map((c) => c.id);
@@ -60,12 +66,33 @@ export class DataService {
     return this.store.pendingChanges(accountId);
   }
 
-  changeApplied(id: number) {
-    this.store.changeApplied(id);
+  pending(): PendingStatus {
+    return this.store.pendingStatus();
   }
 
-  changeFailed(id: number, error: string) {
-    this.store.changeFailed(id, error);
+  private emitPending() {
+    this.emit({ type: 'pending', ...this.store.pendingStatus() });
+  }
+
+  changeApplied(id: number) {
+    this.store.changeApplied(id);
+    this.emitPending();
+  }
+
+  /** Returns whether the change was given up on and rolled back. */
+  changeFailed(id: number, error: string, rejected: boolean): boolean {
+    const attempts = this.store.changeFailed(id, error, rejected);
+    let rolledBack = false;
+    if (rejected && attempts >= MAX_REJECTIONS) {
+      const r = this.store.rollbackChange(id);
+      if (r) {
+        rolledBack = true;
+        if (r.inboxChanged) this.emit({ type: 'rows-changed', split: 'inbox' });
+        this.emit({ type: 'change-failed', subject: r.subject, error });
+      }
+    }
+    this.emitPending();
+    return rolledBack;
   }
 
   upsertAccount(id: AccountId, kind: string, email: string) {
@@ -124,7 +151,7 @@ export interface DataPort {
   putBodies(accountId: AccountId, mailbox: string, bodies: BodyInput[]): Promise<void>;
   pendingChanges(accountId: AccountId): Promise<PendingChange[]>;
   changeApplied(id: number): Promise<void>;
-  changeFailed(id: number, error: string): Promise<void>;
+  changeFailed(id: number, error: string, rejected: boolean): Promise<boolean>;
 }
 
 export const DATA_PORT_METHODS = [

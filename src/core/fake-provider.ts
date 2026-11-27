@@ -1,5 +1,6 @@
 // An in-memory MailProvider that plays a scripted mailbox. Used by core tests,
 // the performance fixture and `npm run start:fake`.
+import { ServerRejectedError } from './types';
 import type {
   Address, Caps, ChangeSet, ChangesOptions, FlagChange, Mailbox, MailEvent, MailProvider, MessageEdit, RawMessage, RemoteHeader, SyncState,
 } from './types';
@@ -47,6 +48,8 @@ export class FakeProvider implements MailProvider {
   /** Set to make the next calls fail, to simulate network trouble. */
   failNext = 0;
   calls: string[] = [];
+  /** Set to make the server refuse the next edits (the connection stays up). */
+  rejectEdits = 0;
   /** Every edit the core sent, in order. */
   edits: { mailbox: string; uids: number[]; edit: MessageEdit }[] = [];
 
@@ -231,6 +234,10 @@ export class FakeProvider implements MailProvider {
   async edit(path: string, uids: number[], edit: MessageEdit) {
     this.check('edit');
     if (!this.connected) throw new Error('fake: not connected');
+    if (this.rejectEdits > 0) {
+      this.rejectEdits--;
+      throw new ServerRejectedError('fake: server refused the edit');
+    }
     const b = this.box(path);
     this.edits.push({ mailbox: path, uids: [...uids], edit });
     const apply = (xs: string[], add?: string[], remove?: string[]) => {

@@ -339,9 +339,37 @@ export class Store {
     this.db.prepare('delete from pending_changes where id = ?').run(id);
   }
 
-  /** Sending the change failed; it stays pending. */
-  changeFailed(id: number, error: string) {
-    this.db.prepare('update pending_changes set attempts = attempts + 1, last_error = ? where id = ?').run(error, id);
+  /**
+   * Sending the change failed; it stays pending. Only refusals from the server count as attempts:
+   * a dropped connection says nothing about the change. Returns the attempts so far.
+   */
+  changeFailed(id: number, error: string, rejected: boolean): number {
+    this.db.prepare('update pending_changes set attempts = attempts + ?, last_error = ? where id = ?').run(rejected ? 1 : 0, error, id);
+    return (this.db.prepare('select attempts from pending_changes where id = ?').pluck().get(id) as number | undefined) ?? 0;
+  }
+
+  /** Give up on a change: undo its local edit and forget it. Returns the Thread's subject for telling the user. */
+  rollbackChange(id: number): { subject: string; inboxChanged: boolean } | undefined {
+    const c = this.db.prepare('select account_id, thread_key, mailbox, uids_json, edit_json from pending_changes where id = ?').get(id) as
+      | { account_id: string; thread_key: string; mailbox: string; uids_json: string; edit_json: string }
+      | undefined;
+    if (!c) return undefined;
+    const e = JSON.parse(c.edit_json) as MessageEdit;
+    const inverse: MessageEdit = { addFlags: e.removeFlags, removeFlags: e.addFlags, addLabels: e.removeLabels, removeLabels: e.addLabels };
+    let inboxChanged = false;
+    this.db.transaction(() => {
+      this.db.prepare('delete from pending_changes where id = ?').run(id);
+      for (const k of this.editMessages(c.account_id, c.mailbox, JSON.parse(c.uids_json) as number[], inverse)) {
+        if (this.refreshThread(c.account_id, k)) inboxChanged = true;
+      }
+    })();
+    const subject = (this.db.prepare('select subject from threads where account_id = ? and thread_key = ?').pluck().get(c.account_id, c.thread_key) as string | undefined) ?? '';
+    return { subject, inboxChanged };
+  }
+
+  pendingStatus(): { count: number; waiting: number } {
+    const r = this.db.prepare('select count(*) count, count(last_error) waiting from pending_changes').get() as { count: number; waiting: number };
+    return { count: r.count, waiting: r.waiting };
   }
 
   /** Store bodies. Returns the keys of the Threads touched and whether the Inbox Split was affected. */
