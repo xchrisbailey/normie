@@ -30,7 +30,7 @@ const MODIFIER_KEYS = new Set(['Shift', 'Meta', 'Control', 'Alt', 'CapsLock']);
 export function tokenOf(e: KeyLike, platform = 'darwin'): string | null {
   if (MODIFIER_KEYS.has(e.key)) return null;
   const cmd = platform === 'darwin' ? e.metaKey : e.ctrlKey;
-  let key = e.key.length === 1 ? e.key : e.key;
+  let key = e.key === ' ' ? 'Space' : e.key;
   const parts: string[] = [];
   if (cmd) parts.push('Cmd');
   if (e.altKey) parts.push('Alt');

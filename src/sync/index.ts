@@ -2,7 +2,7 @@
 // Main tells it which Accounts exist; it keeps one SyncEngine per Account in step with that list.
 import type { MessagePortMain } from 'electron';
 import { DATA_PORT_METHODS, type DataPort } from '../core/data-service';
-import { FakeProvider, fakeExtractText, seedDemo } from '../core/fake-provider';
+import { FakeProvider, seedDemo, seedNewsletter } from '../core/fake-provider';
 import { connect, mainPortChannel, proxy, type Client } from '../core/rpc';
 import { SyncEngine } from '../core/sync-engine';
 import type { MailProvider } from '../core/types';
@@ -34,7 +34,8 @@ function providerFor(a: AccountConfig): { provider: MailProvider; extractText: (
   if (a.kind === 'gmail') return { provider: new ImapProvider(gmailConfig(a.email, () => accessToken(a.accountId), log)), extractText };
   const p = new FakeProvider();
   seedDemo(p, a.seed ?? 40);
-  return { provider: p, extractText: fakeExtractText };
+  if (!a.seed) seedNewsletter(p);
+  return { provider: p, extractText };
 }
 
 async function startAccount(a: AccountConfig) {

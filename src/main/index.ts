@@ -155,6 +155,10 @@ function createWindow() {
     return { action: 'deny' };
   });
   w.webContents.on('will-navigate', (e) => e.preventDefault());
+  // The reader frame is filled from this page and never navigates; nor does any other frame.
+  w.webContents.on('will-frame-navigate', (e) => {
+    if (!e.isMainFrame && !/^about:(srcdoc|blank)$/.test(e.url)) e.preventDefault();
+  });
   // Shown once the first useful frame is painted (see renderer-ready), with a fallback so it always appears.
   if (!smoke && !bench && !coldStartRun) showTimer = setTimeout(() => showWindow(w), 3000);
   void w.loadFile(path.join(__dirname, '../renderer/index.html'));
@@ -306,11 +310,25 @@ async function smokeKeys(w: BrowserWindow) {
   await press('g');
   const afterGG = await selectedIndex();
   await press('Enter');
-  await new Promise((r) => setTimeout(r, 300));
-  const readerText = (await w.webContents.executeJavaScript(`document.querySelector('.reader .body')?.textContent ?? null`)) as string | null;
+  await new Promise((r) => setTimeout(r, 500));
+  // The newest fake Thread is an HTML newsletter with a script, a tracking pixel and a javascript: link.
+  const frame = (await w.webContents.executeJavaScript(`(() => {
+    const f = document.querySelector('.mail-frame');
+    const d = f && f.contentDocument;
+    const sr = d && d.querySelector('.html') && d.querySelector('.html').shadowRoot;
+    const r = f ? f.getBoundingClientRect() : null;
+    return { sandbox: f && f.getAttribute('sandbox'), html: sr ? sr.innerHTML : '', text: sr ? sr.textContent : '',
+      bar: !!document.querySelector('.images-bar'), x: r ? r.left + r.width / 2 : 0, y: r ? r.top + 60 : 0 };
+  })()`)) as { sandbox: string | null; html: string; text: string; bar: boolean; x: number; y: number };
+  const html = frame.sandbox === 'allow-same-origin' && frame.text.includes('Hello from Normie') && frame.bar
+    && !/<script|tracker\.example|javascript:/i.test(frame.html);
+  // Click into the message, then Esc: keys still reach the app from inside the frame.
+  for (const type of ['mouseDown', 'mouseUp'] as const) w.webContents.sendInputEvent({ type, x: Math.round(frame.x), y: Math.round(frame.y), button: 'left', clickCount: 1 });
+  await new Promise((r) => setTimeout(r, 100));
+  const focusedFrame = (await w.webContents.executeJavaScript(`document.activeElement?.className === 'mail-frame'`)) as boolean;
   await press('Escape');
   const readerClosed = (await w.webContents.executeJavaScript(`!document.querySelector('.reader')`)) as boolean;
-  const reader = !!readerText && readerClosed;
+  const reader = html && focusedFrame && readerClosed;
   // Done takes the selected Thread out of the list.
   const count = () => w.webContents.executeJavaScript(`Number(document.querySelector('.split-bar .count')?.textContent)`) as Promise<number>;
   const before = await count();
@@ -342,8 +360,12 @@ async function smokeKeys(w: BrowserWindow) {
   await press('y');
   const keymapOk = (await isStarred()) !== starBefore;
   const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk;
-  return { ok, start, afterJ, afterK, afterGG, reader, done, undone, starred, palette, label, keymap: keymapOk };
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, done, undone, starred, palette, label, keymap: keymapOk };
 }
+
+ipcMain.on('open-link', (_e, url: unknown) => {
+  if (typeof url === 'string' && /^(https?|mailto):/i.test(url)) void shell.openExternal(url);
+});
 
 ipcMain.handle('accounts:list', () => accounts.list());
 ipcMain.handle('accounts:add-gmail', async (_e, loginHint?: string): Promise<AccountRecord> => {

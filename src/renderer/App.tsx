@@ -6,7 +6,8 @@ import { DevOverlay } from './DevOverlay';
 import { actionItems, type PaletteItem } from './commands/palette';
 import { ACTIONS } from './commands/registry';
 import { Palette } from './Palette';
-import { Reader } from './Reader';
+import type { FrameHandle } from './MailFrame';
+import { blockedMessages, Reader } from './Reader';
 import { SyncBadge } from './SyncBadge';
 import { ThreadCache } from './thread-cache';
 import { ThreadList } from './ThreadList';
@@ -53,6 +54,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const [overlay, setOverlay] = useState(false);
   /** The open palette: every action, or Labels for the selected Thread. */
   const [palette, setPalette] = useState<null | 'actions' | 'label'>(null);
+  /** Messages whose remote images the user loaded this session. */
+  const [imagesAllowed, setImagesAllowed] = useState<ReadonlySet<number>>(new Set());
+  const frame = useRef<FrameHandle | null>(null);
   const labels = useLabels(core);
   const cache = useMemo(() => (core ? new ThreadCache(core) : null), [core]);
   /**
@@ -248,6 +252,10 @@ function Inbox({ core }: { core: CoreClient | null }) {
     'reader.next': () => openAt(selected + 1),
     'reader.prev': () => openAt(selected - 1),
     'reader.close': () => setOpen(null),
+    'reader.pageDown': () => frame.current?.scrollPage(1),
+    'reader.pageUp': () => frame.current?.scrollPage(-1),
+    'reader.images': () => loadImages(false),
+    'reader.imagesAlways': () => loadImages(true),
     'go.inbox': () => {
       setOpen(null);
       move(() => 0);
@@ -278,6 +286,18 @@ function Inbox({ core }: { core: CoreClient | null }) {
   }, []);
   useEffect(() => window.normie.onMenuAction(runAction), [runAction]);
 
+  /** Show the open Thread's hidden images; `always` also remembers each sender. */
+  function loadImages(always: boolean) {
+    if (!open?.messages) return;
+    const blocked = blockedMessages(open.messages, imagesAllowed);
+    if (!blocked.length) return;
+    setImagesAllowed((s) => new Set([...s, ...blocked.map((m) => m.id)]));
+    if (always && core) {
+      const senders = new Set(blocked.flatMap((m) => (m.from ? [m.from.address.toLowerCase()] : [])));
+      void Promise.all([...senders].map((a) => core.allowImagesFrom(a))).then(() => cache?.load(open.key, true));
+    }
+  }
+
   /** Labels of the selected Thread's Account. */
   const rowLabels = () => labels.get(rows[clamp(selected)]?.accountId ?? '') ?? [];
   const applyLabel = (label: string) => triage({ type: 'label', label, on: true }, (r) => r);
@@ -305,7 +325,17 @@ function Inbox({ core }: { core: CoreClient | null }) {
       ) : (
         <div className={open ? 'panes reading' : 'panes'}>
           <ThreadList rows={rows} selected={selected} />
-          {open && <Reader subject={open.subject} messages={open.messages} />}
+          {open && (
+            <Reader
+              threadKey={open.key}
+              subject={open.subject}
+              messages={open.messages}
+              allowed={imagesAllowed}
+              frame={frame}
+              onLoadImages={() => loadImages(false)}
+              onAlwaysLoadImages={() => loadImages(true)}
+            />
+          )}
         </div>
       )}
       {overlay && <DevOverlay />}

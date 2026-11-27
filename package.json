@@ -35,8 +35,10 @@
   },
   "dependencies": {
     "better-sqlite3": "13.2.0",
+    "dompurify": "3.5.0",
     "imapflow": "2.12.2",
     "mailparser": "3.15.0",
+    "marked": "18.3.0",
     "nodemailer": "10.6.1"
   },
   "allowScripts": {
@@ -55,6 +57,7 @@
     "electron": "45.5.0",
     "electron-builder": "26.18.0",
     "esbuild": "0.28.2",
+    "jsdom": "31.0.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "typescript": "7.0.2",

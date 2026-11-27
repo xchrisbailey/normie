@@ -177,6 +177,10 @@ export interface ThreadMessage {
   subject: string;
   /** Plain text, or null when the body hasn't been downloaded yet. */
   text: string | null;
+  /** The HTML part, unsanitized (the renderer sanitizes), or null when there is none. */
+  html: string | null;
+  /** The sender is on the list whose remote images always load. */
+  imagesAllowed: boolean;
 }
 
 /** Change notices the core sends to the renderer. */

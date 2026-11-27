@@ -19,10 +19,15 @@ export class DataService {
 
   private readonly now: () => number;
   private readonly deleteHoldMs?: number;
+  private readonly extractHtml?: (raw: Uint8Array) => Promise<string | null>;
 
-  constructor(readonly store: Store, opts: { now?: () => number; deleteHoldMs?: number } = {}) {
+  constructor(
+    readonly store: Store,
+    opts: { now?: () => number; deleteHoldMs?: number; extractHtml?: (raw: Uint8Array) => Promise<string | null> } = {},
+  ) {
     this.now = opts.now ?? Date.now;
     this.deleteHoldMs = opts.deleteHoldMs;
+    this.extractHtml = opts.extractHtml;
   }
 
   onNotice(fn: NoticeListener) {
@@ -40,15 +45,28 @@ export class DataService {
     return this.store.rows(split, limit);
   }
 
-  thread(key: string): ThreadMessage[] {
-    const messages = this.store.thread(key);
+  /** A Thread's messages. HTML parts are extracted from the stored message the first time it's opened. */
+  async thread(key: string): Promise<ThreadMessage[]> {
+    let messages = this.store.thread(key);
     for (const m of messages) {
       if (m.text === null && this.bodyRequester) {
         const loc = this.store.messageLocation(m.id);
         if (loc) this.bodyRequester(loc);
       }
     }
+    if (this.extractHtml) {
+      const pending = this.store.bodiesWithoutHtml(messages.map((m) => m.id));
+      if (pending.length) {
+        for (const b of pending) this.store.putHtml(b.id, (await this.extractHtml(b.raw).catch(() => null)) ?? '');
+        messages = this.store.thread(key);
+      }
+    }
     return messages;
+  }
+
+  /** Always load remote images from this sender. */
+  allowImagesFrom(address: string) {
+    this.store.allowImagesFrom(address);
   }
 
   // --- Commands (renderer)

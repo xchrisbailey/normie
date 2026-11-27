@@ -20,6 +20,19 @@ function text(i: number) {
   return `Hi,\n\n${out.join(' ')}.\n\nThanks`;
 }
 
+function htmlRaw(body: string, i: number) {
+  const rows = Array.from({ length: 12 }, (_, k) =>
+    `<tr><td style="padding:12px;border-bottom:1px solid #eee"><img src="https://cdn.example.com/${i}/${k}.png" width="80" height="80" alt=""></td>` +
+    `<td style="padding:12px"><h2 style="margin:0;font:600 16px Helvetica">Story ${k}</h2><p>${body.slice(0, 160)}</p>` +
+    `<a href="https://example.com/${i}/${k}" style="color:#1a73e8">Read more</a></td></tr>`).join('');
+  const html = `<html><head><style>body{font-family:Helvetica,Arial;color:#222} .wrap{max-width:600px;margin:0 auto} td{vertical-align:top}</style></head>` +
+    `<body><div class="wrap"><img src="https://cdn.example.com/header.png" width="600" alt="News"><table width="100%">${rows}</table>` +
+    `<p style="font-size:11px;color:#888">You get this because you subscribed. <a href="https://example.com/unsubscribe">Unsubscribe</a></p></div>` +
+    `<img src="https://tracker.example.com/open/${i}.gif" width="1" height="1"></body></html>`;
+  return ['Subject: x', 'MIME-Version: 1.0', 'Content-Type: multipart/alternative; boundary="b"', '',
+    '--b', 'Content-Type: text/plain; charset=utf-8', '', body, '', '--b', 'Content-Type: text/html; charset=utf-8', '', html, '', '--b--', ''].join('\r\n');
+}
+
 const t0 = performance.now();
 for (const ext of ['', '-wal', '-shm']) if (existsSync(path + ext)) rmSync(path + ext);
 const store = new Store(path);
@@ -44,7 +57,9 @@ for (let start = 0; start < count; start += BATCH) {
       to: [{ address: 'me@example.com' }], date: NOW - i * 60_000, flags: i % 4 === 0 ? [] : ['\\Seen'], labels,
     });
     const body = text(i);
-    bodies.push({ uid, raw: new TextEncoder().encode(`Subject: x\r\n\r\n${body}`), text: body });
+    // Half the mail is HTML, like a newsletter: styles, a layout table, links and remote images.
+    const raw = i % 2 === 0 ? htmlRaw(body, i) : `Subject: x\r\n\r\n${body}`;
+    bodies.push({ uid, raw: new TextEncoder().encode(raw), text: body });
   }
   store.applyChanges(account, mailbox, { headers });
   store.putBodies(account, mailbox, bodies);

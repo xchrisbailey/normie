@@ -12,11 +12,12 @@ export { CORE_API_METHODS, type CoreApi } from './api';
 export function coreApiOf(ds: DataService): CoreApi {
   return {
     rows: async (split, limit) => ds.rows(split, limit),
-    thread: async (key) => ds.thread(key),
+    thread: (key) => ds.thread(key),
     act: async (key, action) => ds.act(key, action),
     undo: async (ids) => ds.undo(ids),
     pending: async () => ds.pending(),
     labels: async (accountId) => ds.labels(accountId),
+    allowImagesFrom: async (address) => ds.allowImagesFrom(address),
   };
 }
 
@@ -41,11 +42,12 @@ export interface CreateCoreOptions {
   debounceMs?: number;
   backoffMs?: (attempt: number) => number;
   deleteHoldMs?: number;
+  extractHtml?: (raw: Uint8Array) => Promise<string | null>;
 }
 
 /** The whole core in one process: store, data service and one Account's sync engine. */
 export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
-  const data = new DataService(new Store(o.dbPath ?? ':memory:'), { now: o.now, deleteHoldMs: o.deleteHoldMs });
+  const data = new DataService(new Store(o.dbPath ?? ':memory:'), { now: o.now, deleteHoldMs: o.deleteHoldMs, extractHtml: o.extractHtml });
   const notices: CoreNotice[] = [];
   data.onNotice((n) => notices.push(n));
   const engine = new SyncEngine({
