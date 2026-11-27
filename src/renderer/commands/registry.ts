@@ -14,6 +14,8 @@ export const ACTIONS = [
   { id: 'reader.images', name: 'Load Images', keys: ['i'], contexts: ['reader'] },
   { id: 'reader.imagesAlways', name: 'Always Load Images from Sender', keys: ['Shift-I'], contexts: ['reader'] },
   { id: 'reader.close', name: 'Back to List', keys: ['Escape'], contexts: ['reader'] },
+  { id: 'compose.new', name: 'Compose', keys: ['c'], contexts: ['list', 'reader'] },
+  { id: 'send.undo', name: 'Undo Send', keys: ['Cmd-Z'], contexts: ['list', 'reader'] },
   { id: 'thread.done', name: 'Mark Done', keys: ['e'], contexts: ['list', 'reader'] },
   { id: 'thread.star', name: 'Star or Unstar', keys: ['s'], contexts: ['list', 'reader'] },
   { id: 'thread.delete', name: 'Delete', keys: ['#'], contexts: ['list', 'reader'] },

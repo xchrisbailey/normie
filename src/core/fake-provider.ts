@@ -2,7 +2,7 @@
 // the performance fixture and `npm run start:fake`.
 import { ServerRejectedError } from './types';
 import type {
-  Address, Caps, ChangeSet, ChangesOptions, FlagChange, Mailbox, MailEvent, MailProvider, MessageEdit, RawMessage, RemoteHeader, SyncState,
+  Address, Caps, ChangeSet, ChangesOptions, FlagChange, Mailbox, MailEvent, MailProvider, MailTransport, MessageEdit, RawMessage, RemoteHeader, SyncState,
 } from './types';
 
 export interface FakeMessageInput {
@@ -53,6 +53,8 @@ export class FakeProvider implements MailProvider {
   calls: string[] = [];
   /** Set to make the server refuse the next edits (the connection stays up). */
   rejectEdits = 0;
+  /** Messages appended (such as sent copies), in order. */
+  appends: { mailbox: string; raw: string; flags: string[] }[] = [];
   /** Every edit the core sent, in order. */
   edits: { mailbox: string; uids: number[]; edit: MessageEdit }[] = [];
 
@@ -263,6 +265,16 @@ export class FakeProvider implements MailProvider {
     }
   }
 
+  async append(path: string, raw: Uint8Array, flags: string[]) {
+    this.check('append');
+    if (!this.connected) throw new Error('fake: not connected');
+    const text = new TextDecoder().decode(raw);
+    this.appends.push({ mailbox: path, raw: text, flags });
+    const subject = /^Subject: (.*)$/m.exec(text)?.[1]?.trim() ?? '';
+    const messageId = /^Message-ID: (.*)$/im.exec(text)?.[1]?.trim();
+    this.deliver({ subject, flags, ...(messageId ? { messageId } : {}), raw: text, labels: this.caps.labels ? ['\\Sent'] : [path] }, path);
+  }
+
   async *watch(path: string, signal: AbortSignal): AsyncIterable<MailEvent> {
     this.check('watch');
     const queue: MailEvent[] = [];
@@ -340,4 +352,25 @@ export function seedNewsletter(p: FakeProvider, now = Date.now()) {
       '--m--', '',
     ].join('\r\n'),
   });
+}
+
+/** An SMTP stand-in: records what was sent, and fails or refuses on cue. */
+export class FakeTransport implements MailTransport {
+  sent: { raw: string; envelope: { from: string; to: string[] } }[] = [];
+  /** The next sends fail as a dropped connection would. */
+  failNext = 0;
+  /** The next sends are refused by the server. */
+  rejectNext = 0;
+
+  async send(raw: Uint8Array, envelope: { from: string; to: string[] }) {
+    if (this.failNext > 0) {
+      this.failNext--;
+      throw new Error('fake SMTP: connection lost');
+    }
+    if (this.rejectNext > 0) {
+      this.rejectNext--;
+      throw new ServerRejectedError('fake SMTP: 550 rejected');
+    }
+    this.sent.push({ raw: new TextDecoder().decode(raw), envelope });
+  }
 }

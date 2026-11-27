@@ -42,6 +42,7 @@ process.parentPort.on('message', (e) => {
     }
     data.bodyRequester = (loc) => emitToSync?.('fetch-body', loc);
     data.replayRequester = (accountId) => emitToSync?.('replay', { accountId });
+    data.outboxRequester = (accountId) => emitToSync?.('outbox', { accountId });
     for (const p of pendingPorts.splice(0)) attach(p.kind, p.port);
   } else {
     const port = e.ports[0];

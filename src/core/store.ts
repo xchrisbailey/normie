@@ -1,7 +1,7 @@
 // The local store: one SQLite file in WAL mode, owned by the data process.
 import Database from 'better-sqlite3';
 import type {
-  AccountId, Address, AttachmentInfo, FlagChange, MailboxRole, MessageEdit, PendingChange, RemoteHeader, SplitId, SyncState, ThreadAction,
+  AccountId, Address, AttachmentInfo, FlagChange, OutboxItem, OutgoingMessage, MailboxRole, MessageEdit, PendingChange, RemoteHeader, SplitId, SyncState, ThreadAction,
   ThreadMessage, ThreadRow,
 } from './types';
 
@@ -110,6 +110,21 @@ const MIGRATIONS: string[] = [
   alter table bodies add column attachments_json text;
   update bodies set html = null;
   `,
+  // The Outbox: messages waiting to be sent (first for the undo window, then for the connection).
+  `
+  create table outbox (
+    id integer primary key,
+    account_id text not null,
+    message_id text not null,
+    message_json text not null,
+    send_at integer not null,
+    state text not null default 'queued',
+    attempts integer not null default 0,
+    last_error text,
+    created_at integer not null
+  );
+  create index outbox_due on outbox (account_id, state, send_at);
+  `,
 ];
 
 /** How long a delete waits before it's sent, so it can still be undone. */
@@ -128,6 +143,16 @@ const inverseOf = (e: MessageEdit): MessageEdit => ({
   ...(e.removeLabels ? { addLabels: e.removeLabels } : {}),
   ...(e.addLabels ? { removeLabels: e.addLabels } : {}),
 });
+
+/** Outgoing messages are stored as JSON, attachments as base64. */
+function encodeMessage(m: OutgoingMessage): string {
+  return JSON.stringify({ ...m, attachments: (m.attachments ?? []).map((a) => ({ ...a, content: Buffer.from(a.content.buffer, a.content.byteOffset, a.content.byteLength).toString('base64') })) });
+}
+
+function decodeMessage(json: string): OutgoingMessage {
+  const m = JSON.parse(json) as Omit<OutgoingMessage, 'attachments'> & { attachments: { filename: string; contentType: string; content: string }[] };
+  return { ...m, attachments: m.attachments.map((a) => ({ ...a, content: new Uint8Array(Buffer.from(a.content, 'base64')) })) };
+}
 
 /** Applies an edit to a list of flags or Labels. */
 function edited(xs: string[], add?: string[], remove?: string[]): string[] {
@@ -224,6 +249,8 @@ export class Store {
     this.db.pragma('foreign_keys = ON');
     this.db.pragma('synchronous = NORMAL');
     this.migrate();
+    // A send cut short by a crash or quit goes back in the queue. (It may go out twice, never not at all.)
+    this.db.prepare(`update outbox set state = 'queued' where state = 'sending'`).run();
   }
 
   private migrate() {
@@ -251,7 +278,7 @@ export class Store {
   removeAccount(id: AccountId) {
     this.db.transaction(() => {
       this.db.prepare('delete from bodies where message_id in (select id from messages where account_id = ?)').run(id);
-      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes', 'muted_threads']) this.db.prepare(`delete from ${t} where account_id = ?`).run(id);
+      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes', 'muted_threads', 'outbox']) this.db.prepare(`delete from ${t} where account_id = ?`).run(id);
       this.db.prepare('delete from accounts where id = ?').run(id);
     })();
   }
@@ -598,7 +625,53 @@ export class Store {
 
   pendingStatus(): { count: number; waiting: number } {
     const r = this.db.prepare(`select count(*) count, count(last_error) waiting from pending_changes where state = 'pending'`).get() as { count: number; waiting: number };
-    return { count: r.count, waiting: r.waiting };
+    const o = this.db.prepare(`select count(*) count, count(last_error) waiting from outbox where state in ('queued', 'sending')`).get() as { count: number; waiting: number };
+    return { count: r.count + o.count, waiting: r.waiting + o.waiting };
+  }
+
+  // --- The Outbox
+
+  queueSend(message: OutgoingMessage, messageId: string, sendAt: number, now = Date.now()): number {
+    return Number(this.db
+      .prepare('insert into outbox(account_id, message_id, message_json, send_at, created_at) values (?, ?, ?, ?, ?)')
+      .run(message.accountId, messageId, encodeMessage(message), sendAt, now).lastInsertRowid);
+  }
+
+  /** Take a message back out of the Outbox, if it isn't on its way already. */
+  cancelSend(id: number): OutgoingMessage | null {
+    const r = this.db.prepare(`select message_json from outbox where id = ? and state in ('queued', 'failed')`).pluck().get(id) as string | undefined;
+    if (!r) return null;
+    this.db.prepare('delete from outbox where id = ?').run(id);
+    return decodeMessage(r);
+  }
+
+  /** Messages due now for an Account, marked as on their way. */
+  dueOutbox(accountId: AccountId, now: number): OutboxItem[] {
+    return this.db.transaction(() => {
+      const rows = this.db
+        .prepare(`select id, message_id, message_json, attempts from outbox where account_id = ? and state = 'queued' and send_at <= ? order by send_at, id`)
+        .all(accountId, now) as { id: number; message_id: string; message_json: string; attempts: number }[];
+      const mark = this.db.prepare(`update outbox set state = 'sending' where id = ?`);
+      for (const r of rows) mark.run(r.id);
+      return rows.map((r) => ({ id: r.id, messageId: r.message_id, message: decodeMessage(r.message_json), attempts: r.attempts }));
+    })();
+  }
+
+  nextOutboxAt(accountId: AccountId): number | undefined {
+    return (this.db.prepare(`select min(send_at) from outbox where account_id = ? and state = 'queued'`).pluck().get(accountId) as number | null) ?? undefined;
+  }
+
+  outboxSent(id: number) {
+    this.db.prepare('delete from outbox where id = ?').run(id);
+  }
+
+  /** Sending failed. Back in the queue, unless the server has refused it too often: then it's failed. Returns whether it failed. */
+  outboxFailed(id: number, error: string, rejected: boolean, maxRejections: number): boolean {
+    this.db.prepare(`update outbox set attempts = attempts + ?, last_error = ?, state = 'queued' where id = ?`).run(rejected ? 1 : 0, error, id);
+    const attempts = this.db.prepare('select attempts from outbox where id = ?').pluck().get(id) as number | undefined;
+    if (attempts === undefined || attempts < maxRejections) return false;
+    this.db.prepare(`update outbox set state = 'failed' where id = ?`).run(id);
+    return true;
   }
 
   /** Store bodies. Returns the keys of the Threads touched and whether the Inbox Split was affected. */

@@ -256,6 +256,14 @@ export class ImapProvider implements MailProvider {
     }, false);
   }
 
+  async append(path: string, raw: Uint8Array, flags: string[]) {
+    const r = await this.c.append(path, Buffer.from(raw), flags);
+    if (!r) {
+      if (this.client?.usable) throw new ServerRejectedError(`server refused to append to ${path}`);
+      throw new Error(`connection lost while appending to ${path}`);
+    }
+  }
+
   /**
    * Live events over IDLE, on a second connection of its own, so fetches and writes never wait on it.
    * ImapFlow idles whenever the selected mailbox has no command running, and restarts IDLE before servers drop it.
