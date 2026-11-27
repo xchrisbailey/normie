@@ -5,3 +5,6 @@ dist/
 .DS_Store
 spikes/
 bench/.fixtures/
+
+# Fake-mailbox runs (npm run dev:fake, start:fake) keep their data here, away from the real app.
+.normie-fake/

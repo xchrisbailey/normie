@@ -28,6 +28,16 @@ const mainAssets = (): Plugin => ({
   },
 });
 
+/**
+ * On the dev server only (npm run dev), the window's CSP also allows inline scripts: Vite's React refresh preamble is
+ * one. The built index.html, and so the installed app, keeps its policy unchanged.
+ */
+const devServerCsp = (): Plugin => ({
+  name: 'normie-dev-server-csp',
+  apply: 'serve',
+  transformIndexHtml: (html) => html.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'"),
+});
+
 export default defineConfig({
   main: {
     define: { __NORMIE_BUILD__: JSON.stringify(buildInfo) },
@@ -63,7 +73,7 @@ export default defineConfig({
   renderer: {
     root: path.join(root, 'src/renderer'),
     base: './',
-    plugins: [react()],
+    plugins: [react(), devServerCsp()],
     build: {
       outDir: out('renderer'),
       emptyOutDir: true,
