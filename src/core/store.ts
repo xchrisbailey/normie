@@ -79,7 +79,21 @@ const MIGRATIONS: string[] = [
   );
   create index pending_changes_account on pending_changes (account_id, id);
   `,
+  // Applied changes are kept for a while, so they can be undone. See Store.undo.
+  `
+  alter table pending_changes add column state text not null default 'pending';
+  `,
 ];
+
+/** Changes kept after they reach the server, so recent actions can still be undone. */
+const KEEP_APPLIED = 500;
+
+const inverseOf = (e: MessageEdit): MessageEdit => ({
+  ...(e.removeFlags ? { addFlags: e.removeFlags } : {}),
+  ...(e.addFlags ? { removeFlags: e.addFlags } : {}),
+  ...(e.removeLabels ? { addLabels: e.removeLabels } : {}),
+  ...(e.addLabels ? { removeLabels: e.addLabels } : {}),
+});
 
 /** Applies an edit to a list of flags or Labels. */
 function edited(xs: string[], add?: string[], remove?: string[]): string[] {
@@ -253,7 +267,7 @@ export class Store {
       // The server doesn't know about pending changes yet: lay them back over what it just reported.
       const written = new Set([...(batch.headers ?? []).map((h) => h.uid), ...(batch.flagChanges ?? []).map((f) => f.uid)]);
       if (written.size) {
-        for (const c of this.pendingChanges(accountId)) {
+        for (const c of this.listPending(accountId)) {
           if (c.mailbox !== mailbox) continue;
           const uids = c.uids.filter((u) => written.has(u));
           if (uids.length) this.editMessages(accountId, mailbox, uids, c.edit).forEach((k) => touched.add(k));
@@ -292,14 +306,11 @@ export class Store {
       }
     }
     const edit: MessageEdit = { removeLabels: [INBOX_LABEL] };
-    const insert = this.db.prepare(
-      'insert into pending_changes(account_id, thread_key, mailbox, uids_json, edit_json, created_at) values (?, ?, ?, ?, ?, ?)',
-    );
     const changes: PendingChange[] = [];
     let inboxChanged = false;
     this.db.transaction(() => {
       for (const [mailbox, uids] of targets) {
-        const id = Number(insert.run(accountId, threadKey, mailbox, JSON.stringify(uids), JSON.stringify(edit), now).lastInsertRowid);
+        const id = this.queueChange(accountId, threadKey, mailbox, uids, edit, now);
         changes.push({ id, accountId, threadKey, mailbox, uids, edit, attempts: 0 });
         for (const k of this.editMessages(accountId, mailbox, uids, edit)) if (this.refreshThread(accountId, k)) inboxChanged = true;
       }
@@ -324,9 +335,19 @@ export class Store {
     return [...keys];
   }
 
+  /**
+   * Changes still to send for an Account, oldest first. Called at the start of each replay, when nothing of
+   * this Account's is in flight, so it also clears out changes that were cancelled before they were sent.
+   */
   pendingChanges(accountId: AccountId): PendingChange[] {
+    this.db.prepare(`delete from pending_changes where account_id = ? and state = 'cancelled'`).run(accountId);
+    return this.listPending(accountId);
+  }
+
+  private listPending(accountId: AccountId): PendingChange[] {
     return (this.db
-      .prepare('select id, account_id, thread_key, mailbox, uids_json, edit_json, attempts from pending_changes where account_id = ? order by id')
+      .prepare(`select id, account_id, thread_key, mailbox, uids_json, edit_json, attempts from pending_changes
+                where account_id = ? and state = 'pending' order by id`)
       .all(accountId) as { id: number; account_id: string; thread_key: string; mailbox: string; uids_json: string; edit_json: string; attempts: number }[])
       .map((r) => ({
         id: r.id, accountId: r.account_id, threadKey: r.thread_key, mailbox: r.mailbox,
@@ -334,9 +355,36 @@ export class Store {
       }));
   }
 
-  /** The server has the change: forget it. */
-  changeApplied(id: number) {
-    this.db.prepare('delete from pending_changes where id = ?').run(id);
+  private changeRow(id: number) {
+    return this.db.prepare('select account_id, thread_key, mailbox, uids_json, edit_json, state from pending_changes where id = ?').get(id) as
+      | { account_id: string; thread_key: string; mailbox: string; uids_json: string; edit_json: string; state: 'pending' | 'applied' | 'cancelled' | 'undone' }
+      | undefined;
+  }
+
+  private queueChange(accountId: AccountId, threadKey: string, mailbox: string, uids: number[], edit: MessageEdit, now = Date.now()): number {
+    return Number(this.db
+      .prepare('insert into pending_changes(account_id, thread_key, mailbox, uids_json, edit_json, created_at) values (?, ?, ?, ?, ?, ?)')
+      .run(accountId, threadKey, mailbox, JSON.stringify(uids), JSON.stringify(edit), now).lastInsertRowid);
+  }
+
+  /**
+   * The server has the change. Kept as applied, so it can be undone. If it was cancelled while on its way,
+   * its inverse is queued instead; returns that Account so the caller can replay again.
+   */
+  changeApplied(id: number): AccountId | undefined {
+    const c = this.changeRow(id);
+    if (!c) return undefined;
+    if (c.state === 'cancelled') {
+      // The local copy was already put back when it was cancelled: only the server needs the inverse.
+      this.db.transaction(() => {
+        this.queueChange(c.account_id, c.thread_key, c.mailbox, JSON.parse(c.uids_json) as number[], inverseOf(JSON.parse(c.edit_json) as MessageEdit));
+        this.db.prepare('delete from pending_changes where id = ?').run(id);
+      })();
+      return c.account_id;
+    }
+    this.db.prepare(`update pending_changes set state = 'applied', last_error = null where id = ?`).run(id);
+    this.db.prepare(`delete from pending_changes where state in ('applied', 'undone') and id <= (select max(id) from pending_changes) - ?`).run(KEEP_APPLIED);
+    return undefined;
   }
 
   /**
@@ -344,31 +392,63 @@ export class Store {
    * a dropped connection says nothing about the change. Returns the attempts so far.
    */
   changeFailed(id: number, error: string, rejected: boolean): number {
+    if (this.changeRow(id)?.state === 'cancelled') {
+      // Cancelled while on its way, and it never arrived: nothing left to do.
+      this.db.prepare('delete from pending_changes where id = ?').run(id);
+      return 0;
+    }
     this.db.prepare('update pending_changes set attempts = attempts + ?, last_error = ? where id = ?').run(rejected ? 1 : 0, error, id);
     return (this.db.prepare('select attempts from pending_changes where id = ?').pluck().get(id) as number | undefined) ?? 0;
   }
 
+  /** Put the local copy back as it was before a change. Returns whether the Inbox Split was affected. */
+  private revertLocally(c: { account_id: string; mailbox: string; uids_json: string; edit_json: string }): boolean {
+    let inboxChanged = false;
+    for (const k of this.editMessages(c.account_id, c.mailbox, JSON.parse(c.uids_json) as number[], inverseOf(JSON.parse(c.edit_json) as MessageEdit))) {
+      if (this.refreshThread(c.account_id, k)) inboxChanged = true;
+    }
+    return inboxChanged;
+  }
+
   /** Give up on a change: undo its local edit and forget it. Returns the Thread's subject for telling the user. */
   rollbackChange(id: number): { subject: string; inboxChanged: boolean } | undefined {
-    const c = this.db.prepare('select account_id, thread_key, mailbox, uids_json, edit_json from pending_changes where id = ?').get(id) as
-      | { account_id: string; thread_key: string; mailbox: string; uids_json: string; edit_json: string }
-      | undefined;
-    if (!c) return undefined;
-    const e = JSON.parse(c.edit_json) as MessageEdit;
-    const inverse: MessageEdit = { addFlags: e.removeFlags, removeFlags: e.addFlags, addLabels: e.removeLabels, removeLabels: e.addLabels };
+    const c = this.changeRow(id);
+    if (!c || c.state !== 'pending') return undefined;
     let inboxChanged = false;
     this.db.transaction(() => {
       this.db.prepare('delete from pending_changes where id = ?').run(id);
-      for (const k of this.editMessages(c.account_id, c.mailbox, JSON.parse(c.uids_json) as number[], inverse)) {
-        if (this.refreshThread(c.account_id, k)) inboxChanged = true;
-      }
+      inboxChanged = this.revertLocally(c);
     })();
     const subject = (this.db.prepare('select subject from threads where account_id = ? and thread_key = ?').pluck().get(c.account_id, c.thread_key) as string | undefined) ?? '';
     return { subject, inboxChanged };
   }
 
+  /**
+   * Undo changes (newest first). One not yet sent is cancelled and never reaches the server; one already
+   * applied gets its inverse queued. Either way the local copy goes back at once. Returns the Accounts to replay.
+   */
+  undo(ids: number[]): { accounts: AccountId[]; inboxChanged: boolean } {
+    const accounts = new Set<AccountId>();
+    let inboxChanged = false;
+    this.db.transaction(() => {
+      for (const id of [...ids].sort((a, b) => b - a)) {
+        const c = this.changeRow(id);
+        if (!c || c.state === 'cancelled' || c.state === 'undone') continue;
+        if (c.state === 'pending') {
+          this.db.prepare(`update pending_changes set state = 'cancelled' where id = ?`).run(id);
+        } else {
+          this.db.prepare(`update pending_changes set state = 'undone' where id = ?`).run(id);
+          this.queueChange(c.account_id, c.thread_key, c.mailbox, JSON.parse(c.uids_json) as number[], inverseOf(JSON.parse(c.edit_json) as MessageEdit));
+          accounts.add(c.account_id);
+        }
+        if (this.revertLocally(c)) inboxChanged = true;
+      }
+    })();
+    return { accounts: [...accounts], inboxChanged };
+  }
+
   pendingStatus(): { count: number; waiting: number } {
-    const r = this.db.prepare('select count(*) count, count(last_error) waiting from pending_changes').get() as { count: number; waiting: number };
+    const r = this.db.prepare(`select count(*) count, count(last_error) waiting from pending_changes where state = 'pending'`).get() as { count: number; waiting: number };
     return { count: r.count, waiting: r.waiting };
   }
 

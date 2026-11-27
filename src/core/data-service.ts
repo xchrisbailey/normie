@@ -75,8 +75,18 @@ export class DataService {
   }
 
   changeApplied(id: number) {
-    this.store.changeApplied(id);
+    const replayAgain = this.store.changeApplied(id);
     this.emitPending();
+    // It was undone while on its way: its inverse is now queued.
+    if (replayAgain) this.replayRequester?.(replayAgain);
+  }
+
+  /** Undo triage actions by their change ids. The local copy goes back at once; the server catches up. */
+  undo(ids: number[]) {
+    const { accounts, inboxChanged } = this.store.undo(ids);
+    if (inboxChanged) this.emit({ type: 'rows-changed', split: 'inbox' });
+    this.emitPending();
+    for (const a of accounts) this.replayRequester?.(a);
   }
 
   /** Returns whether the change was given up on and rolled back. */

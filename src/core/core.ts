@@ -14,6 +14,7 @@ export function coreApiOf(ds: DataService): CoreApi {
     rows: async (split, limit) => ds.rows(split, limit),
     thread: async (key) => ds.thread(key),
     act: async (key, action) => ds.act(key, action),
+    undo: async (ids) => ds.undo(ids),
     pending: async () => ds.pending(),
   };
 }

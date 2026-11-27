@@ -37,14 +37,24 @@ function Inbox({ core }: { core: CoreClient | null }) {
    * has recorded the action, so a reload in between can't bring a Thread back.
    */
   const overrides = useRef(new Map<string, (r: ThreadRow) => ThreadRow | null>());
+  /** Rows to show even when the core's rows don't have them yet: a Thread brought back by undo. */
+  const inserts = useRef(new Map<string, ThreadRow>());
   const withOverrides = (r: ThreadRow[]) => {
-    if (!overrides.current.size) return r;
-    return r.flatMap((row) => {
+    if (!overrides.current.size && !inserts.current.size) return r;
+    const out = r.flatMap((row) => {
       const f = overrides.current.get(row.key);
-      const out = f ? f(row) : row;
-      return out ? [out] : [];
+      const o = f ? f(row) : row;
+      return o ? [o] : [];
     });
+    for (const [key, row] of inserts.current) {
+      if (out.some((x) => x.key === key)) continue;
+      const at = out.findIndex((x) => x.date < row.date);
+      out.splice(at < 0 ? out.length : at, 0, row);
+    }
+    return out;
   };
+  /** Recent triage actions, newest last, for z. */
+  const undoStack = useRef<{ key: string; prev: ThreadRow; ids: Promise<number[]> }[]>([]);
   const loadRows = useRef<() => void>(() => {});
 
   // Rows for the visible Split live here, in renderer memory. Refreshed when the core says they changed.
@@ -150,17 +160,40 @@ function Inbox({ core }: { core: CoreClient | null }) {
         else setOpen(null);
       }
     }
-    void core.act(row.key, action).then(
-      (ids) => {
-        overrides.current.delete(row.key);
-        // Nothing changed in the store, so no notice will come: reload to drop the override.
-        if (!ids.length) loadRows.current();
-      },
-      () => {
-        overrides.current.delete(row.key);
+    const ids = core.act(row.key, action);
+    undoStack.current.push({ key: row.key, prev: row, ids: ids.catch(() => []) });
+    if (undoStack.current.length > 50) undoStack.current.shift();
+    // Drop the override once the core has the action, unless something newer (an undo) replaced it.
+    const settle = (reload: boolean) => {
+      if (overrides.current.get(row.key) === change) overrides.current.delete(row.key);
+      if (reload) loadRows.current();
+    };
+    // When nothing changed in the store, no notice will come: reload to drop the override.
+    void ids.then((x) => settle(!x.length), () => settle(true));
+  };
+
+  /** Undo the last triage action: the row comes back as it was in this frame, then the core reverts it. */
+  const undo = () => {
+    const entry = undoStack.current.pop();
+    if (!entry || !core) return;
+    const restore = () => entry.prev;
+    overrides.current.set(entry.key, restore);
+    inserts.current.set(entry.key, entry.prev);
+    const next = withOverrides(rows);
+    setRows(next);
+    const i = next.findIndex((r) => r.key === entry.key);
+    if (i >= 0) {
+      setSelected(i);
+      selectedKey.current = entry.key;
+      if (open) openRow(next[i]!, i, next);
+    }
+    void entry.ids
+      .then((ids) => core.undo(ids))
+      .finally(() => {
+        if (overrides.current.get(entry.key) === restore) overrides.current.delete(entry.key);
+        if (inserts.current.get(entry.key) === entry.prev) inserts.current.delete(entry.key);
         loadRows.current();
-      },
-    );
+      });
   };
 
   useKeys(open ? 'reader' : 'list', {
@@ -177,6 +210,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
       move(() => 0);
     },
     'thread.done': () => triage({ type: 'done' }, () => null),
+    undo,
     'dev.overlay': () => setOverlay((o) => !o),
   });
 
