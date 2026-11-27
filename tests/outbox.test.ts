@@ -187,3 +187,24 @@ describe('replying through the core', () => {
     expect((await c.rows('inbox'))[0]).toMatchObject({ key: row!.key, count: 2 });
   });
 });
+
+describe('attachments', () => {
+  it('go out as MIME parts', async () => {
+    const { c, transport } = await start();
+    const pdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]);
+    await c.send(message({ attachments: [
+      { filename: 'menu.pdf', contentType: 'application/pdf', content: pdf },
+      { filename: 'notes.txt', contentType: 'text/plain', content: new TextEncoder().encode('bring snacks') },
+    ] }));
+    now += 5000;
+    await c.engine.sendOutbox();
+    const raw = transport.sent[0]!.raw;
+    expect(raw).toMatch(/Content-Type: multipart\/mixed/);
+    expect(raw).toMatch(/Content-Type: application\/pdf; name=menu\.pdf/);
+    expect(raw).toMatch(/Content-Disposition: attachment; filename=menu\.pdf/);
+    expect(raw).toContain(Buffer.from(pdf).toString('base64'));
+    expect(raw).toMatch(/filename=notes\.txt/);
+    // The text and HTML are still both there.
+    expect(raw).toMatch(/multipart\/alternative/);
+  });
+});
