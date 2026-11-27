@@ -221,6 +221,14 @@ const MIGRATIONS: string[] = [
       and lower(json_extract(m.from_json, '$.address')) not in (select lower(email) from accounts union select address from identities)
     order by m.date desc limit 1);
   `,
+  // Each Thread's own Labels, for Split rules.
+  `
+  alter table threads add column labels_json text not null default '[]';
+  update threads set labels_json = coalesce((
+    select json_group_array(distinct j.value) from messages m, json_each(m.labels_json) j
+    where m.account_id = threads.account_id and m.thread_key = threads.thread_key and substr(j.value, 1, 1) != '\\'), '[]')
+  where exists (select 1 from mailboxes mb where mb.account_id = threads.account_id and mb.role = 'all');
+  `,
 ];
 
 /** How long a delete waits before it's sent, so it can still be undone. */
@@ -1065,14 +1073,21 @@ export class Store {
     const senders = this.db.prepare('select from_json from messages where account_id = ? and thread_key = ? and from_json is not null order by date desc limit 20')
       .pluck().all(accountId, threadKey) as string[];
     const sender = senders.map((j) => (JSON.parse(j) as Address).address.toLowerCase()).find((a) => !mine.has(a)) ?? null;
+    // Labels mean something only where messages carry several (Gmail); on folder servers they're the mailbox.
+    const isGmail = !!this.db.prepare(`select 1 from mailboxes where account_id = ? and role = 'all'`).pluck().get(accountId);
+    const labels = isGmail
+      ? (this.db.prepare(`select distinct j.value from messages m, json_each(m.labels_json) j
+                          where m.account_id = ? and m.thread_key = ? and substr(j.value, 1, 1) != '\\'`).pluck().all(accountId, threadKey) as string[])
+      : [];
     this.db
-      .prepare(`insert into threads(account_id, thread_key, subject, from_label, last_date, snippet, unread, count, in_inbox, starred, is_list, sender)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      .prepare(`insert into threads(account_id, thread_key, subject, from_label, last_date, snippet, unread, count, in_inbox, starred, is_list, sender, labels_json)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(account_id, thread_key) do update set subject = excluded.subject, from_label = excluded.from_label,
                   last_date = excluded.last_date, snippet = excluded.snippet, unread = excluded.unread, count = excluded.count,
-                  in_inbox = excluded.in_inbox, starred = excluded.starred, is_list = excluded.is_list, sender = excluded.sender`)
+                  in_inbox = excluded.in_inbox, starred = excluded.starred, is_list = excluded.is_list, sender = excluded.sender,
+                  labels_json = excluded.labels_json`)
       .run(accountId, threadKey, first || latest.subject, addressLabel(latest.from_json ? JSON.parse(latest.from_json) : undefined),
-        agg.last_date, latest.snippet, agg.unread, agg.n, agg.in_inbox, agg.starred, agg.is_list, sender);
+        agg.last_date, latest.snippet, agg.unread, agg.n, agg.in_inbox, agg.starred, agg.is_list, sender, JSON.stringify(labels));
     return wasInInbox || agg.in_inbox === 1;
   }
 
@@ -1082,18 +1097,21 @@ export class Store {
   rows(split: SplitId, limit = 5000): ThreadRow[] {
     if (split !== 'inbox') return [];
     return (this.db
-      .prepare(`select t.account_id, t.thread_key, t.subject, t.from_label, t.last_date, t.snippet, t.unread, t.starred, t.count, t.is_list, t.sender,
+      .prepare(`select t.account_id, t.thread_key, t.subject, t.from_label, t.last_date, t.snippet, t.unread, t.starred, t.count, t.is_list, t.sender, t.labels_json,
                   t.sender in (select address from vip) vip,
                   t.sender in (select address from contacts where sent_count > 0) known
                 from threads t where t.in_inbox = 1 order by t.last_date desc limit ?`)
       .all(limit) as {
         account_id: string; thread_key: string; subject: string; from_label: string; last_date: number; snippet: string;
-        unread: number; starred: number; count: number; is_list: number; sender: string | null; vip: number | null; known: number | null;
+        unread: number; starred: number; count: number; is_list: number; sender: string | null; labels_json: string; vip: number | null; known: number | null;
       }[])
       .map((r) => ({
         key: threadRowKey(r.account_id, r.thread_key), accountId: r.account_id, subject: r.subject, from: r.from_label,
         date: r.last_date, snippet: r.snippet, unread: r.unread === 1, starred: r.starred === 1, count: r.count,
-        tags: { newsletter: r.is_list === 1, vip: r.vip === 1, known: r.known === 1, ...(r.sender ? { sender: r.sender } : {}) },
+        tags: {
+          newsletter: r.is_list === 1, vip: r.vip === 1, known: r.known === 1, ...(r.sender ? { sender: r.sender } : {}),
+          ...(r.labels_json !== '[]' ? { labels: JSON.parse(r.labels_json) as string[] } : {}),
+        },
       }));
   }
 

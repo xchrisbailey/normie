@@ -501,9 +501,14 @@ async function smokeKeys(w: BrowserWindow) {
     tabs.push(await activeSplit());
   }
   await press('0');
-  const splits = tabs.join('|') === 'Important|Other|Newsletters|VIP' && (await activeSplit()) === 'Inbox';
+  const builtIns = tabs.join('|') === 'Important|Other|Newsletters|VIP' && (await activeSplit()) === 'Inbox';
+  // splits.json reorders, renames and hides tabs without a restart.
+  writeFileSync(splitsPath(), JSON.stringify([{ id: 'newsletters', name: 'Reading' }, { id: 'other' }]));
+  await new Promise((r) => setTimeout(r, 600));
+  const ownTabs = (await w.webContents.executeJavaScript(`[...document.querySelectorAll('.split')].map((s) => s.firstChild.textContent.trim()).join('|')`)) as string;
+  const splits = builtIns && ownTabs === 'Inbox|Reading|Other';
   const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, tabs };
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, tabs, ownTabs };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };
@@ -570,8 +575,10 @@ ipcMain.handle('accounts:add-password', async (_e, input: PasswordAccountInput):
 type UserFile = { file?: unknown; error?: string };
 const keymapPath = () => path.join(app.getPath('userData'), 'keymap.json');
 const snippetsPath = () => path.join(app.getPath('userData'), 'snippets.json');
+const splitsPath = () => path.join(app.getPath('userData'), 'splits.json');
 let keymap: UserFile = {};
 let snippets: UserFile = {};
+let splitsFile: UserFile = {};
 
 function readUserFile(file: string): UserFile {
   if (!existsSync(file)) return {};
@@ -585,20 +592,24 @@ function readUserFile(file: string): UserFile {
 function watchUserFiles() {
   keymap = readUserFile(keymapPath());
   snippets = readUserFile(snippetsPath());
+  splitsFile = readUserFile(splitsPath());
   const timers: Record<string, NodeJS.Timeout | undefined> = {};
   try {
     // Watch the folder, not the files: editors often save by replacing them.
     watch(app.getPath('userData'), (_event, name) => {
-      if (name !== 'keymap.json' && name !== 'snippets.json') return;
+      if (name !== 'keymap.json' && name !== 'snippets.json' && name !== 'splits.json') return;
       clearTimeout(timers[name]);
       timers[name] = setTimeout(() => {
         if (name === 'keymap.json') {
           keymap = readUserFile(keymapPath());
           buildMenu();
           win?.webContents.send('keymap:changed', keymap);
-        } else {
+        } else if (name === 'snippets.json') {
           snippets = readUserFile(snippetsPath());
           win?.webContents.send('snippets:changed', snippets);
+        } else {
+          splitsFile = readUserFile(splitsPath());
+          win?.webContents.send('splits:changed', splitsFile);
         }
       }, 100);
     });
@@ -608,6 +619,7 @@ function watchUserFiles() {
 }
 ipcMain.handle('keymap:get', () => keymap);
 ipcMain.handle('snippets:get', () => snippets);
+ipcMain.handle('splits:get', () => splitsFile);
 
 /** Native menus: the standard Mac menus plus Go, Thread and View built from the registry, with the user's keys. */
 function buildMenu() {

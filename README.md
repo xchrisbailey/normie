@@ -54,6 +54,22 @@ Put a `snippets.json` in the same folder. Type `;` and a trigger in a message, t
 { "thanks": "Thanks so much!", "sig": { "name": "Signature", "text": "Chris\nSent from Normie" } }
 ```
 
+### Splits
+
+The Inbox has tabs: Inbox (everything), Important (VIPs and people you've written to), Other, Newsletters, VIP, and one per Account when you have several. Tab and Shift-Tab switch; 1–9 open an Account's tab and 0 the whole Inbox. "Add Sender to VIP" is in Cmd-K.
+
+Put a `splits.json` in the same folder to reorder, rename or hide tabs, add your own, and choose which ones notify. Listed tabs show in that order; built-ins you leave out are hidden; `"accounts"` places the per-Account tabs. Your own tabs match on every rule given: `from` (an address or `@domain`, or a list), `account`, `label`, `newsletter`, `vip`.
+
+```json
+[
+  { "id": "important", "notify": true },
+  { "id": "work", "name": "Work", "from": ["@acme.com"], "newsletter": false, "notify": true },
+  { "id": "other" },
+  { "id": "newsletters", "name": "Reading" },
+  { "id": "accounts" }
+]
+```
+
 ## Layout
 
 ```
