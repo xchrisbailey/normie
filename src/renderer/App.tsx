@@ -54,7 +54,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
     return out;
   };
   /** Recent triage actions, newest last, for z. */
-  const undoStack = useRef<{ key: string; prev: ThreadRow; ids: Promise<number[]> }[]>([]);
+  const undoStack = useRef<{ key: string; prev: ThreadRow; ids: Promise<number[]>; after?: ThreadAction }[]>([]);
   const loadRows = useRef<() => void>(() => {});
 
   // Rows for the visible Split live here, in renderer memory. Refreshed when the core says they changed.
@@ -144,7 +144,12 @@ function Inbox({ core }: { core: CoreClient | null }) {
    * A triage action on the selected Thread: the row changes in this frame, then the core records it.
    * When the change removes the row, the selection stays put and lands on the next Thread (opened, in the reader).
    */
-  const triage = (action: ThreadAction | ((r: ThreadRow) => ThreadAction), change: (r: ThreadRow) => ThreadRow | null) => {
+  const triage = (
+    action: ThreadAction | ((r: ThreadRow) => ThreadAction),
+    change: (r: ThreadRow) => ThreadRow | null,
+    /** Run after reverting the server changes on undo, for state kept only locally (mute). */
+    undoAfter?: ThreadAction,
+  ) => {
     const i = clamp(selected);
     const row = rows[i];
     if (!row || !core) return;
@@ -163,7 +168,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
       }
     }
     const ids = core.act(row.key, action);
-    undoStack.current.push({ key: row.key, prev: row, ids: ids.catch(() => []) });
+    undoStack.current.push({ key: row.key, prev: row, ids: ids.catch(() => []), ...(undoAfter ? { after: undoAfter } : {}) });
     if (undoStack.current.length > 50) undoStack.current.shift();
     // Drop the override once the core has the action, unless something newer (an undo) replaced it.
     const settle = (reload: boolean) => {
@@ -202,6 +207,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
     }
     void entry.ids
       .then((ids) => core.undo(ids))
+      .then(() => entry.after && core.act(entry.key, entry.after))
       .finally(() => {
         if (overrides.current.get(entry.key) === restore) overrides.current.delete(entry.key);
         if (inserts.current.get(entry.key) === entry.prev) inserts.current.delete(entry.key);
@@ -225,6 +231,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
     'thread.done': () => triage({ type: 'done' }, () => null),
     'thread.delete': () => triage({ type: 'delete' }, () => null),
     'thread.star': () => triage((r) => ({ type: 'star', on: !r.starred }), (r) => ({ ...r, starred: !r.starred })),
+    'thread.mute': () => triage({ type: 'mute', on: true }, () => null, { type: 'mute', on: false }),
+    'thread.unmute': () => triage({ type: 'mute', on: false }, (r) => r),
     'thread.toggleRead': () => triage((r) => ({ type: 'read', on: r.unread }), (r) => ({ ...r, unread: !r.unread })),
     undo,
     'dev.overlay': () => setOverlay((o) => !o),
