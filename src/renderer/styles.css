@@ -1,5 +1,13 @@
 @layer ui-sdk;
 
+/* Geist Serif, from Vercel's geist package (SIL OFL, fonts/GeistSerif-OFL.txt); fontsource doesn't ship it. */
+@font-face {
+  font-family: 'Geist Serif';
+  src: url('./fonts/GeistSerifVF.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: block;
+}
+
 /*
  * Colors come from the theme on screen (theme.ts sets these variables on the root from a VS Code color theme, before
  * the first frame). The values here are Normie Dark's, for the moment before that.
@@ -36,9 +44,28 @@
   --ansi-bright-white: #ece9f7;
 
   --font-sans: 'Geist Variable', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-serif: 'Geist Serif', ui-serif, 'New York', Georgia, serif;
   --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Set from Settings > Appearance (see appearance.ts): the text's face and scale, row height and column width. */
+  --font-text: var(--font-sans);
+  --fs: 1;
+  --row-h: 44px;
+  --column: 720px;
   color-scheme: dark;
-  font: 13px/1.4 var(--font-sans);
+  font: calc(13px * var(--fs))/1.4 var(--font-text);
+}
+:root[data-font='serif'] {
+  --font-text: var(--font-serif);
+}
+:root[data-font='mono'] {
+  --font-text: var(--font-mono);
+}
+/* Reduce motion in Settings: no transitions or animations, whatever the system says. */
+:root[data-motion='reduced'] *,
+:root[data-motion='reduced'] *::before,
+:root[data-motion='reduced'] *::after {
+  transition: none !important;
+  animation: none !important;
 }
 * {
   box-sizing: border-box;
@@ -58,7 +85,6 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 .app {
-  --column: 720px;
   --ease: cubic-bezier(0.65, 0, 0.25, 1);
   display: flex;
   flex-direction: column;
@@ -109,7 +135,7 @@ body {
   flex: 1;
   min-width: 0;
   font: inherit;
-  font-size: 15px;
+  font-size: calc(15px * var(--fs));
   color: var(--fg);
   background: transparent;
   border: 0;
@@ -123,11 +149,11 @@ body {
 }
 .search-bar .count,
 .search-chip .count {
-  font: 12px var(--font-mono);
+  font: calc(12px * var(--fs)) var(--font-mono);
   color: var(--fg3);
 }
 .search-bar .sync-note {
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 .search-bar .search-server,
 .search-bar .sync-note {
@@ -135,7 +161,7 @@ body {
 }
 .search-bar .search-server {
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   color: var(--accent);
   background: none;
   border: 0;
@@ -145,12 +171,12 @@ body {
   display: flex;
   gap: 18px;
   padding: 8px 16px;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   color: var(--fg3);
   border-top: 1px solid var(--line);
 }
 .panel-foot kbd {
-  font: 11px var(--font-mono);
+  font: calc(11px * var(--fs)) var(--font-mono);
   margin-right: 4px;
 }
 /* While the results fill the list: what was searched, in place of the tabs. A press edits it. */
@@ -178,7 +204,7 @@ body {
   white-space: nowrap;
 }
 .search-chip .sync-note {
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   color: var(--fg3);
 }
 
@@ -204,7 +230,7 @@ body {
   gap: 6px;
   height: 32px;
   padding: 0 8px;
-  font: 500 13px var(--font-sans);
+  font: 500 calc(13px * var(--fs)) var(--font-text);
   white-space: nowrap;
 }
 .split {
@@ -263,7 +289,7 @@ body {
 .split-measure .count,
 .split-item .count {
   font-weight: 400;
-  font-size: 11px;
+  font-size: calc(11px * var(--fs));
 }
 .unread-dot {
   width: 5px;
@@ -343,7 +369,7 @@ body {
   padding: 3px 7px;
   border: 0;
   border-radius: 5px;
-  font-size: 11px;
+  font-size: calc(11px * var(--fs));
   white-space: nowrap;
   color: var(--ground);
   background: var(--fg);
@@ -372,7 +398,7 @@ body {
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: 0 6px 18px var(--shadow);
-  font-size: 11px;
+  font-size: calc(11px * var(--fs));
   line-height: 1.35;
   white-space: nowrap;
   transform-origin: 0 0;
@@ -432,7 +458,7 @@ body {
   gap: 8px;
   padding: 6px 8px;
   border-radius: 5px;
-  font-size: 13px;
+  font-size: calc(13px * var(--fs));
   cursor: pointer;
   outline: none;
 }
@@ -465,7 +491,7 @@ body {
   align-items: start;
   padding: 8px 10px 8px 14px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   color: var(--ground);
   background: var(--fg);
   box-shadow: 0 6px 18px var(--shadow);
@@ -494,7 +520,7 @@ body {
   grid-row: 1;
   padding: 0 2px;
   font: inherit;
-  font-size: 14px;
+  font-size: calc(14px * var(--fs));
   line-height: 1;
   color: inherit;
   background: none;
@@ -541,7 +567,7 @@ body {
   grid-template-columns: 150px 1fr 72px;
   gap: 14px;
   align-items: center;
-  height: 44px;
+  height: var(--row-h);
   padding: 0 12px 0 22px;
   border-radius: 8px;
   color: var(--fg3);
@@ -584,7 +610,7 @@ body {
 .subject .n {
   margin-left: 6px;
   color: var(--fg3);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 .snippet {
   display: none;
@@ -597,7 +623,7 @@ body {
 .date {
   text-align: right;
   color: var(--fg3);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   font-variant-numeric: tabular-nums;
 }
 .row .acct {
@@ -623,7 +649,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 6px 20px;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   color: var(--fg2);
   border-top: 1px solid var(--line);
 }
@@ -666,7 +692,7 @@ body {
 }
 .account {
   color: var(--fg2);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   padding: 2px 8px;
   border-radius: 10px;
   background: var(--line);
@@ -680,12 +706,12 @@ body {
 }
 .sync-badge {
   color: var(--ansi-yellow);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   font-variant-numeric: tabular-nums;
 }
 .sync-note {
   color: var(--fg2);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 .sheet {
   width: min(480px, calc(100vw - 32px));
@@ -700,13 +726,13 @@ body {
 }
 .sheet h2 {
   margin: 0 0 4px;
-  font-size: 16px;
+  font-size: calc(16px * var(--fs));
   color: var(--fg);
 }
 .sheet .help {
   margin: 0;
   color: var(--fg2);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   line-height: 1.5;
 }
 .sheet label {
@@ -717,7 +743,7 @@ body {
 .sheet label > span {
   width: 72px;
   color: var(--fg3);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 .sheet input,
 .sheet select {
@@ -757,10 +783,10 @@ body {
 }
 .key-help h2 {
   margin: 0 0 12px;
-  font-size: 15px;
+  font-size: calc(15px * var(--fs));
 }
 .key-help .help {
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   font-weight: 400;
 }
 .key-help-columns {
@@ -773,7 +799,7 @@ body {
 }
 .key-help h3 {
   margin: 0 0 6px;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--fg3);
@@ -799,14 +825,14 @@ body {
   justify-content: flex-end;
 }
 .key-help kbd {
-  font: 11px var(--font-mono);
+  font: calc(11px * var(--fs)) var(--font-mono);
   color: var(--fg);
   background: var(--line);
   border-radius: 4px;
   padding: 1px 6px;
 }
 .sheet label.check {
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   color: var(--fg2);
 }
 .sheet label.check input {
@@ -829,12 +855,12 @@ body {
   padding: 8px 12px;
 }
 .or {
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   color: var(--fg3);
 }
 .account-error {
   color: var(--ansi-red);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 .empty {
   flex: 1;
@@ -878,14 +904,14 @@ body {
 }
 .list-empty-title {
   margin: 0;
-  font-size: 17px;
+  font-size: calc(17px * var(--fs));
   font-weight: 500;
   color: var(--fg);
 }
 .list-empty-note {
   margin: 0;
   max-width: 44ch;
-  font-size: 13px;
+  font-size: calc(13px * var(--fs));
   color: var(--fg3);
 }
 @media (prefers-reduced-motion: reduce) {
@@ -962,7 +988,7 @@ button.primary:disabled {
   height: 48px;
   padding: 0 16px;
   font: inherit;
-  font-size: 15px;
+  font-size: calc(15px * var(--fs));
   color: var(--fg);
   background: transparent;
   border: 0;
@@ -995,7 +1021,7 @@ button.primary:disabled {
   color: var(--fg3);
 }
 .palette kbd {
-  font: 12px var(--font-mono);
+  font: calc(12px * var(--fs)) var(--font-mono);
   color: var(--fg3);
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1028,7 +1054,7 @@ button.primary:disabled {
 .composer label span {
   width: 56px;
   color: var(--fg3);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 .composer input,
 .composer select,
@@ -1045,7 +1071,7 @@ button.primary:disabled {
 }
 .composer .link {
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   color: var(--fg3);
   background: none;
   border: 0;
@@ -1056,7 +1082,7 @@ button.primary:disabled {
   margin: 0;
   padding: 16px 20px;
   resize: none;
-  font: 14px/1.55 var(--font-sans);
+  font: calc(14px * var(--fs))/1.55 var(--font-text);
   color: var(--fg);
   background: transparent;
   border: 0;
@@ -1071,7 +1097,7 @@ button.primary:disabled {
 }
 .composer .hint {
   color: var(--fg3);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 .composer.dragging {
   box-shadow: inset 0 0 0 2px var(--accent);
@@ -1091,7 +1117,7 @@ button.primary:disabled {
   padding: 4px 6px 4px 10px;
   border-radius: 6px;
   background: var(--line);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 .composer .attachments .size {
   color: var(--fg3);
@@ -1156,7 +1182,7 @@ button.primary:disabled {
 }
 .composer .error {
   color: var(--ansi-red);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 .dev-overlay {
   position: fixed;
@@ -1166,7 +1192,7 @@ button.primary:disabled {
   border-radius: 6px;
   background: var(--well);
   color: var(--fg2);
-  font: 12px var(--font-mono);
+  font: calc(12px * var(--fs)) var(--font-mono);
   pointer-events: none;
 }
 .dev-overlay b {
@@ -1230,7 +1256,7 @@ button.primary:disabled {
   border: 0;
   border-radius: 6px;
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   color: var(--fg3);
   background: none;
 }
@@ -1246,7 +1272,7 @@ button.primary:disabled {
   padding: 1px 5px;
   border: 1px solid var(--line2);
   border-radius: 4px;
-  font: 500 10px/1.2 var(--font-mono);
+  font: 500 calc(10px * var(--fs))/1.2 var(--font-mono);
   color: var(--fg2);
 }
 .reader-bar .act {
@@ -1267,7 +1293,7 @@ button.primary:disabled {
   border-radius: 6px;
   background: var(--line);
   color: var(--fg2);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 .images-bar span {
   flex: 1;
@@ -1282,13 +1308,13 @@ button.primary:disabled {
   cursor: pointer;
 }
 .images-bar kbd {
-  font: 11px var(--font-mono);
+  font: calc(11px * var(--fs)) var(--font-mono);
   color: var(--fg2);
   margin-left: 4px;
 }
 .reader h1 {
   margin: 0 0 18px;
-  font-size: 24px;
+  font-size: calc(24px * var(--fs));
   font-weight: 650;
   line-height: 1.2;
   letter-spacing: -0.02em;
@@ -1320,13 +1346,13 @@ button.primary:disabled {
 .message .to {
   grid-column: 1 / -1;
   color: var(--fg3);
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
 }
 .message .body {
   margin: 0;
   white-space: pre-wrap;
   word-wrap: break-word;
-  font: 14px/1.55 var(--font-sans);
+  font: calc(14px * var(--fs))/1.55 var(--font-text);
   color: var(--fg);
 }
 .pending {
@@ -1367,7 +1393,7 @@ button.primary:disabled {
 .settings-panel > *,
 .settings-panel [data-slot='tabs'] > * {
   width: 100%;
-  max-width: 720px;
+  max-width: var(--column);
   margin-inline: auto;
 }
 .settings-head {
@@ -1382,7 +1408,7 @@ button.primary:disabled {
   -webkit-app-region: no-drag;
 }
 .settings-title {
-  font-size: 15px;
+  font-size: calc(15px * var(--fs));
   font-weight: 600;
 }
 .settings-tabs {
@@ -1434,7 +1460,7 @@ button.primary:disabled {
 .settings-note {
   display: block;
   margin: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   color: var(--fg3);
 }
 .settings-accounts {
@@ -1456,7 +1482,7 @@ button.primary:disabled {
   text-overflow: ellipsis;
 }
 .settings-account-kind {
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   color: var(--fg3);
 }
 .settings-actions,
@@ -1467,14 +1493,14 @@ button.primary:disabled {
   margin-left: auto;
 }
 .settings-confirm > span {
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   color: var(--fg2);
 }
 .settings-panel .quiet,
 .settings-panel .danger,
 .settings-panel .attention {
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--fs));
   padding: 5px 10px;
   border: 0;
   border-radius: 6px;
@@ -1500,10 +1526,104 @@ button.primary:disabled {
   flex-wrap: wrap;
   gap: 4px;
   color: var(--fg3);
-  font-size: 13px;
+  font-size: calc(13px * var(--fs));
 }
 .settings-add > span {
   margin-right: 6px;
+}
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.settings-section + .settings-section {
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.settings-heading {
+  margin: 0;
+  font-size: calc(11px * var(--fs));
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg3);
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+/* A row of choices with a pill that slides to the one picked. */
+.segmented {
+  position: relative;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--well);
+  border: 1px solid var(--line);
+}
+.segmented-indicator {
+  position: absolute;
+  left: var(--segmented-control-indicator-left);
+  top: var(--segmented-control-indicator-top);
+  width: var(--segmented-control-indicator-width);
+  height: var(--segmented-control-indicator-height);
+  border-radius: 6px;
+  background: var(--paper);
+  box-shadow: 0 1px 2px var(--shadow);
+  transition:
+    left 0.2s var(--ease),
+    width 0.2s var(--ease);
+}
+.segmented-item {
+  position: relative;
+  min-width: 34px;
+  height: 26px;
+  padding: 0 10px;
+  font: inherit;
+  color: var(--fg2);
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+}
+.segmented-item[data-checked] {
+  color: var(--fg);
+}
+.segmented-item:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.segmented-item.font-sans {
+  font-family: var(--font-sans);
+}
+.segmented-item.font-serif {
+  font-family: var(--font-serif);
+}
+.segmented-item.font-mono {
+  font-family: var(--font-mono);
+}
+/* Text size choices show an A at each size (fixed, so they don't grow with the setting). */
+.size-glyph {
+  display: block;
+  line-height: 1;
+}
+.size-glyph[data-size='12'] {
+  font-size: 11px;
+}
+.size-glyph[data-size='13'] {
+  font-size: 13px;
+}
+.size-glyph[data-size='14'] {
+  font-size: 15px;
+}
+.size-glyph[data-size='15'] {
+  font-size: 17px;
+}
+.size-glyph[data-size='16'] {
+  font-size: 19px;
 }
 .settings-switch {
   display: flex;
@@ -1587,7 +1707,7 @@ button.primary:disabled {
   flex-direction: column;
   gap: 1px;
   padding: 0 2px;
-  font-size: 13px;
+  font-size: calc(13px * var(--fs));
 }
 .theme-name {
   min-width: 0;
@@ -1597,7 +1717,7 @@ button.primary:disabled {
 }
 .theme-meta {
   flex: none;
-  font-size: 12px;
+  font-size: calc(12px * var(--fs));
   color: var(--fg3);
 }
 .theme-item[data-paired] .theme-meta::before {

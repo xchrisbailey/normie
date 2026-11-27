@@ -1,14 +1,18 @@
 // Settings fill the window: Accounts, the theme and Start at Login, as tabs over one column.
 import { Button } from '@ui-sdk/react/button';
 import { createListboxController, Listbox, ListboxItem } from '@ui-sdk/react/listbox';
+import { SegmentedControl, SegmentedControlIndicator, SegmentedControlItem } from '@ui-sdk/react/segmented-control';
 import { Switch, SwitchThumb } from '@ui-sdk/react/switch';
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/react/tabs';
 import { useEffect, useId, useMemo, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
+import { DENSITIES, FONTS, TEXT_SIZES, WIDTHS } from '../core/appearance';
+import type { Appearance } from '../core/appearance';
 import type { ActiveTheme, ThemeChoice, ThemeSummary } from '../core/vscode-theme';
 import { DEFAULT_DARK, DEFAULT_LIGHT } from '../core/vscode-theme';
 import { useAddGmail } from './AccountBar';
+import { setAppearance, useAppearance } from './appearance';
 import { BackIcon } from './icons';
 import { AddPasswordAccount } from './AddAccount';
 import type { PasswordProvider } from './AddAccount';
@@ -53,6 +57,7 @@ export function SettingsPanel({
           <AccountSettings accounts={accounts} />
         </TabsPanel>
         <TabsPanel value="appearance" className="settings-body">
+          <LookSettings />
           <ThemeSettings theme={theme} themes={themes} onChoose={onChooseTheme} />
         </TabsPanel>
         <TabsPanel value="general" className="settings-body">
@@ -140,6 +145,106 @@ function AccountSettings({ accounts }: { accounts: Array<AccountRecord> }) {
   );
 }
 
+const FONT_NAMES: Record<Appearance['font'], string> = { sans: 'Sans', serif: 'Serif', mono: 'Mono' };
+const SIZE_NAMES: Record<Appearance['size'], string> = { 12: 'Small', 13: 'Default', 14: 'Large', 15: 'Larger', 16: 'Largest' };
+const DENSITY_NAMES: Record<Appearance['density'], string> = { compact: 'Compact', comfortable: 'Comfortable', roomy: 'Roomy' };
+const WIDTH_NAMES: Record<Appearance['width'], string> = { narrow: 'Narrow', standard: 'Standard', wide: 'Wide' };
+
+/** Text, layout and motion: each a row of choices that takes effect at once. */
+function LookSettings() {
+  const a = useAppearance();
+  const motionNote = useId();
+  const heading = useId();
+  return (
+    <section className="settings-section" aria-labelledby={heading}>
+      <h3 className="settings-heading" id={heading}>
+        Text and layout
+      </h3>
+      <Choice label="Font" value={a.font} options={FONTS} names={FONT_NAMES} onChange={(font) => setAppearance({ font })} itemClass={(f) => `font-${f}`} />
+      <Choice
+        label="Text size"
+        value={String(a.size)}
+        options={TEXT_SIZES.map(String)}
+        names={Object.fromEntries(TEXT_SIZES.map((n) => [String(n), SIZE_NAMES[n]]))}
+        onChange={(size) => setAppearance({ size: TEXT_SIZES.find((n) => String(n) === size) ?? 13 })}
+        glyph={(size) => (
+          <span className="size-glyph" data-size={size}>
+            A
+          </span>
+        )}
+      />
+      <Choice label="Row height" value={a.density} options={DENSITIES} names={DENSITY_NAMES} onChange={(density) => setAppearance({ density })} />
+      <Choice label="Column width" value={a.width} options={WIDTHS} names={WIDTH_NAMES} onChange={(width) => setAppearance({ width })} />
+      <label className="settings-switch">
+        <span>
+          Reduce motion
+          <span className="settings-note" id={motionNote}>
+            No sliding or fading, even when your system allows it.
+          </span>
+        </span>
+        <Switch
+          checked={a.reduceMotion}
+          onCheckedChange={(reduceMotion) => flushSync(() => setAppearance({ reduceMotion }))}
+          aria-label="Reduce motion"
+          aria-describedby={motionNote}
+        >
+          <SwitchThumb />
+        </Switch>
+      </label>
+    </section>
+  );
+}
+
+/** One setting as a labelled segmented control. A glyph, when given, stands in for the name (which still names it). */
+function Choice<T extends string>({
+  label,
+  value,
+  options,
+  names,
+  onChange,
+  itemClass,
+  glyph,
+}: {
+  label: string;
+  value: T;
+  options: ReadonlyArray<T>;
+  names: Record<T, string>;
+  onChange: (value: T) => void;
+  itemClass?: (value: T) => string;
+  glyph?: (value: T) => ReactNode;
+}) {
+  const id = useId();
+  return (
+    <div className="settings-row">
+      <span id={id}>{label}</span>
+      <SegmentedControl
+        aria-labelledby={id}
+        className="segmented"
+        value={value}
+        onValueChange={(v) => {
+          const next = options.find((o) => o === v);
+          if (next) {
+            flushSync(() => onChange(next));
+          }
+        }}
+      >
+        <SegmentedControlIndicator className="segmented-indicator" />
+        {options.map((o) => (
+          <SegmentedControlItem
+            key={o}
+            value={o}
+            data-value={o}
+            className={itemClass ? `segmented-item ${itemClass(o)}` : 'segmented-item'}
+            aria-label={glyph ? names[o] : undefined}
+          >
+            {glyph ? glyph(o) : names[o]}
+          </SegmentedControlItem>
+        ))}
+      </SegmentedControl>
+    </div>
+  );
+}
+
 /**
  * One grid of theme tiles, each a small picture of the app in that theme. Fixed: the pick is the theme. Following the
  * system: a light pick is the light half of the pair, a dark pick the dark half. Arrow keys pick as they move, so the
@@ -194,10 +299,14 @@ function ThemeSettings({ theme, themes, onChoose }: { theme: ActiveTheme; themes
       grid.setValue(to.dataset.themeId);
     }
   };
+  const heading = useId();
   const paired = (id: string) => choice.mode === 'system' && (id === choice.light || id === choice.dark);
   const note = useId();
   return (
-    <>
+    <section className="settings-section" aria-labelledby={heading}>
+      <h3 className="settings-heading" id={heading}>
+        Theme
+      </h3>
       <label className="settings-switch">
         <span>
           Match the system’s light and dark
@@ -238,7 +347,7 @@ function ThemeSettings({ theme, themes, onChoose }: { theme: ActiveTheme; themes
         ))}
       </Listbox>
       <p className="settings-note">More themes: put VS Code color theme files in the themes folder in Normie’s data folder.</p>
-    </>
+    </section>
   );
 }
 

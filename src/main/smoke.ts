@@ -333,6 +333,7 @@ async function smokeSettings(w: BrowserWindow) {
   await pickTheme(before);
   const restored = (await themeNow()) === before;
   await d.shot('settings-appearance');
+  const look = await smokeLook(d);
   await d.clickAt('.settings-tabs [data-slot="tabs-tab"]:nth-child(3)');
   await sleep(200);
   const checked = () => d.js<string>(`document.querySelector('.settings-switch [data-slot="switch"]')?.getAttribute('aria-checked') ?? ''`);
@@ -352,18 +353,68 @@ async function smokeSettings(w: BrowserWindow) {
   const back = await d.clickAt('.settings-head [aria-label="Close Settings"]');
   await sleep(200);
   const byBack = back.hit && !(await d.js<boolean>(`!!document.querySelector('.settings-panel')`));
-  const ok = opened && full && picked && restored && login && closed && byIcon && byBack;
+  const ok = opened && full && picked && restored && look.ok && login && closed && byIcon && byBack;
   return {
     ok,
     opened,
     full,
     accounts: accounts.length,
     themes: { before, clicked, chosenBefore, arrowed, spots: [spotBefore, spotAfter], rowUp, tiles, restored },
+    look,
     login,
     closed,
     byIcon,
     byBack,
   };
+}
+
+/**
+ * Settings > Appearance, text and layout: serif, a larger size, compact rows, a wide column and reduced motion each
+ * take at once (the list checked behind Settings), then everything goes back to the defaults.
+ */
+async function smokeLook(d: ReturnType<typeof drive>) {
+  const pick = async (value: string) => {
+    await d.js(`document.querySelector('.segmented-item[data-value="${value}"]')?.scrollIntoView({ block: 'nearest' })`);
+    const r = await d.clickAt(`.segmented-item[data-value="${value}"]`);
+    await sleep(150);
+    return r.hit && (await d.js<boolean>(`document.querySelector('.segmented-item[data-value="${value}"]')?.hasAttribute('data-checked') ?? false`));
+  };
+  const motion = () => d.clickAt('.settings-switch [aria-label="Reduce motion"]');
+  const hits = [await pick('serif'), await pick('15'), await pick('compact'), await pick('wide'), (await motion()).hit];
+  await sleep(200);
+  const page = () =>
+    d.js<{ family: string; size: string; motion: string | undefined; serif: number }>(
+      `document.fonts.load('13px "Geist Serif"').then((f) => ({ family: getComputedStyle(document.body).fontFamily, size: getComputedStyle(document.documentElement).fontSize, motion: document.documentElement.dataset.motion, serif: f.length })).catch((e) => ({ family: String(e), size: '', motion: undefined, serif: 0 }))`,
+    );
+  const changed = await page();
+  await d.shot('settings-look');
+  await d.press('Escape');
+  await sleep(300);
+  const layout = () =>
+    d.js<{ row: number; column: number }>(
+      `({ row: document.querySelector('.row')?.getBoundingClientRect().height ?? 0, column: document.querySelector('.top-row')?.getBoundingClientRect().width ?? 0 })`,
+    );
+  const laidOut = await layout();
+  await d.shot('list-look');
+  await d.press(',', 1, ['meta']);
+  await sleep(300);
+  await d.clickAt('.settings-tabs [data-slot="tabs-tab"]:nth-child(2)');
+  await sleep(200);
+  const back = [await pick('sans'), await pick('13'), await pick('comfortable'), await pick('standard'), (await motion()).hit];
+  const reset = await page();
+  const ok =
+    hits.every(Boolean) &&
+    back.every(Boolean) &&
+    changed.family.startsWith('"Geist Serif"') &&
+    changed.serif > 0 &&
+    changed.size === '15px' &&
+    changed.motion === 'reduced' &&
+    laidOut.row === 36 &&
+    laidOut.column === 900 &&
+    reset.family.startsWith('"Geist Variable"') &&
+    reset.size === '13px' &&
+    reset.motion === undefined;
+  return { ok, hits, back, changed, laidOut, reset };
 }
 
 /** Moving through the list with keys fades the header; moving the mouse brings it back. */

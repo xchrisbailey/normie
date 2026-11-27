@@ -8,6 +8,8 @@ import { types } from 'node:util';
 import { errorMessage, expected } from '../core/errors';
 import { isJsonObject, parseJson } from '../core/json';
 import type { JsonValue } from '../core/json';
+import { appearanceFrom } from '../core/appearance';
+import type { Appearance } from '../core/appearance';
 import { choiceFrom, legacyChoice } from '../core/vscode-theme';
 import type { ResolvedTheme } from '../core/vscode-theme';
 import { log, logError } from '../core/log';
@@ -317,7 +319,7 @@ function updateTray() {
 
 // --- Start at login: on by default for the installed app (never for a dev build, which would register Electron).
 
-type Settings = { openAtLogin?: boolean; theme?: JsonValue };
+type Settings = { openAtLogin?: boolean; theme?: JsonValue; appearance?: Appearance };
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 function readSettings(): Settings {
   try {
@@ -331,6 +333,9 @@ function readSettings(): Settings {
     }
     if (v.theme !== undefined) {
       out.theme = v.theme;
+    }
+    if (v.appearance !== undefined) {
+      out.appearance = appearanceFrom(v.appearance);
     }
     return out;
   } catch {
@@ -389,6 +394,14 @@ ipcMain.on('theme:current', (e, legacy: unknown) => {
   e.returnValue = activeTheme();
 });
 ipcMain.handle('themes:list', () => themes.list());
+ipcMain.on('appearance:current', (e) => {
+  e.returnValue = appearanceFrom(readSettings().appearance);
+});
+ipcMain.handle('appearance:set', (_e, v: unknown) => {
+  const appearance = appearanceFrom(v);
+  writeSettings({ appearance });
+  return appearance;
+});
 ipcMain.handle('theme:choose', (_e, v: unknown) => {
   const choice = choiceFrom(v);
   const ids = choice.mode === 'fixed' ? [choice.id] : [choice.light, choice.dark];
