@@ -2,5 +2,5 @@
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "printWidth": 160,
   "singleQuote": true,
-  "ignorePatterns": ["out/**", "dist/**", "bench/fixture/**", "package-lock.json"]
+  "ignorePatterns": ["out/**", "dist/**", "bench/fixture/**", "package-lock.json", ".claude/skills/**"]
 }
