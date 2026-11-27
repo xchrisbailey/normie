@@ -1,14 +1,13 @@
 // Accounts and their sign-in state. Pure: storage, sign-in and the clock are injected.
 import { refreshGoogle, SignInRequiredError, signInWithGoogle, gmailAddress, type Fetch, type GoogleClient, type TokenSet } from './google-oauth';
+import { accountIdOf, settingsFrom, type PasswordAccountInput, type PasswordAccountSettings } from './password-accounts';
 
 export type AccountStatus = 'ok' | 'needs-sign-in';
 
-export interface AccountRecord {
-  id: string;
-  kind: 'gmail';
-  email: string;
-  status: AccountStatus;
-}
+export type AccountRecord =
+  | { id: string; kind: 'gmail'; email: string; status: AccountStatus }
+  /** iCloud or another IMAP/SMTP server, signed in with a password. */
+  | { id: string; kind: 'imap'; email: string; status: AccountStatus; settings: PasswordAccountSettings };
 
 /** Where secrets live. In the app: safeStorage (Keychain). Values are opaque strings. */
 export interface SecretStore {
@@ -77,6 +76,32 @@ export class Accounts {
     else this.accounts.push({ id, kind: 'gmail', email, status: 'ok' });
     this.commit();
     return { ...this.accounts.find((a) => a.id === id)! };
+  }
+
+  /**
+   * Add (or update) an iCloud or IMAP Account. The settings are checked, then `verify` tries them against the real
+   * servers; only then is anything saved. Throws with a message for the person when something's wrong.
+   */
+  async addPassword(input: PasswordAccountInput, verify: (s: PasswordAccountSettings, password: string) => Promise<void>): Promise<AccountRecord> {
+    const settings = settingsFrom(input);
+    await verify(settings, input.password);
+    const id = accountIdOf(settings);
+    await this.o.secrets.set(id, JSON.stringify({ password: input.password }));
+    const record: AccountRecord = { id, kind: 'imap', email: settings.email, status: 'ok', settings };
+    const i = this.accounts.findIndex((a) => a.id === id);
+    if (i >= 0) this.accounts[i] = record;
+    else this.accounts.push(record);
+    this.commit();
+    return { ...record };
+  }
+
+  /** The password of an iCloud or IMAP Account. */
+  async password(id: string): Promise<string> {
+    const acct = this.accounts.find((a) => a.id === id);
+    if (!acct) throw new Error(`No Account ${id}`);
+    const raw = await this.o.secrets.get(id);
+    if (!raw) return this.markNeedsSignIn(acct, 'no stored password');
+    return (JSON.parse(raw) as { password: string }).password;
   }
 
   async remove(id: string) {

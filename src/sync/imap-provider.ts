@@ -9,6 +9,8 @@ import type {
 export interface ImapConfig {
   host: string;
   port: number;
+  /** TLS from the start (the default), STARTTLS, or (localhost only) none. */
+  security?: 'tls' | 'starttls' | 'none';
   user: string;
   /** OAuth (XOAUTH2): a fresh access token for each new connection. */
   accessToken?: () => Promise<string>;
@@ -102,7 +104,11 @@ export class ImapProvider implements MailProvider {
     const auth = this.cfg.accessToken
       ? { user: this.cfg.user, accessToken: await this.cfg.accessToken() }
       : { user: this.cfg.user, pass: this.cfg.password ?? '' };
-    const client = new ImapFlow({ host: this.cfg.host, port: this.cfg.port, secure: true, auth, qresync: true, logger: false });
+    const security = this.cfg.security ?? 'tls';
+    const client = new ImapFlow({
+      host: this.cfg.host, port: this.cfg.port, secure: security === 'tls', ...(security === 'starttls' ? { doSTARTTLS: true } : {}),
+      auth, qresync: true, logger: false,
+    });
     client.on('error', (e: Error) => this.cfg.log?.(`imap error: ${e.message}`));
     await client.connect();
     return client;
