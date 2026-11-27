@@ -7,8 +7,8 @@
   "main": "out/main/index.js",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "verify": "npm run typecheck && npm run lint && npm test && npm run build && node scripts/check-bundles.mjs && npm run smoke",
-    "prepare": "git config core.hooksPath .githooks",
+    "verify": "npm run typecheck && npm run lint && npm run format:check && npm test && npm run build && node scripts/check-bundles.mjs && npm run smoke",
+    "prepare": "git config core.hooksPath .githooks && git config blame.ignoreRevsFile .git-blame-ignore-revs",
     "start": "npm run build && electron .",
     "start:fake": "npm run build && NORMIE_PROVIDER=fake electron .",
     "smoke": "npm run build && NORMIE_PROVIDER=fake NORMIE_SMOKE=1 electron . && NORMIE_SMOKE=1 electron .",
