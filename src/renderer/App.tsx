@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DraftSummary, OutgoingMessage, ThreadAction, ThreadMessage, ThreadRow } from '../core/types';
-import type { ComposeStart, Identity } from './Composer';
+import type { ComposerHandle, ComposeStart, Identity } from './Composer';
 import { planReply, type ReplyKind } from '../core/reply';
 import { AccountBar, EmptyState, useAccounts } from './AccountBar';
 import type { CoreClient } from './core-client';
@@ -13,7 +13,7 @@ import { blockedMessages, Reader } from './Reader';
 import { SyncBadge } from './SyncBadge';
 import { ThreadCache } from './thread-cache';
 import { ThreadList } from './ThreadList';
-import { useKeymap, useKeys, type Handlers } from './useKeys';
+import { useKeymap, useKeys, useSnippets, type Handlers } from './useKeys';
 
 const PREFETCH = 3;
 
@@ -35,6 +35,7 @@ const composeKey = (s: object) => composeKeys.get(s) ?? (composeKeys.set(s, ++ne
 const UNDO_SEND_WINDOW_MS = 4500;
 const LABEL_ITEM = 'label:';
 const DRAFT_ITEM = 'draft:';
+const SNIPPET_ITEM = 'snippet:';
 
 /** Each Account's Labels, fetched once and again whenever the core says they changed. */
 function useLabels(core: CoreClient | null) {
@@ -81,6 +82,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const frame = useRef<FrameHandle | null>(null);
   /** The open composer and what it started with. */
   const [compose, setCompose] = useState<ComposeStart | null>(null);
+  const composer = useRef<ComposerHandle | null>(null);
+  const { snippets, problems: snippetProblems } = useSnippets();
   const lastSent = useRef<{ id: number; at: number } | null>(null);
   const labels = useLabels(core);
   const cache = useMemo(() => (core ? new ThreadCache(core) : null), [core]);
@@ -402,6 +405,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const paletteItems = (mode: 'actions' | 'label'): PaletteItem[] => {
     const labelItems = rowLabels().map((l) => ({ id: LABEL_ITEM + l, name: mode === 'label' ? l : `Label: ${l}`, keywords: l }));
     if (mode === 'label') return labelItems;
+    // While writing: snippets, by name, with their trigger.
+    if (compose) return snippets.map((s) => ({ id: SNIPPET_ITEM + s.trigger, name: `Snippet: ${s.name}`, hint: `;${s.trigger}`, keywords: `${s.trigger} ${s.text.slice(0, 60)}` }));
     const draftItems = drafts.map((d) => ({ id: DRAFT_ITEM + d.id, name: `Draft: ${d.subject || '(no subject)'}`, keywords: `draft ${d.to}`, ...(d.to ? { hint: d.to.slice(0, 30) } : {}) }));
     return [...actionItems(keymap.actions, context, (id) => id !== 'palette.open' && !!handlers[id as keyof Handlers]), ...draftItems, ...(rows.length ? labelItems : [])];
   };
@@ -428,6 +433,11 @@ function Inbox({ core }: { core: CoreClient | null }) {
         <span className="count">{rows.length}</span>
         <SyncBadge core={core} />
         {note && <span className="sync-note">{note}</span>}
+        {snippetProblems.length > 0 && (
+          <span className="keymap-note" title={snippetProblems.join('\n')}>
+            snippets.json: {snippetProblems.length} {snippetProblems.length === 1 ? 'problem' : 'problems'}
+          </span>
+        )}
         {keymap.problems.length > 0 && (
           <span className="keymap-note" title={keymap.problems.join('\n')}>
             keymap.json: {keymap.problems.length} {keymap.problems.length === 1 ? 'problem' : 'problems'}
@@ -450,6 +460,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
                 onClose={() => setCompose(null)}
                 onSaveDraft={(id, content) => core!.saveDraft(id, content)}
                 suggest={suggestContacts}
+                snippets={snippets}
+                handle={composer}
                 onDiscard={(id) => {
                   if (id !== null) void core?.deleteDraft(id);
                   setNote('Draft discarded');
@@ -475,12 +487,13 @@ function Inbox({ core }: { core: CoreClient | null }) {
       {palette && (
         <Palette
           items={paletteItems(palette)}
-          placeholder={palette === 'label' ? 'Apply a Label' : 'Type a command or Label'}
+          placeholder={palette === 'label' ? 'Apply a Label' : compose ? 'Insert a snippet' : 'Type a command or Label'}
           onClose={() => setPalette(null)}
           onRun={(item) => {
             setPalette(null);
             if (item.id.startsWith(LABEL_ITEM)) applyLabel(item.id.slice(LABEL_ITEM.length));
             else if (item.id.startsWith(DRAFT_ITEM)) openDraft(Number(item.id.slice(DRAFT_ITEM.length)));
+            else if (item.id.startsWith(SNIPPET_ITEM)) composer.current?.insert(snippets.find((s) => s.trigger === item.id.slice(SNIPPET_ITEM.length))?.text ?? '');
             else runAction([item.id]);
           }}
         />

@@ -14,7 +14,7 @@ A keyboard-first desktop mail client for Gmail, iCloud and any IMAP/SMTP server.
 | `npm run package` | Unsigned Mac build in `dist/` |
 | `npm run smoke:packaged` | The smoke check against the packaged app |
 | `npm run bench` | The performance budgets against a 100,000-message fixture |
-| `GMAIL_USER=you@domain npm run test:live` | Read-only checks against real Gmail (browser sign-in). Add `GMAIL_LIVE_WRITE=1` to also mark one message Done and put it back |
+| `GMAIL_USER=you@domain npm run test:live` | Read-only checks against real Gmail (browser sign-in). Add `GMAIL_LIVE_WRITE=1` to also mark one message Done and put it back, and `GMAIL_LIVE_SEND=1` to send one message to yourself |
 
 ## Keys
 
@@ -31,6 +31,12 @@ A keyboard-first desktop mail client for Gmail, iCloud and any IMAP/SMTP server.
 | `l` | Apply a Label |
 | `z` | Undo the last action |
 | `g i`, `g g`, `Shift-G` | Inbox, first Thread, last Thread |
+| `Space` / `Shift-Space` | Scroll the open Thread |
+| `i` / `Shift-I` | Load hidden images in this Thread / always from these senders |
+| `c`, `r`, `Shift-R`, `f` | Compose, reply, reply all, forward |
+| `Cmd-Z` | Undo Send (for 5 s after sending) |
+
+In the composer: `Cmd-Enter` sends, `Esc` closes and keeps a draft, `Cmd-Shift-Backspace` discards it, `Cmd-Shift-A` attaches files (or drop them on it), and `Cmd-K` inserts a snippet. Drafts reopen from `Cmd-K`.
 
 ### Your own keys
 
@@ -38,6 +44,14 @@ Put a `keymap.json` in the app's data folder (`~/Library/Application Support/nor
 
 ```json
 { "thread.done": ["e", "y"], "thread.star": "Shift-S", "thread.mute": [] }
+```
+
+### Snippets
+
+Put a `snippets.json` in the same folder. Type `;` and a trigger in a message, then Tab, to expand it; or pick one by name from `Cmd-K` while writing. Changes apply without a restart.
+
+```json
+{ "thanks": "Thanks so much!", "sig": { "name": "Signature", "text": "Chris\nSent from Normie" } }
 ```
 
 ## Layout

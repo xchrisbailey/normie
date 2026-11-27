@@ -33,6 +33,12 @@ contextBridge.exposeInMainWorld('normie', {
     ipcRenderer.on('keymap:changed', handler);
     return () => void ipcRenderer.off('keymap:changed', handler);
   },
+  snippets: (): Promise<{ file?: unknown; error?: string }> => ipcRenderer.invoke('snippets:get'),
+  onSnippetsChanged: (fn: (k: { file?: unknown; error?: string }) => void) => {
+    const handler = (_e: unknown, k: { file?: unknown; error?: string }) => fn(k);
+    ipcRenderer.on('snippets:changed', handler);
+    return () => void ipcRenderer.off('snippets:changed', handler);
+  },
   accounts: {
     list: (): Promise<AccountRecord[]> => ipcRenderer.invoke('accounts:list'),
     addGmail: (loginHint?: string): Promise<AccountRecord> => ipcRenderer.invoke('accounts:add-gmail', loginHint),
