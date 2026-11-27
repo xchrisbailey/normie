@@ -7,7 +7,7 @@
   "main": "out/main/index.js",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "verify": "npm run typecheck && npm test && npm run build && node scripts/check-bundles.mjs && npm run smoke",
+    "verify": "npm run typecheck && npm run lint && npm test && npm run build && node scripts/check-bundles.mjs && npm run smoke",
     "prepare": "git config core.hooksPath .githooks",
     "start": "npm run build && electron .",
     "start:fake": "npm run build && NORMIE_PROVIDER=fake electron .",
