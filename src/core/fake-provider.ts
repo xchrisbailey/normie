@@ -62,7 +62,10 @@ export class FakeProvider implements MailProvider {
     this.caps = { ...GMAIL_CAPS, ...opts.caps };
     const boxes = opts.mailboxes ?? (this.caps.labels
       ? [{ path: 'INBOX', role: 'inbox' }, { path: '[Gmail]/All Mail', role: 'all' }, { path: '[Gmail]/Sent Mail', role: 'sent' }, { path: '[Gmail]/Drafts', role: 'drafts' }]
-      : [{ path: 'INBOX', role: 'inbox' }, { path: 'Sent Messages', role: 'sent' }, { path: 'Drafts', role: 'drafts' }]) as Mailbox[];
+      : [
+        { path: 'INBOX', role: 'inbox' }, { path: 'Sent Messages', role: 'sent' }, { path: 'Drafts', role: 'drafts' },
+        { path: 'Archive', role: 'archive' }, { path: 'Deleted Messages', role: 'trash' },
+      ]) as Mailbox[];
     for (const m of boxes) this.addMailbox(m);
   }
 

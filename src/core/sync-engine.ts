@@ -83,6 +83,23 @@ export class SyncEngine {
     return this.now() - this.windowDays * DAY;
   }
 
+  /**
+   * The mailboxes kept in sync, Inbox (or All Mail) first. On Gmail, All Mail holds everything. On folder servers:
+   * Inbox, Sent (so my replies show in Threads), Archive (where Done puts mail) and Trash. Other folders aren't.
+   */
+  get syncedMailboxes(): string[] {
+    if (!this.primary) return [];
+    if (this.o.provider.caps.labels) return [this.primary.path];
+    const byRole = (role: string) => this.mailboxes.find((m) => m.role === role)?.path;
+    return [this.primary.path, ...(['sent', 'archive', 'trash'] as const).map(byRole).filter((p): p is string => !!p && p !== this.primary!.path)];
+  }
+
+  /** Headers then bodies for every synced mailbox. */
+  private async syncAll() {
+    for (const m of this.syncedMailboxes) await this.syncHeaders(m);
+    for (const m of this.syncedMailboxes) await this.syncBodies(m);
+  }
+
   /** The mailbox that holds the Account's mail: All Mail on servers with Labels, Inbox elsewhere. */
   get primaryMailbox(): string | undefined {
     return this.primary?.path;
@@ -166,8 +183,7 @@ export class SyncEngine {
         try {
           this.outboxSoon();
           await this.replay();
-          await this.syncHeaders();
-          await this.syncBodies();
+          await this.syncAll();
         } catch (e) {
           this.log(`sync failed, reconnecting: ${(e as Error).message}`);
           await this.reconnect();
@@ -189,8 +205,7 @@ export class SyncEngine {
         await provider.close().catch(() => {});
         await provider.connect();
         await this.replay();
-        await this.syncHeaders();
-        await this.syncBodies();
+        await this.syncAll();
         return;
       } catch (e) {
         this.log(`reconnect failed: ${(e as Error).message}`);
@@ -204,9 +219,8 @@ export class SyncEngine {
     this.outboxSoon();
     this.draftsSoon();
     await this.replay();
-    await this.syncHeaders();
-    await this.syncBodies();
-    await this.backfillHeaders();
+    await this.syncAll();
+    for (const m of this.syncedMailboxes) await this.backfillHeaders(m);
   }
 
   // --- Drafts
