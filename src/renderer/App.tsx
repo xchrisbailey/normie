@@ -560,7 +560,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
     // can reach the menu as a key equivalent when the page answers slowly.) The palette's own choices always run.
     if (
       fromMenu &&
-      (typing || document.querySelector('.palette-backdrop')) &&
+      (typing || document.querySelector('.palette-backdrop, .panel')) &&
       !ids.some((x) => ACTIONS.find((a) => a.id === x)?.keys.some((k) => k.startsWith('Cmd-')))
     ) {
       return;

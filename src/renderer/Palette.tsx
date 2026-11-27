@@ -1,7 +1,37 @@
-// Cmd-K: a fuzzy palette over every action that applies where the user is (and, later, Labels and Accounts).
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+// Cmd-K: a fuzzy palette over every action that applies where the user is, Labels, drafts and scheduled messages.
+// A ui-sdk Command in a Panel; the ranking is ours, so the Command keeps the order it's given.
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList, createCommandController } from '@ui-sdk/react/command';
+import { useMemo, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { rankItems } from './commands/palette';
 import type { PaletteItem } from './commands/palette';
+import { Panel } from './Panel';
+
+/**
+ * The palette's own keys on its field: Escape (and Cmd-K again) close it at once, rather than first clearing the text,
+ * and Ctrl-N and Ctrl-P move like the arrows.
+ */
+export function paletteKeys(e: KeyboardEvent, onClose: () => void, move: (by: number) => void) {
+  const k = e.key.toLowerCase();
+  if (e.key === 'Escape' || ((e.metaKey || e.ctrlKey) && k === 'k')) {
+    onClose();
+  } else if (e.ctrlKey && (k === 'n' || k === 'p')) {
+    move(k === 'n' ? 1 : -1);
+  } else {
+    return;
+  }
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+/** Moves a Command's highlight by `by` places among `values`. */
+export function moveHighlight(controller: ReturnType<typeof createCommandController>, values: ReadonlyArray<string>, by: number) {
+  const at = values.indexOf(controller.getValue() ?? '');
+  const next = values[Math.max(0, Math.min(values.length - 1, at + by))];
+  if (next !== undefined) {
+    controller.setValue(next);
+  }
+}
 
 export function Palette({
   items,
@@ -15,56 +45,46 @@ export function Palette({
   placeholder?: string;
 }) {
   const [query, setQuery] = useState('');
-  const [index, setIndex] = useState(0);
-  const input = useRef<HTMLInputElement>(null);
   const shown = useMemo(() => rankItems(query, items), [query, items]);
-
-  useLayoutEffect(() => input.current?.focus(), []);
-
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    const down = e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n');
-    const up = e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p');
-    if (e.key === 'Escape' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')) {
-      onClose();
-    } else if (down) {
-      setIndex((i) => Math.min(shown.length - 1, i + 1));
-    } else if (up) {
-      setIndex((i) => Math.max(0, i - 1));
-    } else if (e.key === 'Enter' && shown[index]) {
-      onRun(shown[index]);
-    } else {
-      return;
-    }
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
+  const [controller] = useState(() => createCommandController());
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="palette" role="dialog" aria-label="Command palette" onMouseDown={(e) => e.stopPropagation()}>
-        <input
-          ref={input}
-          value={query}
+    <Panel title={placeholder} className="palette" onClose={onClose}>
+      <Command
+        controller={controller}
+        query={query}
+        onQueryChange={setQuery}
+        filter={false}
+        onAction={(id) => {
+          const item = shown.find((i) => i.id === id);
+          if (item) {
+            onRun(item);
+          }
+        }}
+      >
+        <CommandInput
           placeholder={placeholder}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setIndex(0);
-          }}
-          onKeyDown={onKeyDown}
-          onBlur={onClose}
-          spellCheck={false}
           aria-label={placeholder}
+          spellCheck={false}
+          onKeyDown={(e) =>
+            paletteKeys(e, onClose, (by) =>
+              moveHighlight(
+                controller,
+                shown.map((i) => i.id),
+                by,
+              ),
+            )
+          }
         />
-        <ul role="listbox">
-          {shown.map((item, i) => (
-            <li key={item.id} role="option" aria-selected={i === index} className={i === index ? 'selected' : ''} onMouseDown={() => onRun(item)}>
+        <CommandList className="palette-list">
+          {shown.map((item) => (
+            <CommandItem key={item.id} value={item.id} label={item.name} className="palette-item">
               <span>{item.name}</span>
               {item.hint && <kbd>{item.hint}</kbd>}
-            </li>
+            </CommandItem>
           ))}
-          {!shown.length && <li className="none">No matches</li>}
-        </ul>
-      </div>
-    </div>
+        </CommandList>
+        <CommandEmpty className="palette-none">No matches</CommandEmpty>
+      </Command>
+    </Panel>
   );
 }

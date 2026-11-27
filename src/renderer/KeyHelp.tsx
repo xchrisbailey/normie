@@ -1,23 +1,16 @@
-// ?: a sheet listing every key. Esc or ? closes it.
-import { useLayoutEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
+// ?: a panel listing every key. Esc or ? closes it.
 import type { ActionDef } from './commands/keys';
 import { helpSections } from './commands/help';
+import { Panel } from './Panel';
 
 export function KeyHelp({ actions, onClose }: { actions: ReadonlyArray<ActionDef>; onClose: () => void }) {
-  const sheet = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => sheet.current?.focus(), []);
-  return createPortal(
-    <div className="palette-backdrop" onMouseDown={onClose}>
+  return (
+    <Panel title="Keyboard shortcuts" className="key-help" onClose={onClose} initialFocus=".key-help-body">
       <div
-        ref={sheet}
-        className="sheet key-help"
-        role="dialog"
-        aria-label="Keyboard shortcuts"
+        className="key-help-body"
         tabIndex={-1}
-        onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
-          if (e.key === 'Escape' || e.key === '?') {
+          if (e.key === '?') {
             e.preventDefault();
             onClose();
           }
@@ -46,7 +39,6 @@ export function KeyHelp({ actions, onClose }: { actions: ReadonlyArray<ActionDef
           ))}
         </div>
       </div>
-    </div>,
-    document.body,
+    </Panel>
   );
 }
