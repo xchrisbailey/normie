@@ -124,6 +124,13 @@ function Inbox({ core }: { core: CoreClient | null }) {
   /** Search: the query and its results; while it's open, the list shows the results instead of a Split. */
   const [search, setSearch] = useState<{ query: string; results: Array<ThreadRow>; server?: 'searching' | 'done' } | null>(null);
   const searchInput = useRef<HTMLInputElement>(null);
+  const searchWantsFocus = useRef(false);
+  useLayoutEffect(() => {
+    if (searchWantsFocus.current && searchInput.current) {
+      searchWantsFocus.current = false;
+      searchInput.current.focus();
+    }
+  });
   const searchRef = useRef(search);
   useLayoutEffect(() => {
     searchRef.current = search;
@@ -486,7 +493,12 @@ function Inbox({ core }: { core: CoreClient | null }) {
     'search.open': () => {
       setOpen(null);
       setSearch((s) => s ?? { query: '', results: [] });
-      requestAnimationFrame(() => searchInput.current?.focus());
+      // Focused once the field is in the page, however long that render takes. Already open: focus it now.
+      if (searchInput.current) {
+        searchInput.current.focus();
+      } else {
+        searchWantsFocus.current = true;
+      }
     },
     'search.close': () => closeSearch(),
     'theme.system': () => followSystem(),
