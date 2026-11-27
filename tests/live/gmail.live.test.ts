@@ -42,8 +42,7 @@ describe.skipIf(!user)('Gmail provider against the real server', () => {
     expect(allMail).toBe('[Gmail]/All Mail');
     expect(boxes.find((b) => b.role === 'sent')?.path).toBe('[Gmail]/Sent Mail');
     for (const lookAlike of ['Sent Messages', 'Deleted Messages', '[Gmail]All Mail', '[Gmail]Trash']) {
-      const b = boxes.find((x) => x.path === lookAlike);
-      if (b) expect(b.role, lookAlike).toBeUndefined();
+      expect(boxes.find((x) => x.path === lookAlike)?.role, lookAlike).toBeUndefined();
     }
   });
 

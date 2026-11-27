@@ -27,6 +27,7 @@ export function AddPasswordAccount({ provider, onDone, existing }: {
   const [error, setError] = useState<{ message: string; field?: string } | null>(null);
   const first = useRef<HTMLInputElement>(null);
   // Signing in again: straight to the password.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- focus once, when the form opens
   useLayoutEffect(() => (existing ? passwordField.current : first.current)?.focus(), []);
 
   const submit = async (e: React.FormEvent) => {

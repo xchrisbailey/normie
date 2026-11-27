@@ -103,7 +103,8 @@ export async function signInWithGoogle(o: SignInOptions): Promise<TokenSet> {
       );
       clearTimeout(timer);
       server.close();
-      ok ? resolve({ code: gotCode, redirectUri }) : reject(new Error(err ? `Google sign-in failed: ${err}` : 'Google sign-in returned an unexpected response'));
+      if (ok) resolve({ code: gotCode, redirectUri });
+      else reject(new Error(err ? `Google sign-in failed: ${err}` : 'Google sign-in returned an unexpected response'));
     });
     server.on('error', reject);
     server.listen(0, '127.0.0.1', async () => {

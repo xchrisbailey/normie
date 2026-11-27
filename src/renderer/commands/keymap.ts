@@ -72,6 +72,8 @@ export function mergeKeymap<A extends ActionDef>(defaults: readonly A[], file: u
     for (const [otherId, otherKeys] of user) {
       const other = byId.get(otherId)!;
       if (!overlaps(other, byId.get(id)!)) continue;
+      // A copy: the loop takes clashing keys out of `keys` as it goes.
+      // oxlint-disable-next-line unicorn/no-useless-spread
       for (const k of [...keys]) {
         const hit = otherKeys.find((o) => collide(o, k));
         if (hit) {

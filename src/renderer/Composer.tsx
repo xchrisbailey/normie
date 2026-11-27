@@ -132,6 +132,7 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
     dirty.current = true;
     clearTimeout(timer.current);
     timer.current = setTimeout(saveNow, DRAFT_SAVE_MS);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs when the content changes; saveNow reads refs
   }, [to, cc, bcc, subject, body, identity, attachments]);
   const close = () => {
     saveNow();
@@ -149,6 +150,7 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
     field?.focus();
     // A reply starts above the quote.
     if (field === bodyField.current) bodyField.current?.setSelectionRange(0, 0);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- place the cursor once, when the Composer opens
   }, []);
 
   const [picking, setPicking] = useState<null | 'later' | 'reminder'>(null);

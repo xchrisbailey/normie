@@ -45,7 +45,8 @@ export function connect(ch: Channel): Client {
       const p = pending.get(msg.id);
       if (!p) return;
       pending.delete(msg.id);
-      msg.ok ? p.resolve(msg.value) : p.reject(new Error(msg.error));
+      if (msg.ok) p.resolve(msg.value);
+      else p.reject(new Error(msg.error));
     } else if (msg?.t === 'evt') {
       listeners.get(msg.name)?.forEach((fn) => fn(msg.payload));
     }

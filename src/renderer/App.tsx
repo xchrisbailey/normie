@@ -455,7 +455,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
       if (r.reason === 'risky') setNote(`"${file.filename}" could run code, so Normie won't open it. Save it to look at it.`);
       else if (!r.ok) setNote(`Couldn't open "${file.filename}": ${r.reason}`);
     });
-  }, [core]);
+  }, [core, setNote]);
 
   /** The Identities mail can go out from: one per Account for now (several come with milestone 4). */
   const identities: Identity[] = window.normie.fake

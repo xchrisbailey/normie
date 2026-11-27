@@ -7,7 +7,7 @@
   "main": "out/main/index.js",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "verify": "npm run typecheck && npm test && npm run build && node scripts/check-bundles.mjs && npm run smoke",
+    "verify": "npm run typecheck && npm run lint && npm test && npm run build && node scripts/check-bundles.mjs && npm run smoke",
     "prepare": "git config core.hooksPath .githooks",
     "start": "npm run build && electron .",
     "start:fake": "npm run build && NORMIE_PROVIDER=fake electron .",
@@ -20,7 +20,10 @@
     "real-copy": "node scripts/real-copy.mjs",
     "smoke:packaged": "NORMIE_PROVIDER=fake NORMIE_SMOKE=1 ./dist/mac-arm64/Normie.app/Contents/MacOS/Normie",
     "bench": "node bench/run.mjs",
-    "test:live": "vitest run --config vitest.live.config.mts"
+    "test:live": "vitest run --config vitest.live.config.mts",
+    "lint": "oxlint --deny-warnings",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
   },
   "build": {
     "appId": "dev.normie.app",
@@ -38,8 +41,18 @@
       "category": "public.app-category.productivity",
       "icon": "build/icon.png",
       "target": [
-        { "target": "dmg", "arch": ["arm64"] },
-        { "target": "zip", "arch": ["arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
       ]
     },
     "dmg": {
@@ -72,6 +85,8 @@
     "electron-builder": "26.18.0",
     "esbuild": "0.28.2",
     "jsdom": "31.0.1",
+    "oxfmt": "0.80.0",
+    "oxlint": "1.95.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "typescript": "7.0.2",
