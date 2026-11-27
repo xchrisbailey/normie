@@ -12,6 +12,7 @@ import { ACTIONS } from './commands/registry';
 import { isActionId } from './commands/registry';
 import type { ActionId } from './commands/registry';
 import { measureToNextFrame } from './perf';
+import { quietFor, wakeOnMouse } from './quiet-chrome';
 
 /** A handler may return a promise; the action is measured to the frame after it settles. */
 export type Handlers = Partial<Record<ActionId, () => void | Promise<void>>>;
@@ -103,6 +104,7 @@ export function useKeys(context: Context, handlers: Handlers, actions: ReadonlyA
       if (!run) {
         return;
       }
+      quietFor(res.id);
       const result = run();
       const id = res.id;
       if (result) {
@@ -114,4 +116,5 @@ export function useKeys(context: Context, handlers: Handlers, actions: ReadonlyA
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [actions]);
+  useEffect(wakeOnMouse, []);
 }
