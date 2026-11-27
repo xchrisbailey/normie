@@ -1,17 +1,20 @@
-// Settings drop from the header: Accounts, the theme and Start at Login, as tabs in one panel.
+// Settings fill the window: Accounts, the theme and Start at Login, as tabs over one column.
 import { Button } from '@ui-sdk/react/button';
-import { Listbox, ListboxItem } from '@ui-sdk/react/listbox';
+import { createListboxController, Listbox, ListboxItem } from '@ui-sdk/react/listbox';
 import { Switch, SwitchThumb } from '@ui-sdk/react/switch';
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/react/tabs';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { flushSync } from 'react-dom';
 import type { ActiveTheme, ThemeChoice, ThemeSummary } from '../core/vscode-theme';
 import { DEFAULT_DARK, DEFAULT_LIGHT } from '../core/vscode-theme';
 import { useAddGmail } from './AccountBar';
+import { BackIcon } from './icons';
 import { AddPasswordAccount } from './AddAccount';
 import type { PasswordProvider } from './AddAccount';
 import { IdentitiesEditor } from './Identities';
 import { Panel } from './Panel';
+import { themeTokens } from './theme-tokens';
 
 export type SettingsTab = 'accounts' | 'appearance' | 'general';
 
@@ -33,6 +36,14 @@ export function SettingsPanel({
   return (
     <Panel title="Settings" className="settings-panel" onClose={onClose} initialFocus=".settings-tabs [data-selected]">
       <Tabs defaultValue={start}>
+        <div className="settings-head">
+          <Button className="tool" aria-label="Close Settings" onClick={onClose}>
+            <BackIcon />
+          </Button>
+          <span className="settings-title" aria-hidden="true">
+            Settings
+          </span>
+        </div>
         <TabsList aria-label="Settings" className="settings-tabs">
           <TabsTab value="accounts">Accounts</TabsTab>
           <TabsTab value="appearance">Appearance</TabsTab>
@@ -130,8 +141,9 @@ function AccountSettings({ accounts }: { accounts: Array<AccountRecord> }) {
 }
 
 /**
- * One list of themes. Fixed: the pick is the theme. Following the system: a light pick is the light half of the
- * pair, a dark pick the dark half. Arrow keys pick as they move, so the app itself is the preview.
+ * One grid of theme tiles, each a small picture of the app in that theme. Fixed: the pick is the theme. Following the
+ * system: a light pick is the light half of the pair, a dark pick the dark half. Arrow keys pick as they move, so the
+ * app itself is the preview too.
  */
 function ThemeSettings({ theme, themes, onChoose }: { theme: ActiveTheme; themes: Array<ThemeSummary>; onChoose: (choice: ThemeChoice) => void }) {
   const { choice } = theme;
@@ -139,6 +151,7 @@ function ThemeSettings({ theme, themes, onChoose }: { theme: ActiveTheme; themes
   const [following, setFollowing] = useState(choice.mode === 'system');
   const [picked, setPicked] = useState(theme.theme.id);
   const [seen, setSeen] = useState(theme);
+  const [grid] = useState(() => createListboxController<string>());
   if (seen !== theme) {
     setSeen(theme);
     setFollowing(choice.mode === 'system');
@@ -165,6 +178,22 @@ function ThemeSettings({ theme, themes, onChoose }: { theme: ActiveTheme; themes
       onChoose({ mode: 'system', light: DEFAULT_LIGHT, dark: theme.theme.id });
     }
   };
+  // The listbox moves left and right; up and down go a row, as many tiles as the grid fits across.
+  const rowKey = (e: KeyboardEvent<HTMLElement>) => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') {
+      return;
+    }
+    const tiles = [...e.currentTarget.querySelectorAll<HTMLElement>('[data-theme-id]')];
+    const at = tiles.findIndex((t) => t.contains(document.activeElement));
+    const across = tiles.filter((t) => t.offsetTop === tiles[0]?.offsetTop).length || 1;
+    const to = tiles[at + (e.key === 'ArrowDown' ? across : -across)];
+    e.preventDefault();
+    if (at >= 0 && to?.dataset.themeId) {
+      grid.highlight(to.dataset.themeId);
+      to.focus();
+      grid.setValue(to.dataset.themeId);
+    }
+  };
   const paired = (id: string) => choice.mode === 'system' && (id === choice.light || id === choice.dark);
   const note = useId();
   return (
@@ -182,9 +211,12 @@ function ThemeSettings({ theme, themes, onChoose }: { theme: ActiveTheme; themes
       </label>
       <Listbox
         aria-label="Theme"
-        className="theme-list"
+        className="theme-grid"
+        orientation="horizontal"
         activation="automatic"
+        controller={grid}
         value={picked}
+        onKeyDown={rowKey}
         onValueChange={(id) => {
           if (id !== null) {
             flushSync(() => setPicked(id));
@@ -193,17 +225,46 @@ function ThemeSettings({ theme, themes, onChoose }: { theme: ActiveTheme; themes
         }}
       >
         {themes.map((t) => (
-          <ListboxItem key={t.id} value={t.id} className="theme-item" data-theme-id={t.id} data-paired={paired(t.id) || undefined}>
-            <span className="theme-name">{t.name}</span>
-            <span className="theme-meta">
-              {t.type === 'light' ? 'Light' : 'Dark'}
-              {t.source === 'user' && ' · yours'}
+          <ListboxItem key={t.id} value={t.id} label={t.name} className="theme-item" data-theme-id={t.id} data-paired={paired(t.id) || undefined}>
+            <ThemePreview theme={t} />
+            <span className="theme-caption">
+              <span className="theme-name">{t.name}</span>
+              <span className="theme-meta">
+                {t.type === 'light' ? 'Light' : 'Dark'}
+                {t.source === 'user' && ' · yours'}
+              </span>
             </span>
           </ListboxItem>
         ))}
       </Listbox>
       <p className="settings-note">More themes: put VS Code color theme files in the themes folder in Normie’s data folder.</p>
     </>
+  );
+}
+
+/** The app in miniature, painted in a theme's own colors: a header with tabs, then three rows, the first selected. */
+function ThemePreview({ theme }: { theme: ThemeSummary }) {
+  const vars = useMemo(() => themeTokens(theme.colors, theme.type), [theme.colors, theme.type]);
+  return (
+    <span className="theme-preview" style={vars} aria-hidden="true">
+      <span className="tp-head">
+        <span className="tp-tab tp-on" />
+        <span className="tp-tab" />
+        <span className="tp-tab" />
+        <span className="tp-dots">
+          <i />
+          <i />
+          <i />
+        </span>
+      </span>
+      {[0, 1, 2].map((r) => (
+        <span key={r} className={r === 0 ? 'tp-row tp-sel' : 'tp-row'}>
+          <span className="tp-dot" />
+          <span className="tp-from" />
+          <span className="tp-subject" />
+        </span>
+      ))}
+    </span>
   );
 }
 

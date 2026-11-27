@@ -195,6 +195,39 @@ export interface ThemeSummary {
   type: ThemeType;
   /** Bundled with the app, or from the user's themes folder. */
   source: 'bundled' | 'user';
+  /** The colors normie reads from the theme (see previewColors), for its tile in Settings. */
+  colors: Record<string, string>;
+}
+
+/** Every VS Code key normie's CSS variables come from (theme-tokens reads only these). */
+const TOKEN_KEYS = new Set([
+  'editor.background',
+  'editor.foreground',
+  'foreground',
+  'list.inactiveSelectionBackground',
+  'list.activeSelectionBackground',
+  'list.hoverBackground',
+  'editorWidget.background',
+  'editorWidget.border',
+  'sideBar.background',
+  'sideBar.border',
+  'editorGroup.border',
+  'panel.border',
+  'input.border',
+  'dropdown.border',
+  'descriptionForeground',
+  'editorLineNumber.foreground',
+  'disabledForeground',
+  'focusBorder',
+  'button.background',
+  'button.foreground',
+  'textLink.foreground',
+  'widget.shadow',
+]);
+
+/** A theme's colors cut to the ones normie uses, so the list of themes stays small. */
+export function previewColors(colors: Readonly<Record<string, string>>): Record<string, string> {
+  return Object.fromEntries(Object.entries(colors).filter(([k]) => TOKEN_KEYS.has(k) || k.startsWith('terminal.ansi')));
 }
 
 /** How the user picked: one theme always, or a light and a dark one that follow the system. */

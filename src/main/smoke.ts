@@ -286,6 +286,10 @@ async function smokeSettings(w: BrowserWindow) {
   await sleep(300);
   const accounts = await d.js<Array<string>>(`[...document.querySelectorAll('.settings-account-email')].map((e) => e.textContent)`);
   const opened = (await d.js<string>(`document.querySelector('.settings-tabs [data-selected]')?.textContent ?? ''`)) === 'Accounts' && accounts.length > 0;
+  // Settings fill the window rather than float over the list.
+  const full = await d.js<boolean>(
+    `(() => { const r = document.querySelector('.settings-panel').getBoundingClientRect(); return r.left === 0 && r.top === 0 && r.width === innerWidth && r.height === innerHeight; })()`,
+  );
   await d.shot('settings-accounts');
   await d.clickAt('.settings-tabs [data-slot="tabs-tab"]:nth-child(2)');
   await sleep(200);
@@ -305,11 +309,25 @@ async function smokeSettings(w: BrowserWindow) {
     d.js<string>(
       `[document.documentElement.dataset.theme, ...[...document.querySelectorAll('.theme-item[data-paired]')].map((i) => i.dataset.themeId)].join('|')`,
     );
+  // Each tile is drawn in its own theme's colors.
+  const tiles = await d.js<{ count: number; looks: number }>(
+    `(() => { const p = [...document.querySelectorAll('.theme-preview')]; return { count: p.length, looks: new Set(p.map((e) => getComputedStyle(e).backgroundColor)).size }; })()`,
+  );
+  const spot = () =>
+    d.js<string>(
+      `(() => { const t = document.activeElement?.closest('.theme-item'); return t ? t.offsetLeft + ',' + t.offsetTop + ',' + t.dataset.themeId : ''; })()`,
+    );
   const chosenBefore = await chosen();
+  const spotBefore = await spot();
   await d.press('Up');
   await sleep(300);
   const arrowed = await chosen();
-  const picked = hit && clicked === 'solarized-light' && arrowed !== chosenBefore;
+  // Up goes a row up the grid, in the same column.
+  const [x0, y0] = spotBefore.split(',').map(Number);
+  const spotAfter = await spot();
+  const [x1, y1] = spotAfter.split(',').map(Number);
+  const rowUp = x0 === x1 && (y1 ?? 0) < (y0 ?? 0);
+  const picked = hit && clicked === 'solarized-light' && arrowed !== chosenBefore && rowUp && tiles.count > 1 && tiles.looks > 1;
   // Back to the pair it started with.
   await pickTheme('normie-dark');
   await pickTheme(before);
@@ -331,10 +349,21 @@ async function smokeSettings(w: BrowserWindow) {
   const icon = await d.clickAt('.tool[aria-label="Settings"]');
   await sleep(300);
   const byIcon = icon.hit && (await d.js<boolean>(`!!document.querySelector('.settings-panel')`));
-  await d.press('Escape');
+  const back = await d.clickAt('.settings-head [aria-label="Close Settings"]');
   await sleep(200);
-  const ok = opened && picked && restored && login && closed && byIcon && !(await d.js<boolean>(`!!document.querySelector('.settings-panel')`));
-  return { ok, opened, accounts: accounts.length, themes: { before, clicked, arrowed, restored }, login, closed, byIcon };
+  const byBack = back.hit && !(await d.js<boolean>(`!!document.querySelector('.settings-panel')`));
+  const ok = opened && full && picked && restored && login && closed && byIcon && byBack;
+  return {
+    ok,
+    opened,
+    full,
+    accounts: accounts.length,
+    themes: { before, clicked, chosenBefore, arrowed, spots: [spotBefore, spotAfter], rowUp, tiles, restored },
+    login,
+    closed,
+    byIcon,
+    byBack,
+  };
 }
 
 /** Moving through the list with keys fades the header; moving the mouse brings it back. */

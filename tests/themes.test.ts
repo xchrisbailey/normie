@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { choiceFrom, DEFAULT_CHOICE, legacyChoice, parseThemeFile, resolveTheme, stripJsonc } from '../src/core/vscode-theme';
+import { choiceFrom, DEFAULT_CHOICE, legacyChoice, parseThemeFile, previewColors, resolveTheme, stripJsonc } from '../src/core/vscode-theme';
 import { ThemeStore } from '../src/main/themes';
 import { contrast, THEME_VARS, themeTokens } from '../src/renderer/theme-tokens';
 
@@ -122,10 +122,23 @@ describe('the themes folders', () => {
     writeFileSync(path.join(user, 'nord.json'), '{"name":"My Nord","colors":{"editor.background":"#2e3440"}}');
     writeFileSync(path.join(user, 'broken.json'), '{"colors":');
     const { themes, problems } = new ThemeStore(BUNDLED, user).list();
-    expect(themes.find((t) => t.id === 'mine')).toEqual({ id: 'mine', name: 'Mine', type: 'dark', source: 'user' });
+    expect(themes.find((t) => t.id === 'mine')).toEqual({ id: 'mine', name: 'Mine', type: 'dark', source: 'user', colors: { 'editor.background': '#101010' } });
     expect(themes.find((t) => t.id === 'nord')).toMatchObject({ name: 'My Nord', source: 'user' });
     expect(themes.find((t) => t.id === 'normie-light')).toMatchObject({ name: 'Normie Light', type: 'light', source: 'bundled' });
     expect(problems).toEqual([expect.stringMatching(/^themes\/broken\.json isn't valid JSON/)]);
+  });
+
+  it('lists each theme with just the colors its tile needs, which paint it the same as the whole file', () => {
+    const store = new ThemeStore(BUNDLED, tempDir());
+    for (const t of store.list().themes) {
+      const full = store.resolve(t.id);
+      expect(Object.keys(t.colors).length, t.id).toBeLessThan(Object.keys(full.colors).length);
+      expect(themeTokens(t.colors, t.type), t.id).toEqual(themeTokens(full.colors, full.type));
+    }
+    expect(previewColors({ 'editor.background': '#fff', 'tab.border': '#000', 'terminal.ansiRed': '#f00' })).toEqual({
+      'editor.background': '#fff',
+      'terminal.ansiRed': '#f00',
+    });
   });
 
   it('never includes a file outside the theme folders', () => {
