@@ -83,7 +83,23 @@ const MIGRATIONS: string[] = [
   `
   alter table pending_changes add column state text not null default 'pending';
   `,
+  // Starred (the Flagged flag), per message and per Thread.
+  `
+  alter table messages add column starred integer not null default 0;
+  alter table threads add column starred integer not null default 0;
+  update messages set starred = 1 where flags_json like '%Flagged%';
+  update threads set starred = 1 where exists (
+    select 1 from messages m where m.account_id = threads.account_id and m.thread_key = threads.thread_key and m.starred = 1);
+  alter table pending_changes add column send_after integer not null default 0;
+  `,
 ];
+
+/** How long a delete waits before it's sent, so it can still be undone. */
+export const DELETE_HOLD_MS = 10_000;
+
+const FLAGGED = '\\Flagged';
+const SEEN = '\\Seen';
+const TRASH = '\\Trash';
 
 /** Changes kept after they reach the server, so recent actions can still be undone. */
 const KEEP_APPLIED = 500;
@@ -107,6 +123,44 @@ function edited(xs: string[], add?: string[], remove?: string[]): string[] {
 export function parseThreadKey(key: string): { accountId: AccountId; threadKey: string } {
   const i = key.indexOf(':');
   return { accountId: key.slice(0, i), threadKey: key.slice(i + 1) };
+}
+
+interface ActionMessage {
+  mailbox: string;
+  uid: number;
+  labels_json: string;
+  unread: number;
+  starred: number;
+  /** The mailbox's role. 'inbox' means a folder server, where Done and delete are moves (milestone 4). */
+  role: string | null;
+}
+
+/**
+ * Which of a Thread's messages (oldest first) an action changes, and how. Only messages the action really
+ * changes are picked, so the inverse edit restores exactly what was there.
+ */
+function planAction(action: ThreadAction, msgs: ActionMessage[]): { pick: ActionMessage[]; edit: MessageEdit }[] {
+  const labelled = msgs.filter((m) => m.role !== 'inbox');
+  const inInbox = labelled.filter((m) => (JSON.parse(m.labels_json) as string[]).includes(INBOX_LABEL));
+  const latest = msgs.at(-1);
+  switch (action.type) {
+    case 'done':
+      // Gmail: remove the Inbox label from the messages that carry it. Sent copies don't, so they're untouched.
+      return [{ pick: inInbox, edit: { removeLabels: [INBOX_LABEL] } }];
+    case 'delete':
+      // Gmail: the whole Thread goes to Trash, as in Gmail itself.
+      return [{ pick: labelled, edit: { addLabels: [TRASH] } }, { pick: inInbox, edit: { removeLabels: [INBOX_LABEL] } }];
+    case 'star':
+      // Starring a Thread stars its latest message, as Gmail does; unstarring clears every star in it.
+      return [action.on
+        ? { pick: msgs.some((m) => m.starred) || !latest ? [] : [latest], edit: { addFlags: [FLAGGED] } }
+        : { pick: msgs.filter((m) => m.starred), edit: { removeFlags: [FLAGGED] } }];
+    case 'read':
+      // Read marks every unread message; unread marks the latest one, so the Thread shows as unread.
+      return [action.on
+        ? { pick: msgs.filter((m) => m.unread), edit: { addFlags: [SEEN] } }
+        : { pick: msgs.some((m) => m.unread) || !latest ? [] : [latest], edit: { removeFlags: [SEEN] } }];
+  }
 }
 
 export interface MailboxStateRow {
@@ -218,15 +272,16 @@ export class Store {
     const threadOf = this.db.prepare('select thread_key from messages where account_id = ? and mailbox = ? and uid = ?').pluck();
     const insert = this.db.prepare(`
       insert into messages(account_id, mailbox, uid, remote_id, thread_key, message_id, subject, from_json, to_json, date,
-                           flags_json, labels_json, in_inbox, unread)
+                           flags_json, labels_json, in_inbox, unread, starred)
       values (@accountId, @mailbox, @uid, @remoteId, @threadKey, @messageId, @subject, @fromJson, @toJson, @date,
-              @flagsJson, @labelsJson, @inInbox, @unread)
+              @flagsJson, @labelsJson, @inInbox, @unread, @starred)
       on conflict(account_id, mailbox, uid) do update set
         remote_id = excluded.remote_id, thread_key = excluded.thread_key, message_id = excluded.message_id,
         subject = excluded.subject, from_json = excluded.from_json, to_json = excluded.to_json, date = excluded.date,
-        flags_json = excluded.flags_json, labels_json = excluded.labels_json, in_inbox = excluded.in_inbox, unread = excluded.unread`);
+        flags_json = excluded.flags_json, labels_json = excluded.labels_json, in_inbox = excluded.in_inbox, unread = excluded.unread,
+        starred = excluded.starred`);
     const updateFlags = this.db.prepare(
-      'update messages set flags_json = ?, unread = ?, labels_json = coalesce(?, labels_json), in_inbox = coalesce(?, in_inbox) where account_id = ? and mailbox = ? and uid = ?',
+      'update messages set flags_json = ?, unread = ?, starred = ?, labels_json = coalesce(?, labels_json), in_inbox = coalesce(?, in_inbox) where account_id = ? and mailbox = ? and uid = ?',
     );
     const del = this.db.prepare('delete from messages where account_id = ? and mailbox = ? and uid = ?');
 
@@ -245,7 +300,7 @@ export class Store {
           accountId, mailbox, uid: h.uid, remoteId: h.remoteId, threadKey, messageId: h.messageId ?? null,
           subject: h.subject, fromJson: h.from ? JSON.stringify(h.from) : null, toJson: JSON.stringify(h.to), date: h.date,
           flagsJson: JSON.stringify(h.flags), labelsJson: JSON.stringify(h.labels),
-          inInbox: inInbox(h.labels), unread: h.flags.includes('\\Seen') ? 0 : 1,
+          inInbox: inInbox(h.labels), unread: h.flags.includes(SEEN) ? 0 : 1, starred: h.flags.includes(FLAGGED) ? 1 : 0,
         });
       }
       for (const f of batch.flagChanges ?? []) {
@@ -253,7 +308,7 @@ export class Store {
         if (!key) continue;
         touched.add(key);
         updateFlags.run(
-          JSON.stringify(f.flags), f.flags.includes('\\Seen') ? 0 : 1,
+          JSON.stringify(f.flags), f.flags.includes(SEEN) ? 0 : 1, f.flags.includes(FLAGGED) ? 1 : 0,
           f.labels ? JSON.stringify(f.labels) : null, f.labels ? inInbox(f.labels) : null,
           accountId, mailbox, f.uid,
         );
@@ -289,30 +344,27 @@ export class Store {
    * Record a triage action on a Thread: change the local copy at once and queue the change for the server.
    * Returns the pending changes made (none when the action changes nothing, such as Done on a Thread already out of the Inbox).
    */
-  recordAction(key: string, action: ThreadAction, now = Date.now()): { changes: PendingChange[]; inboxChanged: boolean } {
+  recordAction(key: string, action: ThreadAction, now = Date.now(), holdMs = DELETE_HOLD_MS): { changes: PendingChange[]; inboxChanged: boolean } {
     const { accountId, threadKey } = parseThreadKey(key);
     const msgs = this.db
-      .prepare(`select m.mailbox, m.uid, m.labels_json, mb.role from messages m
+      .prepare(`select m.mailbox, m.uid, m.labels_json, m.unread, m.starred, mb.role from messages m
                 left join mailboxes mb on mb.account_id = m.account_id and mb.path = m.mailbox
-                where m.account_id = ? and m.thread_key = ?`)
-      .all(accountId, threadKey) as { mailbox: string; uid: number; labels_json: string; role: string | null }[];
-    // Done on Gmail removes the Inbox label from the messages that carry it; nothing else is touched.
-    // Folder servers (a move to Archive) come with those servers in milestone 4.
-    const targets = new Map<string, number[]>();
-    if (action.type === 'done') {
-      for (const m of msgs) {
-        if (m.role === 'inbox' || !(JSON.parse(m.labels_json) as string[]).includes(INBOX_LABEL)) continue;
-        targets.set(m.mailbox, [...(targets.get(m.mailbox) ?? []), m.uid]);
-      }
-    }
-    const edit: MessageEdit = { removeLabels: [INBOX_LABEL] };
+                where m.account_id = ? and m.thread_key = ? order by m.date asc, m.id asc`)
+      .all(accountId, threadKey) as { mailbox: string; uid: number; labels_json: string; unread: number; starred: number; role: string | null }[];
+    // A delete waits a little before it's sent, so z can still cancel it: once Gmail moves mail to Trash,
+    // it leaves All Mail and an inverse change would find nothing there to put back.
+    const sendAfter = action.type === 'delete' ? now + holdMs : 0;
     const changes: PendingChange[] = [];
     let inboxChanged = false;
     this.db.transaction(() => {
-      for (const [mailbox, uids] of targets) {
-        const id = this.queueChange(accountId, threadKey, mailbox, uids, edit, now);
-        changes.push({ id, accountId, threadKey, mailbox, uids, edit, attempts: 0 });
-        for (const k of this.editMessages(accountId, mailbox, uids, edit)) if (this.refreshThread(accountId, k)) inboxChanged = true;
+      for (const { pick, edit } of planAction(action, msgs)) {
+        const targets = new Map<string, number[]>();
+        for (const m of pick) targets.set(m.mailbox, [...(targets.get(m.mailbox) ?? []), m.uid]);
+        for (const [mailbox, uids] of targets) {
+          const id = this.queueChange(accountId, threadKey, mailbox, uids, edit, now, sendAfter);
+          changes.push({ id, accountId, threadKey, mailbox, uids, edit, attempts: 0 });
+          for (const k of this.editMessages(accountId, mailbox, uids, edit)) if (this.refreshThread(accountId, k)) inboxChanged = true;
+        }
       }
     })();
     return { changes, inboxChanged };
@@ -322,14 +374,17 @@ export class Store {
   private editMessages(accountId: AccountId, mailbox: string, uids: number[], edit: MessageEdit): string[] {
     const isInboxMailbox = this.db.prepare('select role from mailboxes where account_id = ? and path = ?').pluck().get(accountId, mailbox) === 'inbox';
     const get = this.db.prepare('select flags_json, labels_json, thread_key from messages where account_id = ? and mailbox = ? and uid = ?');
-    const set = this.db.prepare('update messages set flags_json = ?, labels_json = ?, unread = ?, in_inbox = ? where account_id = ? and mailbox = ? and uid = ?');
+    const set = this.db.prepare('update messages set flags_json = ?, labels_json = ?, unread = ?, starred = ?, in_inbox = ? where account_id = ? and mailbox = ? and uid = ?');
     const keys = new Set<string>();
     for (const uid of uids) {
       const m = get.get(accountId, mailbox, uid) as { flags_json: string; labels_json: string; thread_key: string } | undefined;
       if (!m) continue;
       const flags = edited(JSON.parse(m.flags_json) as string[], edit.addFlags, edit.removeFlags);
       const labels = edited(JSON.parse(m.labels_json) as string[], edit.addLabels, edit.removeLabels);
-      set.run(JSON.stringify(flags), JSON.stringify(labels), flags.includes('\\Seen') ? 0 : 1, isInboxMailbox || labels.includes(INBOX_LABEL) ? 1 : 0, accountId, mailbox, uid);
+      set.run(
+        JSON.stringify(flags), JSON.stringify(labels), flags.includes(SEEN) ? 0 : 1, flags.includes(FLAGGED) ? 1 : 0,
+        isInboxMailbox || labels.includes(INBOX_LABEL) ? 1 : 0, accountId, mailbox, uid,
+      );
       keys.add(m.thread_key);
     }
     return [...keys];
@@ -339,19 +394,35 @@ export class Store {
    * Changes still to send for an Account, oldest first. Called at the start of each replay, when nothing of
    * this Account's is in flight, so it also clears out changes that were cancelled before they were sent.
    */
-  pendingChanges(accountId: AccountId): PendingChange[] {
+  pendingChanges(accountId: AccountId, now = Date.now()): PendingChange[] {
     this.db.prepare(`delete from pending_changes where account_id = ? and state = 'cancelled'`).run(accountId);
-    return this.listPending(accountId);
+    // A change still held (a fresh delete) holds back later changes to the same Thread, so they stay in order.
+    const held = new Set<string>();
+    const out: PendingChange[] = [];
+    for (const { sendAfter, ...c } of this.listPending(accountId, true)) {
+      if (sendAfter > now || held.has(c.threadKey)) held.add(c.threadKey);
+      else out.push(c);
+    }
+    return out;
   }
 
-  private listPending(accountId: AccountId): PendingChange[] {
+  /** When the next held change of an Account may be sent, if any. */
+  nextSendAt(accountId: AccountId): number | undefined {
+    return (this.db.prepare(`select min(send_after) from pending_changes where account_id = ? and state = 'pending' and send_after > 0`)
+      .pluck().get(accountId) as number | null) ?? undefined;
+  }
+
+  private listPending(accountId: AccountId, withSendAfter: true): (PendingChange & { sendAfter: number })[];
+  private listPending(accountId: AccountId): PendingChange[];
+  private listPending(accountId: AccountId, withSendAfter = false): (PendingChange & { sendAfter?: number })[] {
     return (this.db
-      .prepare(`select id, account_id, thread_key, mailbox, uids_json, edit_json, attempts from pending_changes
+      .prepare(`select id, account_id, thread_key, mailbox, uids_json, edit_json, attempts, send_after from pending_changes
                 where account_id = ? and state = 'pending' order by id`)
-      .all(accountId) as { id: number; account_id: string; thread_key: string; mailbox: string; uids_json: string; edit_json: string; attempts: number }[])
+      .all(accountId) as { id: number; account_id: string; thread_key: string; mailbox: string; uids_json: string; edit_json: string; attempts: number; send_after: number }[])
       .map((r) => ({
         id: r.id, accountId: r.account_id, threadKey: r.thread_key, mailbox: r.mailbox,
         uids: JSON.parse(r.uids_json) as number[], edit: JSON.parse(r.edit_json) as MessageEdit, attempts: r.attempts,
+        ...(withSendAfter ? { sendAfter: r.send_after } : {}),
       }));
   }
 
@@ -361,10 +432,10 @@ export class Store {
       | undefined;
   }
 
-  private queueChange(accountId: AccountId, threadKey: string, mailbox: string, uids: number[], edit: MessageEdit, now = Date.now()): number {
+  private queueChange(accountId: AccountId, threadKey: string, mailbox: string, uids: number[], edit: MessageEdit, now = Date.now(), sendAfter = 0): number {
     return Number(this.db
-      .prepare('insert into pending_changes(account_id, thread_key, mailbox, uids_json, edit_json, created_at) values (?, ?, ?, ?, ?, ?)')
-      .run(accountId, threadKey, mailbox, JSON.stringify(uids), JSON.stringify(edit), now).lastInsertRowid);
+      .prepare('insert into pending_changes(account_id, thread_key, mailbox, uids_json, edit_json, created_at, send_after) values (?, ?, ?, ?, ?, ?, ?)')
+      .run(accountId, threadKey, mailbox, JSON.stringify(uids), JSON.stringify(edit), now, sendAfter).lastInsertRowid);
   }
 
   /**
@@ -430,6 +501,12 @@ export class Store {
   undo(ids: number[]): { accounts: AccountId[]; inboxChanged: boolean } {
     const accounts = new Set<AccountId>();
     let inboxChanged = false;
+    // A delete Gmail already has can't come back from here: Trash is outside All Mail. Undo stops at the hold.
+    const sentToTrash = ids.some((id) => {
+      const c = this.changeRow(id);
+      return c?.state === 'applied' && (JSON.parse(c.edit_json) as MessageEdit).addLabels?.includes(TRASH);
+    });
+    if (sentToTrash) return { accounts: [], inboxChanged: false };
     this.db.transaction(() => {
       for (const id of [...ids].sort((a, b) => b - a)) {
         const c = this.changeRow(id);
@@ -476,8 +553,9 @@ export class Store {
   private refreshThread(accountId: AccountId, threadKey: string): boolean {
     const wasInInbox = this.db.prepare('select in_inbox from threads where account_id = ? and thread_key = ?').pluck().get(accountId, threadKey) === 1;
     const agg = this.db
-      .prepare(`select count(*) n, max(date) last_date, max(unread) unread, max(in_inbox) in_inbox from messages where account_id = ? and thread_key = ?`)
-      .get(accountId, threadKey) as { n: number; last_date: number; unread: number; in_inbox: number };
+      .prepare(`select count(*) n, max(date) last_date, max(unread) unread, max(in_inbox) in_inbox, max(starred) starred
+                from messages where account_id = ? and thread_key = ?`)
+      .get(accountId, threadKey) as { n: number; last_date: number; unread: number; in_inbox: number; starred: number };
     if (!agg.n) {
       this.db.prepare('delete from threads where account_id = ? and thread_key = ?').run(accountId, threadKey);
       return wasInInbox;
@@ -490,13 +568,13 @@ export class Store {
       .pluck()
       .get(accountId, threadKey) as string;
     this.db
-      .prepare(`insert into threads(account_id, thread_key, subject, from_label, last_date, snippet, unread, count, in_inbox)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      .prepare(`insert into threads(account_id, thread_key, subject, from_label, last_date, snippet, unread, count, in_inbox, starred)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(account_id, thread_key) do update set subject = excluded.subject, from_label = excluded.from_label,
                   last_date = excluded.last_date, snippet = excluded.snippet, unread = excluded.unread, count = excluded.count,
-                  in_inbox = excluded.in_inbox`)
+                  in_inbox = excluded.in_inbox, starred = excluded.starred`)
       .run(accountId, threadKey, first || latest.subject, addressLabel(latest.from_json ? JSON.parse(latest.from_json) : undefined),
-        agg.last_date, latest.snippet, agg.unread, agg.n, agg.in_inbox);
+        agg.last_date, latest.snippet, agg.unread, agg.n, agg.in_inbox, agg.starred);
     return wasInInbox || agg.in_inbox === 1;
   }
 
@@ -505,12 +583,15 @@ export class Store {
   rows(split: SplitId, limit = 5000): ThreadRow[] {
     if (split !== 'inbox') return [];
     return (this.db
-      .prepare(`select account_id, thread_key, subject, from_label, last_date, snippet, unread, count
+      .prepare(`select account_id, thread_key, subject, from_label, last_date, snippet, unread, starred, count
                 from threads where in_inbox = 1 order by last_date desc limit ?`)
-      .all(limit) as { account_id: string; thread_key: string; subject: string; from_label: string; last_date: number; snippet: string; unread: number; count: number }[])
+      .all(limit) as {
+        account_id: string; thread_key: string; subject: string; from_label: string; last_date: number; snippet: string;
+        unread: number; starred: number; count: number;
+      }[])
       .map((r) => ({
         key: `${r.account_id}:${r.thread_key}`, accountId: r.account_id, subject: r.subject, from: r.from_label,
-        date: r.last_date, snippet: r.snippet, unread: r.unread === 1, count: r.count,
+        date: r.last_date, snippet: r.snippet, unread: r.unread === 1, starred: r.starred === 1, count: r.count,
       }));
   }
 

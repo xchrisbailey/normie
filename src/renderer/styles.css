@@ -21,6 +21,7 @@ body { background: var(--base); color: var(--text); overflow: hidden; -webkit-fo
 .subject .n { margin-left: 6px; color: var(--overlay); font-weight: 400; }
 .snippet { margin-left: 10px; color: var(--overlay); font-weight: 400; }
 .date { text-align: right; color: var(--overlay); font-variant-numeric: tabular-nums; }
+.row .star { color: #f9e2af; margin-right: 6px; }
 .row.selected { background: var(--surface0); box-shadow: inset 2px 0 0 var(--blue); }
 .accounts { margin-left: auto; display: flex; gap: 8px; align-items: center; -webkit-app-region: no-drag; }
 .account { color: var(--subtext); font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--surface0); border: 0; font: inherit; }

@@ -232,7 +232,13 @@ export class SyncEngine {
           if (!rejected) break;
         }
       }
-      if (!failed) return void (this.replayFailures = 0);
+      if (!failed) {
+        this.replayFailures = 0;
+        // A held change (a fresh delete) is sent once its hold is over.
+        const next = await data.nextSendAt(accountId);
+        if (next !== undefined && !this.stopped) this.replayRetry = setTimeout(() => this.replaySoon(), Math.max(0, next - this.now()));
+        return;
+      }
       if (this.stopped) return;
       // Try again with backoff. While live, a full pass also reconnects if the connection is gone.
       this.replayRetry = setTimeout(() => (this.live ? this.syncSoon(0) : this.replaySoon()), (this.o.backoffMs ?? defaultBackoff)(this.replayFailures++));

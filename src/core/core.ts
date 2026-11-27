@@ -39,11 +39,12 @@ export interface CreateCoreOptions {
   pollMs?: number;
   debounceMs?: number;
   backoffMs?: (attempt: number) => number;
+  deleteHoldMs?: number;
 }
 
 /** The whole core in one process: store, data service and one Account's sync engine. */
 export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
-  const data = new DataService(new Store(o.dbPath ?? ':memory:'));
+  const data = new DataService(new Store(o.dbPath ?? ':memory:'), { now: o.now, deleteHoldMs: o.deleteHoldMs });
   const notices: CoreNotice[] = [];
   data.onNotice((n) => notices.push(n));
   const engine = new SyncEngine({

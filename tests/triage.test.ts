@@ -273,3 +273,101 @@ describe('undo', () => {
     expect(p.edits).toHaveLength(2);
   });
 });
+
+describe('star, read and delete', () => {
+  const rowOf = async (c: TestCore, subject: string) => (await c.rows('inbox')).find((r) => r.subject === subject);
+
+  it('stars the latest message, and unstarring clears every star in the Thread', async () => {
+    const { p, lunch } = mailbox();
+    const c = await start(p);
+    const key = await keyOf(c, 'Lunch');
+    await c.act(key, { type: 'star', on: true });
+    expect((await rowOf(c, 'Lunch'))!.starred).toBe(true);
+    await c.engine.replay();
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[1]], edit: { addFlags: ['\\Flagged'] } });
+    p.setFlags(lunch.inbox[0]!, { flags: ['\\Flagged'] }); // starred elsewhere too
+    await c.engine.syncOnce();
+    await c.act(key, { type: 'star', on: false });
+    expect((await rowOf(c, 'Lunch'))!.starred).toBe(false);
+    await c.engine.replay();
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeFlags: ['\\Flagged'] } });
+  });
+
+  it('marks every unread message read, and marks the latest one unread', async () => {
+    const { p, lunch } = mailbox();
+    const c = await start(p);
+    const key = await keyOf(c, 'Lunch');
+    expect((await rowOf(c, 'Lunch'))!.unread).toBe(true);
+    await c.act(key, { type: 'read', on: true });
+    expect((await rowOf(c, 'Lunch'))!.unread).toBe(false);
+    await c.engine.replay();
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { addFlags: ['\\Seen'] } });
+    await c.act(key, { type: 'read', on: false });
+    expect((await rowOf(c, 'Lunch'))!.unread).toBe(true);
+    await c.engine.replay();
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[1]], edit: { removeFlags: ['\\Seen'] } });
+  });
+
+  it('deletes the whole Thread to Trash after a short hold', async () => {
+    const { p, lunch } = mailbox();
+    let now = NOW;
+    const c = await createCore({ provider: p, extractText: fakeExtractText, now: () => now, deleteHoldMs: 10_000 });
+    cores.push(c);
+    await c.engine.syncOnce();
+    await c.act(await keyOf(c, 'Lunch'), { type: 'delete' });
+    expect(await subjects(c)).toEqual(['Invoice']);
+    await c.engine.idle();
+    await c.engine.replay();
+    expect(p.edits).toEqual([]);
+    now += 10_000;
+    await c.engine.replay();
+    expect(p.edits).toEqual([
+      { mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[0], lunch.sent, lunch.inbox[1]], edit: { addLabels: ['\\Trash'] } },
+      { mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeLabels: ['\\Inbox'] } },
+    ]);
+  });
+
+  it('a held delete does not hold up changes to other Threads', async () => {
+    const { p } = mailbox();
+    const c = await start(p);
+    await c.act(await keyOf(c, 'Lunch'), { type: 'delete' });
+    await c.act(await keyOf(c, 'Invoice'), { type: 'done' });
+    await c.engine.idle();
+    await c.engine.replay();
+    expect(p.edits.map((e) => e.edit)).toEqual([{ removeLabels: ['\\Inbox'] }]);
+  });
+
+  it('undo inside the hold cancels a delete; once Gmail has it, undo leaves it in Trash', async () => {
+    const { p } = mailbox();
+    const c = await createCore({ provider: p, extractText: fakeExtractText, now: () => NOW, deleteHoldMs: 0 });
+    cores.push(c);
+    await c.engine.syncOnce();
+
+    // Sent already: Trash is outside All Mail, so there's nothing to put back.
+    const ids = await c.act(await keyOf(c, 'Lunch'), { type: 'delete' });
+    await c.engine.idle();
+    await c.engine.replay();
+    await c.undo(ids);
+    expect(await subjects(c)).toEqual(['Invoice']);
+
+    // Still held: cancelled, never sent.
+    const q = mailbox();
+    const d = await start(q.p);
+    const ids2 = await d.act(await keyOf(d, 'Lunch'), { type: 'delete' });
+    await d.undo(ids2);
+    expect(await subjects(d)).toEqual(['Lunch', 'Invoice']);
+    await d.engine.replay();
+    expect(q.p.edits).toEqual([]);
+  });
+
+  it('undoes a star by sending the inverse', async () => {
+    const { p, lunch } = mailbox();
+    const c = await start(p);
+    const ids = await c.act(await keyOf(c, 'Lunch'), { type: 'star', on: true });
+    await c.engine.replay();
+    await c.undo(ids);
+    expect((await rowOf(c, 'Lunch'))!.starred).toBe(false);
+    await c.engine.replay();
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[1]], edit: { removeFlags: ['\\Flagged'] } });
+  });
+});

@@ -306,8 +306,11 @@ async function smokeKeys(w: BrowserWindow) {
   // z brings it back.
   await press('z');
   const undone = (await count()) === before;
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone;
-  return { ok, start, afterJ, afterK, afterGG, reader, done, undone };
+  // s stars the selected Thread.
+  await press('s');
+  const starred = (await w.webContents.executeJavaScript(`!!document.querySelector('.row.selected .star')`)) as boolean;
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred;
+  return { ok, start, afterJ, afterK, afterGG, reader, done, undone, starred };
 }
 
 ipcMain.handle('accounts:list', () => accounts.list());

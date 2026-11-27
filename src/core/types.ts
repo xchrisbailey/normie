@@ -106,7 +106,12 @@ export interface PendingStatus {
 }
 
 /** A triage action on a Thread, as the user takes it. */
-export type ThreadAction = { type: 'done' };
+export type ThreadAction =
+  | { type: 'done' }
+  /** Delete: to Trash. */
+  | { type: 'delete' }
+  | { type: 'star'; on: boolean }
+  | { type: 'read'; on: boolean };
 
 /** A triage action recorded by the core and waiting to reach the server. */
 export interface PendingChange {
@@ -156,6 +161,7 @@ export interface ThreadRow {
   date: number;
   snippet: string;
   unread: boolean;
+  starred: boolean;
   count: number;
 }
 
