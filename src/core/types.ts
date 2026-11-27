@@ -94,6 +94,35 @@ export interface MessageEdit {
   removeLabels?: string[];
 }
 
+/** A message the user wrote, as the composer hands it to the core. */
+export interface OutgoingMessage {
+  accountId: AccountId;
+  /** The Identity it goes out from. */
+  from: Address;
+  to: Address[];
+  cc: Address[];
+  bcc: Address[];
+  subject: string;
+  /** Markdown; sent as HTML and as plain text. */
+  body: string;
+  inReplyTo?: string;
+  references?: string[];
+  attachments?: { filename: string; contentType: string; content: Uint8Array }[];
+}
+
+/** A message in the Outbox, as the sync process sends it. */
+export interface OutboxItem {
+  id: number;
+  messageId: string;
+  message: OutgoingMessage;
+  attempts: number;
+}
+
+/** Sends built messages over SMTP. One per Account; a fake in tests. */
+export interface MailTransport {
+  send(raw: Uint8Array, envelope: { from: string; to: string[] }): Promise<void>;
+}
+
 /** The server answered and said no (as opposed to the connection failing). Counts toward giving up on a change. */
 export class ServerRejectedError extends Error {
   readonly rejected = true;
@@ -150,6 +179,8 @@ export interface MailProvider {
   fetchBodies(mailbox: string, uids: number[]): Promise<RawMessage[]>;
   /** Change flags and Labels on the server. */
   edit(mailbox: string, uids: number[], edit: MessageEdit): Promise<void>;
+  /** Add a message to a mailbox, such as a sent copy to Sent. */
+  append(mailbox: string, raw: Uint8Array, flags: string[]): Promise<void>;
   /** Live events for one mailbox (IMAP IDLE). Ends when the signal aborts. */
   watch(mailbox: string, signal: AbortSignal): AsyncIterable<MailEvent>;
 }
@@ -201,4 +232,6 @@ export type CoreNotice =
   | ({ type: 'pending' } & PendingStatus)
   | { type: 'labels-changed'; accountId: AccountId }
   /** A change the server kept refusing was undone locally. */
-  | { type: 'change-failed'; subject: string; error: string };
+  | { type: 'change-failed'; subject: string; error: string }
+  /** A message couldn't be sent and was taken out of the Outbox; the renderer reopens it. */
+  | { type: 'send-failed'; id: number; error: string };

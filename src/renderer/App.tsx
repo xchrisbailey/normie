@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ThreadAction, ThreadMessage, ThreadRow } from '../core/types';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { OutgoingMessage, ThreadAction, ThreadMessage, ThreadRow } from '../core/types';
+import type { ComposeStart, Identity } from './Composer';
 import { AccountBar, EmptyState, useAccounts } from './AccountBar';
 import type { CoreClient } from './core-client';
 import { DevOverlay } from './DevOverlay';
@@ -22,6 +23,10 @@ export function App({ corePromise }: { corePromise: Promise<CoreClient> }) {
 }
 
 const SNAPSHOT_ROWS = 60;
+/** Loaded on first use, so the composer costs nothing at launch. */
+const Composer = lazy(() => import('./Composer'));
+/** How long Cmd-Z can take a sent message back (the Outbox waits 5 s; a little slack for the round trip). */
+const UNDO_SEND_WINDOW_MS = 4500;
 const LABEL_ITEM = 'label:';
 
 /** Each Account's Labels, fetched once and again whenever the core says they changed. */
@@ -65,6 +70,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
   /** Messages whose remote images the user loaded this session. */
   const [imagesAllowed, setImagesAllowed] = useState<ReadonlySet<number>>(new Set());
   const frame = useRef<FrameHandle | null>(null);
+  /** The open composer and what it started with. */
+  const [compose, setCompose] = useState<ComposeStart | null>(null);
+  const lastSent = useRef<{ id: number; at: number } | null>(null);
   const labels = useLabels(core);
   const cache = useMemo(() => (core ? new ThreadCache(core) : null), [core]);
   /**
@@ -250,7 +258,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
       });
   };
 
-  const context = open ? 'reader' : 'list';
+  const context = compose ? 'composer' : open ? 'reader' : 'list';
   const handlers: Handlers = {
     'list.down': () => move((s) => s + 1),
     'list.up': () => move((s) => s - 1),
@@ -277,6 +285,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
     undo,
     'dev.overlay': () => setOverlay((o) => !o),
     'palette.open': () => setPalette((p) => (p ? null : 'actions')),
+    'compose.new': () => setCompose({ accountId: rows[clamp(selected)]?.accountId }),
+    'send.undo': undoSend,
     'thread.label': () => {
       if (rows[clamp(selected)]) setPalette('label');
     },
@@ -289,6 +299,12 @@ function Inbox({ core }: { core: CoreClient | null }) {
   latest.current = { handlers, context };
   const runAction = useCallback((ids: string[]) => {
     const { handlers: h, context: ctx } = latest.current;
+    // The Edit menu's Undo: typing in a field, or else Undo Send.
+    if (ids[0] === 'edit.undo') {
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA)$/.test(el.tagName))) return void document.execCommand('undo');
+      return void h['send.undo']?.();
+    }
     const id = ids.find((x) => ACTIONS.some((a) => a.id === x && (a.contexts as readonly string[]).includes(ctx)) && h[x as keyof Handlers]);
     if (id) void h[id as keyof Handlers]!();
   }, []);
@@ -318,6 +334,42 @@ function Inbox({ core }: { core: CoreClient | null }) {
     });
   }, [core]);
 
+  /** The Identities mail can go out from: one per Account for now (several come with milestone 4). */
+  const identities: Identity[] = window.normie.fake
+    ? [{ accountId: 'fake-1', from: { address: 'me@example.com' } }]
+    : (accounts ?? []).filter((a) => a.status === 'ok').map((a) => ({ accountId: a.id, from: { address: a.email } }));
+
+  const sendMessage = (m: OutgoingMessage) => {
+    if (!core) return;
+    setCompose(null);
+    void core.send(m).then((id) => {
+      lastSent.current = { id, at: performance.now() };
+      setNote('Sending… ⌘Z to undo');
+    });
+  };
+
+  /** Cmd-Z after sending: take the message back from the Outbox and reopen it. */
+  function undoSend() {
+    const sent = lastSent.current;
+    if (!core || !sent || performance.now() - sent.at > UNDO_SEND_WINDOW_MS) return;
+    lastSent.current = null;
+    void core.cancelSend(sent.id).then((m) => {
+      if (m) {
+        setCompose(m);
+        setNote('Send undone');
+      } else setNote('Already sent');
+    });
+  }
+
+  // A message the server kept refusing comes back to the composer, with the reason.
+  useEffect(() => core?.onNotice((n) => {
+    if (n.type !== 'send-failed') return;
+    void core.cancelSend(n.id).then((m) => {
+      if (m) setCompose(m);
+      setNote(`Couldn't send: ${n.error}`);
+    });
+  }), [core, setNote]);
+
   /** Labels of the selected Thread's Account. */
   const rowLabels = () => labels.get(rows[clamp(selected)]?.accountId ?? '') ?? [];
   const applyLabel = (label: string) => triage({ type: 'label', label, on: true }, (r) => r);
@@ -344,9 +396,14 @@ function Inbox({ core }: { core: CoreClient | null }) {
       {empty ? (
         <EmptyState />
       ) : (
-        <div className={open ? 'panes reading' : 'panes'}>
+        <div className={open || compose ? 'panes reading' : 'panes'}>
           <ThreadList rows={rows} selected={selected} />
-          {open && (
+          {compose && (
+            <Suspense fallback={<section className="composer" />}>
+              <Composer start={compose} identities={identities} onSend={sendMessage} onClose={() => setCompose(null)} />
+            </Suspense>
+          )}
+          {open && !compose && (
             <Reader
               threadKey={open.key}
               subject={open.subject}

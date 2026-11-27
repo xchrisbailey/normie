@@ -5,7 +5,7 @@ import { DataService, localDataPort, type MimeReader } from './data-service';
 import { Store } from './store';
 import { SyncEngine, type TextExtractor } from './sync-engine';
 import type { CoreApi } from './api';
-import type { AccountId, CoreNotice, MailProvider } from './types';
+import type { AccountId, CoreNotice, MailProvider, MailTransport } from './types';
 
 export { CORE_API_METHODS, type CoreApi } from './api';
 
@@ -19,6 +19,8 @@ export function coreApiOf(ds: DataService): CoreApi {
     labels: async (accountId) => ds.labels(accountId),
     allowImagesFrom: async (address) => ds.allowImagesFrom(address),
     attachment: (messageId, index) => ds.attachment(messageId, index),
+    send: async (m) => ds.send(m),
+    cancelSend: async (id) => ds.cancelSend(id),
   };
 }
 
@@ -43,12 +45,14 @@ export interface CreateCoreOptions {
   debounceMs?: number;
   backoffMs?: (attempt: number) => number;
   deleteHoldMs?: number;
+  transport?: MailTransport;
+  undoSendMs?: number;
   mime?: MimeReader;
 }
 
 /** The whole core in one process: store, data service and one Account's sync engine. */
 export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
-  const data = new DataService(new Store(o.dbPath ?? ':memory:'), { now: o.now, deleteHoldMs: o.deleteHoldMs, mime: o.mime });
+  const data = new DataService(new Store(o.dbPath ?? ':memory:'), { now: o.now, deleteHoldMs: o.deleteHoldMs, mime: o.mime, undoSendMs: o.undoSendMs });
   const notices: CoreNotice[] = [];
   data.onNotice((n) => notices.push(n));
   const engine = new SyncEngine({
@@ -63,9 +67,11 @@ export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
     pollMs: o.pollMs,
     debounceMs: o.debounceMs,
     backoffMs: o.backoffMs,
+    transport: o.transport,
   });
   data.bodyRequester = (loc) => void engine.fetchBodies(loc.mailbox, [loc.uid]).catch(() => {});
   data.replayRequester = () => engine.replaySoon();
+  data.outboxRequester = () => engine.outboxSoon();
   await engine.start();
   return {
     ...coreApiOf(data),

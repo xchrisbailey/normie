@@ -1,7 +1,8 @@
 // The sync side of the core: pulls changes from a MailProvider and hands them to the data side.
 // Runs in the sync process. Talks to the store only through DataPort.
 import type { DataPort } from './data-service';
-import { ServerRejectedError, type AccountId, type Mailbox, type MailProvider } from './types';
+import { buildMime } from './compose';
+import { ServerRejectedError, type AccountId, type Mailbox, type MailProvider, type MailTransport } from './types';
 
 export type TextExtractor = (raw: Uint8Array) => Promise<string>;
 
@@ -24,6 +25,8 @@ export interface SyncEngineOptions {
   debounceMs?: number;
   /** Delay before reconnect attempt n (0-based). */
   backoffMs?: (attempt: number) => number;
+  /** Sends mail. Without one, the Outbox just waits. */
+  transport?: MailTransport;
 }
 
 const DAY = 86_400_000;
@@ -57,6 +60,10 @@ export class SyncEngine {
   private replayQueued?: Promise<void>;
   private replayRetry?: ReturnType<typeof setTimeout>;
   private replayFailures = 0;
+  private sending?: Promise<void>;
+  private sendAgain = false;
+  private outboxTimer?: ReturnType<typeof setTimeout>;
+  private sendFailures = 0;
   private stopped = false;
   /** Resolves after the next live sync pass completes; for tests. */
   private passWaiters: (() => void)[] = [];
@@ -153,6 +160,7 @@ export class SyncEngine {
       do {
         this.again = false;
         try {
+          this.outboxSoon();
           await this.replay();
           await this.syncHeaders();
           await this.syncBodies();
@@ -189,10 +197,71 @@ export class SyncEngine {
 
   /** One full sync pass: window headers, then window bodies, then older history as headers only. */
   async syncOnce() {
+    this.outboxSoon();
     await this.replay();
     await this.syncHeaders();
     await this.syncBodies();
     await this.backfillHeaders();
+  }
+
+  // --- The Outbox
+
+  /** Send what's due soon, such as right after the user sends. */
+  outboxSoon() {
+    void this.sendOutbox().catch((e) => this.log(`outbox failed: ${(e as Error).message}`));
+  }
+
+  /**
+   * Send every message that's due, then wait for the next one. One pass at a time; a request during a pass runs
+   * one more. After a send, a copy goes to Sent unless the server files sent mail itself (Gmail does).
+   */
+  sendOutbox(): Promise<void> {
+    if (this.sending) {
+      this.sendAgain = true;
+      return this.sending;
+    }
+    this.sending = (async () => {
+      do {
+        this.sendAgain = false;
+        await this.sendDue();
+      } while (this.sendAgain && !this.stopped);
+    })().finally(() => (this.sending = undefined));
+    return this.sending;
+  }
+
+  private async sendDue() {
+    const { provider, data, accountId, transport } = this.o;
+    if (!transport || this.stopped) return;
+    clearTimeout(this.outboxTimer);
+    let failed = false;
+    for (const item of await data.dueOutbox(accountId)) {
+      let built;
+      try {
+        built = await buildMime(item.message, item.messageId, new Date(this.now()));
+        await transport.send(built.raw, built.envelope);
+      } catch (e) {
+        failed = true;
+        const rejected = e instanceof ServerRejectedError;
+        const gaveUp = await data.outboxFailed(item.id, (e as Error).message, rejected);
+        this.log(gaveUp ? `message ${item.id} refused, given back to the user: ${(e as Error).message}` : `message ${item.id} not sent yet: ${(e as Error).message}`);
+        if (!rejected) break;
+        continue;
+      }
+      // Sent. Filing the copy can fail without sending it twice.
+      await data.outboxSent(item.id);
+      if (!provider.caps.savesSent) {
+        const sent = this.mailboxes.find((m) => m.role === 'sent');
+        if (sent) await this.serial(() => provider.append(sent.path, built.raw, ['\\Seen'])).catch((e) => this.log(`couldn't file a copy in Sent: ${(e as Error).message}`));
+      }
+    }
+    if (this.stopped) return;
+    if (failed) {
+      this.outboxTimer = setTimeout(() => this.outboxSoon(), (this.o.backoffMs ?? defaultBackoff)(this.sendFailures++));
+      return;
+    }
+    this.sendFailures = 0;
+    const next = await data.nextOutboxAt(accountId);
+    if (next !== undefined) this.outboxTimer = setTimeout(() => this.outboxSoon(), Math.max(0, next - this.now()));
   }
 
   // --- Pending changes
@@ -320,6 +389,8 @@ export class SyncEngine {
   async stop() {
     this.stopped = true;
     clearTimeout(this.replayRetry);
+    clearTimeout(this.outboxTimer);
+    await this.sending?.catch(() => {});
     this.live?.abort();
     clearInterval(this.pollTimer);
     clearTimeout(this.debounceTimer);

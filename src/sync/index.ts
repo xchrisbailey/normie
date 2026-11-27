@@ -2,12 +2,13 @@
 // Main tells it which Accounts exist; it keeps one SyncEngine per Account in step with that list.
 import type { MessagePortMain } from 'electron';
 import { DATA_PORT_METHODS, type DataPort } from '../core/data-service';
-import { FakeProvider, seedDemo, seedNewsletter } from '../core/fake-provider';
+import { FakeProvider, FakeTransport, seedDemo, seedNewsletter } from '../core/fake-provider';
 import { connect, mainPortChannel, proxy, type Client } from '../core/rpc';
 import { SyncEngine } from '../core/sync-engine';
-import type { MailProvider } from '../core/types';
+import type { MailProvider, MailTransport } from '../core/types';
 import { extractText } from './extract-text';
 import { gmailConfig, ImapProvider } from './imap-provider';
+import { gmailTransport } from './smtp';
 
 export type AccountConfig =
   | { kind: 'fake'; accountId: string; email: string; seed?: number }
@@ -30,20 +31,31 @@ const starting = new Set<string>();
 /** Access tokens come from main, which holds the secrets. */
 const accessToken = (accountId: string) => mainClient!.call<string>('accessToken', accountId);
 
-function providerFor(a: AccountConfig): { provider: MailProvider; extractText: (raw: Uint8Array) => Promise<string> } {
-  if (a.kind === 'gmail') return { provider: new ImapProvider(gmailConfig(a.email, () => accessToken(a.accountId), log)), extractText };
+function providerFor(a: AccountConfig): { provider: MailProvider; transport: MailTransport; extractText: (raw: Uint8Array) => Promise<string> } {
+  if (a.kind === 'gmail') {
+    const token = () => accessToken(a.accountId);
+    return { provider: new ImapProvider(gmailConfig(a.email, token, log)), transport: gmailTransport(a.email, token), extractText };
+  }
   const p = new FakeProvider();
   seedDemo(p, a.seed ?? 40);
   if (!a.seed) seedNewsletter(p);
-  return { provider: p, extractText };
+  // Like Gmail, the fake files what it sends in Sent by itself.
+  const transport = new FakeTransport();
+  const send = transport.send.bind(transport);
+  transport.send = async (raw, envelope) => {
+    await send(raw, envelope);
+    const text = new TextDecoder().decode(raw);
+    p.deliver({ subject: /^Subject: (.*)$/m.exec(text)?.[1]?.trim() ?? '', raw: text, labels: ['\\Sent'], flags: ['\\Seen'], from: { address: a.email } });
+  };
+  return { provider: p, transport, extractText };
 }
 
 async function startAccount(a: AccountConfig) {
   if (!data || engines.has(a.accountId) || starting.has(a.accountId)) return;
   if (a.kind === 'gmail' && a.status === 'needs-sign-in') return;
   starting.add(a.accountId);
-  const { provider, extractText: extract } = providerFor(a);
-  const engine = new SyncEngine({ accountId: a.accountId, kind: a.kind, email: a.email, provider, data, extractText: extract, log });
+  const { provider, transport, extractText: extract } = providerFor(a);
+  const engine = new SyncEngine({ accountId: a.accountId, kind: a.kind, email: a.email, provider, transport, data, extractText: extract, log });
   try {
     await engine.start();
     engines.set(a.accountId, engine);
@@ -86,6 +98,7 @@ process.parentPort.on('message', (e) => {
       engines.get(loc.accountId)?.fetchBodies(loc.mailbox, [loc.uid]).catch((err) => log(`body fetch failed: ${err.message}`));
     });
     dataClient.on('replay', (payload) => engines.get((payload as { accountId: string }).accountId)?.replaySoon());
+    dataClient.on('outbox', (payload) => engines.get((payload as { accountId: string }).accountId)?.outboxSoon());
   } else if (msg.type === 'main-port' && e.ports[0]) mainClient = connect(mainPortChannel(e.ports[0] as MessagePortMain));
   void reconcile();
 });

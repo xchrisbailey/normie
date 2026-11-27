@@ -25,11 +25,17 @@ export function acceleratorOf(key: string): string | undefined {
   return parts.map((p) => ACCEL_KEYS[p] ?? (p.length === 1 ? p.toUpperCase() : p)).join('+');
 }
 
-const SECTION_OF = (id: string) => (id.startsWith('thread.') || id === 'undo' ? 'Thread' : id.startsWith('dev.') || id.startsWith('palette.') ? 'View' : 'Go');
+const SECTION_OF = (id: string) =>
+  id.startsWith('compose.') || id.startsWith('send.') ? 'Message'
+  : id.startsWith('thread.') || id === 'undo' ? 'Thread'
+  : id.startsWith('dev.') || id.startsWith('palette.') ? 'View' : 'Go';
+
+/** Shortcuts the Edit menu owns (main builds it): shown on registry items, never registered twice. */
+const EDIT_MENU_KEYS = new Set(['Cmd-Z', 'Cmd-Shift-Z', 'Cmd-X', 'Cmd-C', 'Cmd-V', 'Cmd-A']);
 
 export function menuSections(actions: readonly ActionDef[]): MenuSection[] {
   const sections = new Map<string, MenuSection>();
-  for (const label of ['Go', 'Thread', 'View']) sections.set(label, { label, entries: [] });
+  for (const label of ['Go', 'Thread', 'Message', 'View']) sections.set(label, { label, entries: [] });
   for (const a of actions) {
     const section = sections.get(SECTION_OF(a.id))!;
     const same = section.entries.find((e) => e.label === a.name);
@@ -41,7 +47,7 @@ export function menuSections(actions: readonly ActionDef[]): MenuSection[] {
     const accelerator = key ? acceleratorOf(key) : undefined;
     section.entries.push({
       label: a.name, ids: [a.id], ...(accelerator ? { accelerator } : {}),
-      registerAccelerator: !!key && key.startsWith('Cmd-'),
+      registerAccelerator: !!key && key.startsWith('Cmd-') && !EDIT_MENU_KEYS.has(key),
     });
   }
   return [...sections.values()];

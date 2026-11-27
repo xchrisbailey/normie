@@ -1,8 +1,9 @@
 // The data side of the core: wraps the Store, answers the renderer's queries,
 // takes writes from sync, and emits change notices. Runs in the data process.
+import { newMessageId } from './ids';
 import { Store, type BodyInput } from './store';
 import type {
-  AccountId, AttachmentInfo, ChangeSet, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
+  AccountId, AttachmentInfo, ChangeSet, OutboxItem, OutgoingMessage, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
 } from './types';
 
 /** Reads stored messages (mailparser in the app). Injected, so the core can run without it. */
@@ -13,6 +14,9 @@ export interface MimeReader {
 
 /** A change the server refuses this many times is given up on and undone locally. */
 export const MAX_REJECTIONS = 3;
+
+/** How long a sent message waits in the Outbox, so Cmd-Z can still take it back. */
+export const UNDO_SEND_MS = 5000;
 
 export type NoticeListener = (n: CoreNotice) => void;
 
@@ -26,11 +30,53 @@ export class DataService {
   private readonly now: () => number;
   private readonly deleteHoldMs?: number;
   private readonly mime?: MimeReader;
+  private readonly undoSendMs: number;
+  /** Called when an Account has mail to send. Set by whoever wires up sync. */
+  outboxRequester?: (accountId: AccountId) => void;
 
-  constructor(readonly store: Store, opts: { now?: () => number; deleteHoldMs?: number; mime?: MimeReader } = {}) {
+  constructor(readonly store: Store, opts: { now?: () => number; deleteHoldMs?: number; mime?: MimeReader; undoSendMs?: number } = {}) {
     this.now = opts.now ?? Date.now;
     this.deleteHoldMs = opts.deleteHoldMs;
     this.mime = opts.mime;
+    this.undoSendMs = opts.undoSendMs ?? UNDO_SEND_MS;
+  }
+
+  // --- Sending
+
+  /** Put a message in the Outbox. It goes out after the undo window. Returns its Outbox id. */
+  send(message: OutgoingMessage): number {
+    const id = this.store.queueSend(message, newMessageId(message.from), this.now() + this.undoSendMs, this.now());
+    this.emitPending();
+    this.outboxRequester?.(message.accountId);
+    return id;
+  }
+
+  /** Take a message back before it's sent (undo send), or after it failed. Null once it's on its way. */
+  cancelSend(id: number): OutgoingMessage | null {
+    const m = this.store.cancelSend(id);
+    this.emitPending();
+    return m;
+  }
+
+  dueOutbox(accountId: AccountId): OutboxItem[] {
+    return this.store.dueOutbox(accountId, this.now());
+  }
+
+  nextOutboxAt(accountId: AccountId): number | undefined {
+    return this.store.nextOutboxAt(accountId);
+  }
+
+  outboxSent(id: number) {
+    this.store.outboxSent(id);
+    this.emitPending();
+  }
+
+  /** Returns whether the message failed for good; the renderer is told so it can reopen it. */
+  outboxFailed(id: number, error: string, rejected: boolean): boolean {
+    const failed = this.store.outboxFailed(id, error, rejected, MAX_REJECTIONS);
+    this.emitPending();
+    if (failed) this.emit({ type: 'send-failed', id, error });
+    return failed;
   }
 
   onNotice(fn: NoticeListener) {
@@ -217,11 +263,15 @@ export interface DataPort {
   nextSendAt(accountId: AccountId): Promise<number | undefined>;
   changeApplied(id: number): Promise<void>;
   changeFailed(id: number, error: string, rejected: boolean): Promise<boolean>;
+  dueOutbox(accountId: AccountId): Promise<OutboxItem[]>;
+  nextOutboxAt(accountId: AccountId): Promise<number | undefined>;
+  outboxSent(id: number): Promise<void>;
+  outboxFailed(id: number, error: string, rejected: boolean): Promise<boolean>;
 }
 
 export const DATA_PORT_METHODS = [
   'upsertAccount', 'setMailboxes', 'removeAccount', 'mailboxState', 'knownUids', 'uidsNeedingBodies', 'applyChanges', 'putBodies',
-  'pendingChanges', 'nextSendAt', 'changeApplied', 'changeFailed',
+  'pendingChanges', 'nextSendAt', 'changeApplied', 'changeFailed', 'dueOutbox', 'nextOutboxAt', 'outboxSent', 'outboxFailed',
 ] as const satisfies readonly (keyof DataPort)[];
 
 /** Adapts an in-process DataService to the async DataPort. */

@@ -365,8 +365,31 @@ async function smokeKeys(w: BrowserWindow) {
   await new Promise((r) => setTimeout(r, 600));
   await press('y');
   const keymapOk = (await isStarred()) !== starBefore;
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk };
+  // c, type a message, Cmd-Enter sends; Cmd-Z inside the undo window brings it back; Esc closes.
+  const typeText = async (text: string) => {
+    for (const ch of text) w.webContents.sendInputEvent({ type: 'char', keyCode: ch });
+    await new Promise((r) => setTimeout(r, 50));
+  };
+  await press('c');
+  await new Promise((r) => setTimeout(r, 300));
+  const composerOpen = (await w.webContents.executeJavaScript(`!!document.querySelector('.composer textarea')`)) as boolean;
+  await typeText('ada@example.com');
+  await press('Tab');
+  await typeText('Smoke test');
+  await press('Tab');
+  await typeText('Hello **there**');
+  await press('Return', 1, ['meta']);
+  const sentClosed = (await w.webContents.executeJavaScript(`!document.querySelector('.composer')`)) as boolean;
+  await press('Z', 1, ['meta']);
+  await new Promise((r) => setTimeout(r, 300));
+  const reopened = (await w.webContents.executeJavaScript(
+    `(() => { const c = document.querySelector('.composer'); if (!c) return ''; return [...c.querySelectorAll('input')].map((i) => i.value).join('|') + '|' + c.querySelector('textarea').value; })()`,
+  )) as string;
+  await press('Escape');
+  const compose = composerOpen && sentClosed && reopened === 'ada@example.com|Smoke test|Hello **there**'
+    && ((await w.webContents.executeJavaScript(`!document.querySelector('.composer')`)) as boolean);
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose;
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };
@@ -456,7 +479,19 @@ function buildMenu() {
   }));
   const template: MenuItemConstructorOptions[] = [
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : [{ role: 'fileMenu' as const }]),
-    { role: 'editMenu' },
+    // Undo is ours: in a text field it undoes typing; elsewhere it's Undo Send.
+    {
+      label: 'Edit',
+      submenu: [
+        { label: 'Undo', accelerator: 'CommandOrControl+Z', click: () => win?.webContents.send('menu:action', ['edit.undo']) },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
     ...fromRegistry,
     { role: 'windowMenu' },
   ];

@@ -1,14 +1,18 @@
 // Live contract test against the real Gmail Account. Opt-in, run by hand, never in CI:
 //   GMAIL_USER=you@yourdomain npm run test:live
 // It opens the browser for Google sign-in, then only reads, unless GMAIL_LIVE_WRITE=1 is set too: then it
-// also marks the newest Inbox message Done and puts it straight back (#21).
+// also marks the newest Inbox message Done and puts it straight back (#21). With GMAIL_LIVE_SEND=1 it sends one
+// message to yourself over SMTP (#40).
 import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadGoogleClient, signInWithGoogle } from '../../src/main/auth/google-oauth';
 import { extractText } from '../../src/sync/extract-text';
+import { buildMime } from '../../src/core/compose';
+import { newMessageId } from '../../src/core/ids';
 import { gmailConfig, ImapProvider } from '../../src/sync/imap-provider';
+import { gmailTransport } from '../../src/sync/smtp';
 
 const user = process.env.GMAIL_USER;
 const DAY = 86_400_000;
@@ -16,11 +20,13 @@ const DAY = 86_400_000;
 describe.skipIf(!user)('Gmail provider against the real server', () => {
   let p: ImapProvider;
   let allMail: string;
+  let token: () => Promise<string>;
 
   beforeAll(async () => {
     const client = loadGoogleClient(process.env.NORMIE_GOOGLE_CLIENT ?? path.join(homedir(), '.config/normie/google-oauth-client.json'));
     const tokens = await signInWithGoogle({ client, loginHint: user, openUrl: (url) => void execFile('open', [url]) });
-    p = new ImapProvider(gmailConfig(user!, async () => tokens.accessToken));
+    token = async () => tokens.accessToken;
+    p = new ImapProvider(gmailConfig(user!, token));
     await p.connect();
   }, 300_000);
 
@@ -78,6 +84,21 @@ describe.skipIf(!user)('Gmail provider against the real server', () => {
     }
     expect(await labelsNow()).toContain('\\Inbox');
   });
+
+  it.skipIf(process.env.GMAIL_LIVE_SEND !== '1')('sends a message to yourself over SMTP, and Gmail files it in Sent', async () => {
+    const from = { address: user! };
+    const messageId = newMessageId(from);
+    const built = await buildMime({ accountId: 'live', from, to: [from], cc: [], bcc: [], subject: `Normie live test ${new Date().toISOString()}`, body: 'Sent by **Normie**’s live test. Safe to delete.' }, messageId);
+    await gmailTransport(user!, token).send(built.raw, built.envelope);
+    // Gmail files SMTP mail in Sent itself (savesSent), so it shows up in All Mail with the \Sent label.
+    let found = false;
+    for (let i = 0; i < 10 && !found; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const recent = await p.changes(allMail, null, { windowStart: Date.now() - DAY });
+      found = recent.headers.some((h) => h.messageId === messageId && h.labels.includes('\\Sent'));
+    }
+    expect(found).toBe(true);
+  }, 60_000);
 
   it('holds an IDLE connection on INBOX and closes it cleanly', async () => {
     const ac = new AbortController();
