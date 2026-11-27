@@ -41,6 +41,14 @@ export const MoreIcon = () => (
     <path d="M6 12h.01M12 12h.01M18 12h.01" {...S} strokeWidth={2.6} />
   </Icon>
 );
+/** The Done key, large: a keycap with a check, for the calm empty states. */
+export const DoneMark = () => (
+  <svg className="done-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+    <rect x="6" y="6" width="52" height="52" rx="14" fill="none" stroke="currentColor" strokeWidth="2.5" />
+    <path d="M14 46h36" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" opacity="0.35" />
+    <path d="M21 29l8 8 14-15" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
 export const DoneIcon = () => (
   <Icon>
     <path d="M5 12.5l4.5 4.5L19 7.5" {...S} strokeWidth={1.8} />
