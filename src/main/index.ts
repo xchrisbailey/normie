@@ -388,8 +388,16 @@ async function smokeKeys(w: BrowserWindow) {
   await press('Escape');
   const compose = composerOpen && sentClosed && reopened === 'ada@example.com|Smoke test|Hello **there**'
     && ((await w.webContents.executeJavaScript(`!document.querySelector('.composer')`)) as boolean);
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened };
+  // r replies to the selected Thread: someone to write to, "Re:", and the quote below the cursor.
+  await press('r');
+  await new Promise((r) => setTimeout(r, 500));
+  const replyFields = (await w.webContents.executeJavaScript(
+    `(() => { const c = document.querySelector('.composer'); if (!c) return null; const i = [...c.querySelectorAll('input')].map((x) => x.value); return { to: i[0], subject: i[i.length - 1], body: c.querySelector('textarea').value, focused: document.activeElement === c.querySelector('textarea') }; })()`,
+  )) as { to: string; subject: string; body: string; focused: boolean } | null;
+  await press('Escape');
+  const reply = !!replyFields && /@/.test(replyFields.to) && replyFields.subject.startsWith('Re: ') && /^\n\nOn .* wrote:\n> /.test(replyFields.body) && replyFields.focused;
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply;
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };

@@ -21,6 +21,7 @@ export function coreApiOf(ds: DataService): CoreApi {
     attachment: (messageId, index) => ds.attachment(messageId, index),
     send: async (m) => ds.send(m),
     cancelSend: async (id) => ds.cancelSend(id),
+    original: (id, withAttachments) => ds.original(id, withAttachments),
   };
 }
 

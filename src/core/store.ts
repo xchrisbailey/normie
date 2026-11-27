@@ -771,6 +771,17 @@ export class Store {
     this.db.prepare('update bodies set html = ?, attachments_json = ? where message_id = ?').run(html, JSON.stringify(attachments), id);
   }
 
+  /** A message as the store knows it, for replying when its body isn't downloaded. */
+  messageSummary(id: number): { messageId?: string; from?: Address; to: Address[]; subject: string; date: number; text: string | null } | undefined {
+    const r = this.db.prepare('select m.message_id, m.from_json, m.to_json, m.subject, m.date, b.text from messages m left join bodies b on b.message_id = m.id where m.id = ?')
+      .get(id) as { message_id: string | null; from_json: string | null; to_json: string; subject: string; date: number; text: string | null } | undefined;
+    if (!r) return undefined;
+    return {
+      ...(r.message_id ? { messageId: r.message_id } : {}), ...(r.from_json ? { from: JSON.parse(r.from_json) as Address } : {}),
+      to: JSON.parse(r.to_json) as Address[], subject: r.subject, date: r.date, text: r.text,
+    };
+  }
+
   /** A stored message's raw bytes, for reading an attachment out of it. */
   rawOf(id: number): Uint8Array | undefined {
     const raw = this.db.prepare('select raw from bodies where message_id = ?').pluck().get(id) as Buffer | undefined;

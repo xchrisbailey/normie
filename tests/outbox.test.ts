@@ -145,3 +145,45 @@ describe('the Outbox', () => {
     expect(html).not.toMatch(/<script|<img/);
   });
 });
+
+describe('replying through the core', () => {
+  it('sends a reply with threading headers, and it joins the Thread after the next sync', async () => {
+    const { planReply } = await import('../src/core/reply');
+    const { readMessage, attachmentContent, readOriginal } = await import('../src/core/mime');
+    const provider = new FakeProvider();
+    const transport = new FakeTransport();
+    // Like Gmail, sent mail lands in All Mail by itself.
+    const send = transport.send.bind(transport);
+    transport.send = async (raw, env) => {
+      await send(raw, env);
+      provider.deliver({ subject: 'Re: Lunch', raw: new TextDecoder().decode(raw), labels: ['\\Sent'], flags: ['\\Seen'] });
+    };
+    provider.deliver({
+      subject: 'Lunch', threadId: 't-lunch', date: now - 3_600_000,
+      raw: ['From: Ada <ada@example.com>', 'To: me@example.com', 'Cc: Grace <grace@example.com>', 'Subject: Lunch',
+        'Message-ID: <lunch-1@example.com>', 'References: <older@example.com>', '', 'Friday?'].join('\r\n'),
+    });
+    const c = await createCore({
+      provider, transport, extractText: fakeExtractText, mime: { readMessage, attachmentContent, readOriginal }, now: () => now, accountId: 'gmail:me@example.com',
+    });
+    cores.push(c);
+    await c.engine.syncOnce();
+    const [row] = await c.rows('inbox');
+    const [m] = await c.thread(row!.key);
+    const o = await c.original(m!.id, false);
+    const reply = planReply('replyAll', o!, [{ address: 'me@example.com' }]);
+    expect(reply.to).toEqual([{ name: 'Ada', address: 'ada@example.com' }]);
+    expect(reply.cc).toEqual([{ name: 'Grace', address: 'grace@example.com' }]);
+
+    await c.send({ accountId: 'gmail:me@example.com', from: { address: 'me@example.com' }, ...reply, body: `Yes!${reply.body}` });
+    now += 5000;
+    await c.engine.sendOutbox();
+    const raw = transport.sent[0]!.raw;
+    expect(raw).toMatch(/^In-Reply-To: <lunch-1@example\.com>/m);
+    expect(raw).toMatch(/^References: <older@example\.com> <lunch-1@example\.com>/m);
+    expect(raw).toMatch(/^Subject: Re: Lunch/m);
+
+    await c.engine.syncOnce();
+    expect((await c.rows('inbox'))[0]).toMatchObject({ key: row!.key, count: 2 });
+  });
+});

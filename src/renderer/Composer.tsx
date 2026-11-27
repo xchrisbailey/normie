@@ -18,7 +18,9 @@ export default function Composer({ start, identities, onSend, onClose }: {
   onSend: (m: OutgoingMessage) => void;
   onClose: () => void;
 }) {
-  const first = identities.find((i) => i.accountId === start.accountId && (!start.from || i.from.address === start.from.address)) ?? identities[0];
+  const same = (a?: Address, b?: Address) => !!a && !!b && a.address.toLowerCase() === b.address.toLowerCase();
+  const first = identities.find((i) => i.accountId === start.accountId && same(i.from, start.from))
+    ?? identities.find((i) => i.accountId === start.accountId) ?? identities[0];
   const [identity, setIdentity] = useState(first ? identities.indexOf(first) : 0);
   const [to, setTo] = useState(formatAddresses(start.to ?? []));
   const [cc, setCc] = useState(formatAddresses(start.cc ?? []));
