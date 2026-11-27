@@ -24,8 +24,14 @@ function trusted<T>(value: unknown): T {
   return value as T;
 }
 
+/**
+ * A value one process sends another: what structured clone copies (strings, numbers, Uint8Arrays, arrays and plain
+ * objects such as the CoreApi and DataPort types), or nothing.
+ */
+export type PortValue = string | number | boolean | bigint | null | undefined | object;
+
 /** A method another process can call. Its arguments arrive as the caller's types say. */
-type Handler = (...args: Array<never>) => unknown;
+type Handler = (...args: Array<never>) => PortValue | void | Promise<PortValue | void>;
 
 /** Emits the events of the map `E` (event name → payload). */
 export type Emitter<E> = <K extends keyof E & string>(name: K, payload: E[K]) => void;
@@ -37,7 +43,7 @@ export function serve<E = Record<string, never>>(ch: Channel, handlers: Record<s
       return;
     }
     const msg = raw;
-    const fn = trusted<((...args: Array<unknown>) => unknown) | undefined>(handlers[msg.method]);
+    const fn = trusted<((...args: Array<unknown>) => PortValue | Promise<PortValue>) | undefined>(handlers[msg.method]);
     void (async () => {
       try {
         if (!fn) {
@@ -105,7 +111,7 @@ export function connect<E = Record<string, never>>(ch: Channel): Client<E> {
 
 /** A typed proxy over a client for an interface whose methods all return promises. */
 export function proxy<T>(client: Pick<Client, 'call'>, methods: ReadonlyArray<string>): T {
-  const o: Record<string, (...args: Array<unknown>) => Promise<unknown>> = {};
+  const o: Record<string, (...args: Array<unknown>) => Promise<PortValue>> = {};
   for (const m of methods) {
     o[m] = (...args) => client.call(m, ...args);
   }
@@ -115,7 +121,7 @@ export function proxy<T>(client: Pick<Client, 'call'>, methods: ReadonlyArray<st
 /** Electron MessagePortMain (utility process or main) as a Channel. */
 export function mainPortChannel(port: {
   postMessage(m: unknown): void;
-  on(ev: 'message', fn: (e: { data: unknown }) => void): unknown;
+  on(ev: 'message', fn: (e: { data: unknown }) => void): void;
   start(): void;
 }): Channel {
   const fns: Array<(m: unknown) => void> = [];
