@@ -18,6 +18,8 @@ declare global {
       fake: boolean;
       onMenuAction(fn: (ids: string[]) => void): () => void;
       openLink(url: string): void;
+      openAttachment(file: { filename: string; content: Uint8Array }): Promise<{ ok: boolean; reason?: string }>;
+      saveAttachment(file: { filename: string; content: Uint8Array }): Promise<{ ok: boolean; path?: string }>;
       keymap(): Promise<{ file?: unknown; error?: string }>;
       onKeymapChanged(fn: (k: { file?: unknown; error?: string }) => void): () => void;
       accounts: {

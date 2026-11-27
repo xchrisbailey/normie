@@ -1,10 +1,11 @@
 // The main process: windows, process wiring and (later) sign-in and secrets.
-import { app, BrowserWindow, ipcMain, Menu, MessageChannelMain, shell, utilityProcess, type MenuItemConstructorOptions, type UtilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, shell, utilityProcess, type MenuItemConstructorOptions, type UtilityProcess } from 'electron';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { mainPortChannel, serve } from '../core/rpc';
+import { isRisky, quarantine, safeFilename } from './attachments';
 import type { AccountConfig } from '../sync/index';
 import { Accounts, type AccountRecord } from './auth/accounts';
 import { JsonAccountList, SafeStorageSecrets } from './auth/electron-stores';
@@ -318,9 +319,10 @@ async function smokeKeys(w: BrowserWindow) {
     const sr = d && d.querySelector('.html') && d.querySelector('.html').shadowRoot;
     const r = f ? f.getBoundingClientRect() : null;
     return { sandbox: f && f.getAttribute('sandbox'), html: sr ? sr.innerHTML : '', text: sr ? sr.textContent : '',
-      bar: !!document.querySelector('.images-bar'), x: r ? r.left + r.width / 2 : 0, y: r ? r.top + 60 : 0 };
-  })()`)) as { sandbox: string | null; html: string; text: string; bar: boolean; x: number; y: number };
-  const html = frame.sandbox === 'allow-same-origin' && frame.text.includes('Hello from Normie') && frame.bar
+      bar: !!document.querySelector('.images-bar'), x: r ? r.left + r.width / 2 : 0, y: r ? r.top + 60 : 0,
+      attachment: d ? [...d.querySelectorAll('.attachment')].map((a) => a.textContent).join('|') : '' };
+  })()`)) as { sandbox: string | null; html: string; text: string; bar: boolean; x: number; y: number; attachment: string };
+  const html = frame.sandbox === 'allow-same-origin' && frame.text.includes('Hello from Normie') && frame.bar && frame.attachment.includes('agenda.txt')
     && !/<script|tracker\.example|javascript:/i.test(frame.html);
   // Click into the message, then Esc: keys still reach the app from inside the frame.
   for (const type of ['mouseDown', 'mouseUp'] as const) w.webContents.sendInputEvent({ type, x: Math.round(frame.x), y: Math.round(frame.y), button: 'left', clickCount: 1 });
@@ -328,7 +330,11 @@ async function smokeKeys(w: BrowserWindow) {
   const focusedFrame = (await w.webContents.executeJavaScript(`document.activeElement?.className === 'mail-frame'`)) as boolean;
   await press('Escape');
   const readerClosed = (await w.webContents.executeJavaScript(`!document.querySelector('.reader')`)) as boolean;
-  const reader = html && focusedFrame && readerClosed;
+  // Main refuses to open a file that would run code.
+  const riskyRefused = ((await w.webContents.executeJavaScript(
+    `window.normie.openAttachment({ filename: 'setup.command', content: new TextEncoder().encode('echo hi') }).then((r) => r.reason)`,
+  )) as string) === 'risky';
+  const reader = html && focusedFrame && readerClosed && riskyRefused;
   // Done takes the selected Thread out of the list.
   const count = () => w.webContents.executeJavaScript(`Number(document.querySelector('.split-bar .count')?.textContent)`) as Promise<number>;
   const before = await count();
@@ -360,8 +366,35 @@ async function smokeKeys(w: BrowserWindow) {
   await press('y');
   const keymapOk = (await isStarred()) !== starBefore;
   const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, done, undone, starred, palette, label, keymap: keymapOk };
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk };
 }
+
+type AttachmentFile = { filename: string; content: Uint8Array };
+const validFile = (f: unknown): f is AttachmentFile =>
+  !!f && typeof (f as AttachmentFile).filename === 'string' && (f as AttachmentFile).content instanceof Uint8Array;
+
+/** Open an attachment with the system's app for it. Anything that runs code is refused: save it instead. */
+ipcMain.handle('attachment:open', async (_e, file: unknown): Promise<{ ok: boolean; reason?: string }> => {
+  if (!validFile(file)) return { ok: false, reason: 'bad request' };
+  const name = safeFilename(file.filename);
+  if (isRisky(name)) return { ok: false, reason: 'risky' };
+  const dir = mkdtempSync(path.join(app.getPath('temp'), 'normie-attachment-'));
+  const target = path.join(dir, name);
+  writeFileSync(target, file.content, { mode: 0o600 });
+  await quarantine(target);
+  const error = await shell.openPath(target);
+  return error ? { ok: false, reason: error } : { ok: true };
+});
+
+/** Save an attachment where the user chooses. */
+ipcMain.handle('attachment:save', async (_e, file: unknown): Promise<{ ok: boolean; path?: string }> => {
+  if (!validFile(file) || !win) return { ok: false };
+  const r = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath('downloads'), safeFilename(file.filename)) });
+  if (r.canceled || !r.filePath) return { ok: false };
+  writeFileSync(r.filePath, file.content);
+  await quarantine(r.filePath);
+  return { ok: true, path: r.filePath };
+});
 
 ipcMain.on('open-link', (_e, url: unknown) => {
   if (typeof url === 'string' && /^(https?|mailto):/i.test(url)) void shell.openExternal(url);

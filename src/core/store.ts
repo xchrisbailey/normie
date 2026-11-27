@@ -1,7 +1,7 @@
 // The local store: one SQLite file in WAL mode, owned by the data process.
 import Database from 'better-sqlite3';
 import type {
-  AccountId, Address, FlagChange, MailboxRole, MessageEdit, PendingChange, RemoteHeader, SplitId, SyncState, ThreadAction,
+  AccountId, Address, AttachmentInfo, FlagChange, MailboxRole, MessageEdit, PendingChange, RemoteHeader, SplitId, SyncState, ThreadAction,
   ThreadMessage, ThreadRow,
 } from './types';
 
@@ -104,6 +104,11 @@ const MIGRATIONS: string[] = [
   `
   alter table bodies add column html text;
   create table image_senders (address text primary key);
+  `,
+  // Attachments listed with the HTML part; existing extractions are redone to fill them in.
+  `
+  alter table bodies add column attachments_json text;
+  update bodies set html = null;
   `,
 ];
 
@@ -665,16 +670,18 @@ export class Store {
   thread(key: string): ThreadMessage[] {
     const { accountId, threadKey } = parseThreadKey(key);
     return (this.db
-      .prepare(`select m.id, m.from_json, m.to_json, m.date, m.subject, b.text, b.html,
+      .prepare(`select m.id, m.from_json, m.to_json, m.date, m.subject, b.text, b.html, b.attachments_json,
                 exists (select 1 from image_senders s where s.address = lower(json_extract(m.from_json, '$.address'))) images_allowed
                 from messages m left join bodies b on b.message_id = m.id
                 where m.account_id = ? and m.thread_key = ? order by m.date asc, m.id asc`)
       .all(accountId, threadKey) as {
-        id: number; from_json: string | null; to_json: string; date: number; subject: string; text: string | null; html: string | null; images_allowed: number;
+        id: number; from_json: string | null; to_json: string; date: number; subject: string; text: string | null; html: string | null;
+        attachments_json: string | null; images_allowed: number;
       }[])
       .map((r) => ({
         id: r.id, from: r.from_json ? JSON.parse(r.from_json) : undefined, to: JSON.parse(r.to_json), date: r.date,
         subject: r.subject, text: r.text, html: r.html || null, imagesAllowed: r.images_allowed === 1,
+        attachments: r.attachments_json ? (JSON.parse(r.attachments_json) as AttachmentInfo[]) : [],
       }));
   }
 
@@ -686,9 +693,15 @@ export class Store {
       .all(...ids) as { id: number; raw: Buffer }[]).map((r) => ({ id: r.id, raw: new Uint8Array(r.raw) }));
   }
 
-  /** Store a message's extracted HTML part ('' for none). */
-  putHtml(id: number, html: string) {
-    this.db.prepare('update bodies set html = ? where message_id = ?').run(html, id);
+  /** Store what was read from a message: its HTML part ('' for none) and its attachments. */
+  putRead(id: number, html: string, attachments: AttachmentInfo[]) {
+    this.db.prepare('update bodies set html = ?, attachments_json = ? where message_id = ?').run(html, JSON.stringify(attachments), id);
+  }
+
+  /** A stored message's raw bytes, for reading an attachment out of it. */
+  rawOf(id: number): Uint8Array | undefined {
+    const raw = this.db.prepare('select raw from bodies where message_id = ?').pluck().get(id) as Buffer | undefined;
+    return raw ? new Uint8Array(raw) : undefined;
   }
 
   /** Always load remote images from this sender. */

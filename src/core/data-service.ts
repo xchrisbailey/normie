@@ -2,8 +2,14 @@
 // takes writes from sync, and emits change notices. Runs in the data process.
 import { Store, type BodyInput } from './store';
 import type {
-  AccountId, ChangeSet, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
+  AccountId, AttachmentInfo, ChangeSet, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
 } from './types';
+
+/** Reads stored messages (mailparser in the app). Injected, so the core can run without it. */
+export interface MimeReader {
+  readMessage(raw: Uint8Array): Promise<{ html: string | null; attachments: AttachmentInfo[] }>;
+  attachmentContent(raw: Uint8Array, index: number): Promise<{ filename: string; contentType: string; content: Uint8Array } | null>;
+}
 
 /** A change the server refuses this many times is given up on and undone locally. */
 export const MAX_REJECTIONS = 3;
@@ -19,15 +25,12 @@ export class DataService {
 
   private readonly now: () => number;
   private readonly deleteHoldMs?: number;
-  private readonly extractHtml?: (raw: Uint8Array) => Promise<string | null>;
+  private readonly mime?: MimeReader;
 
-  constructor(
-    readonly store: Store,
-    opts: { now?: () => number; deleteHoldMs?: number; extractHtml?: (raw: Uint8Array) => Promise<string | null> } = {},
-  ) {
+  constructor(readonly store: Store, opts: { now?: () => number; deleteHoldMs?: number; mime?: MimeReader } = {}) {
     this.now = opts.now ?? Date.now;
     this.deleteHoldMs = opts.deleteHoldMs;
-    this.extractHtml = opts.extractHtml;
+    this.mime = opts.mime;
   }
 
   onNotice(fn: NoticeListener) {
@@ -54,14 +57,24 @@ export class DataService {
         if (loc) this.bodyRequester(loc);
       }
     }
-    if (this.extractHtml) {
+    if (this.mime) {
       const pending = this.store.bodiesWithoutHtml(messages.map((m) => m.id));
       if (pending.length) {
-        for (const b of pending) this.store.putHtml(b.id, (await this.extractHtml(b.raw).catch(() => null)) ?? '');
+        for (const b of pending) {
+          const read = await this.mime.readMessage(b.raw).catch(() => ({ html: null, attachments: [] }));
+          this.store.putRead(b.id, read.html ?? '', read.attachments);
+        }
         messages = this.store.thread(key);
       }
     }
     return messages;
+  }
+
+  /** One attachment's bytes, read from the stored message. */
+  async attachment(messageId: number, index: number): Promise<{ filename: string; contentType: string; content: Uint8Array } | null> {
+    const raw = this.store.rawOf(messageId);
+    if (!raw || !this.mime) return null;
+    return this.mime.attachmentContent(raw, index);
   }
 
   /** Always load remote images from this sender. */

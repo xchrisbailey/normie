@@ -75,9 +75,9 @@ describe('HTML mail', () => {
   ].join('\r\n');
 
   const startReal = async (p: FakeProvider) => {
-    const { extractHtml } = await import('../src/core/mime');
+    const { readMessage, attachmentContent } = await import('../src/core/mime');
     const { extractText } = await import('../src/sync/extract-text');
-    return (core = await createCore({ provider: p, extractText, extractHtml, now: () => NOW }));
+    return (core = await createCore({ provider: p, extractText, mime: { readMessage, attachmentContent }, now: () => NOW }));
   };
 
   it('gives the reader the HTML part, with inline images embedded, and plain text alongside', async () => {
@@ -111,5 +111,48 @@ describe('HTML mail', () => {
     const [row] = await c.rows('inbox');
     await c.allowImagesFrom('news@example.com');
     expect((await c.thread(row!.key))[0]!.imagesAllowed).toBe(true);
+  });
+});
+
+describe('attachments', () => {
+  const withFiles = [
+    'Subject: Invoice', 'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="mix"', '',
+    '--mix', 'Content-Type: multipart/related; boundary="rel"', '',
+    '--rel', 'Content-Type: text/html; charset=utf-8', '', '<p>See attached <img src="cid:sig@x"></p>', '',
+    '--rel', 'Content-Type: image/png', 'Content-Transfer-Encoding: base64', 'Content-ID: <sig@x>', 'Content-Disposition: inline', '',
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', '',
+    '--rel--', '',
+    '--mix', 'Content-Type: application/pdf; name="invoice 42.pdf"', 'Content-Disposition: attachment; filename="invoice 42.pdf"',
+    'Content-Transfer-Encoding: base64', '', Buffer.from('%PDF-1.4 fake').toString('base64'), '',
+    '--mix--', '',
+  ].join('\r\n');
+
+  const startReal = async (p: FakeProvider) => {
+    const { readMessage, attachmentContent } = await import('../src/core/mime');
+    const { extractText } = await import('../src/sync/extract-text');
+    return (core = await createCore({ provider: p, extractText, mime: { readMessage, attachmentContent }, now: () => NOW }));
+  };
+
+  it('lists files attached, leaving out images shown in the body', async () => {
+    const p = new FakeProvider();
+    p.deliver({ subject: 'Invoice', date: NOW - DAY, raw: withFiles });
+    const c = await startReal(p);
+    await c.engine.syncOnce();
+    const [row] = await c.rows('inbox');
+    const [m] = await c.thread(row!.key);
+    expect(m!.attachments).toEqual([{ index: 1, filename: 'invoice 42.pdf', contentType: 'application/pdf', size: 13 }]);
+  });
+
+  it("returns an attachment's bytes from the stored message", async () => {
+    const p = new FakeProvider();
+    p.deliver({ subject: 'Invoice', date: NOW - DAY, raw: withFiles });
+    const c = await startReal(p);
+    await c.engine.syncOnce();
+    const [row] = await c.rows('inbox');
+    const [m] = await c.thread(row!.key);
+    const file = await c.attachment(m!.id, 1);
+    expect(file).toMatchObject({ filename: 'invoice 42.pdf', contentType: 'application/pdf' });
+    expect(new TextDecoder().decode(file!.content)).toBe('%PDF-1.4 fake');
+    expect(await c.attachment(m!.id, 9)).toBeNull();
   });
 });

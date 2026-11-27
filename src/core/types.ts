@@ -181,6 +181,17 @@ export interface ThreadMessage {
   html: string | null;
   /** The sender is on the list whose remote images always load. */
   imagesAllowed: boolean;
+  /** Files attached (inline images shown in the body are left out). Empty until the body is stored. */
+  attachments: AttachmentInfo[];
+}
+
+/** An attachment as the reader lists it. */
+export interface AttachmentInfo {
+  /** Its position among the message's MIME attachments, used to fetch it. */
+  index: number;
+  filename: string;
+  contentType: string;
+  size: number;
 }
 
 /** Change notices the core sends to the renderer. */

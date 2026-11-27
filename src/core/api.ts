@@ -7,6 +7,8 @@ export interface CoreApi {
   thread(key: string): Promise<ThreadMessage[]>;
   /** A triage action on a Thread. The store changes at once; the server catches up. Returns the pending change ids. */
   act(key: string, action: ThreadAction): Promise<number[]>;
+  /** One attachment's bytes. */
+  attachment(messageId: number, index: number): Promise<{ filename: string; contentType: string; content: Uint8Array } | null>;
   /** Always load remote images from this sender. */
   allowImagesFrom(address: string): Promise<void>;
   /** An Account's own Labels, for the Label picker. Kept current by 'labels-changed' notices. */
@@ -17,4 +19,4 @@ export interface CoreApi {
   pending(): Promise<PendingStatus>;
 }
 
-export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom'] as const satisfies readonly (keyof CoreApi)[];
+export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment'] as const satisfies readonly (keyof CoreApi)[];

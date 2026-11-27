@@ -1,7 +1,7 @@
 // The core's command and query interface: the main test seam (see #3, Testing Decisions).
 // In the app, DataService runs in the data process and SyncEngine in the sync process,
 // joined by MessagePorts. createCore joins them in one process, for tests and the benchmark.
-import { DataService, localDataPort } from './data-service';
+import { DataService, localDataPort, type MimeReader } from './data-service';
 import { Store } from './store';
 import { SyncEngine, type TextExtractor } from './sync-engine';
 import type { CoreApi } from './api';
@@ -18,6 +18,7 @@ export function coreApiOf(ds: DataService): CoreApi {
     pending: async () => ds.pending(),
     labels: async (accountId) => ds.labels(accountId),
     allowImagesFrom: async (address) => ds.allowImagesFrom(address),
+    attachment: (messageId, index) => ds.attachment(messageId, index),
   };
 }
 
@@ -42,12 +43,12 @@ export interface CreateCoreOptions {
   debounceMs?: number;
   backoffMs?: (attempt: number) => number;
   deleteHoldMs?: number;
-  extractHtml?: (raw: Uint8Array) => Promise<string | null>;
+  mime?: MimeReader;
 }
 
 /** The whole core in one process: store, data service and one Account's sync engine. */
 export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
-  const data = new DataService(new Store(o.dbPath ?? ':memory:'), { now: o.now, deleteHoldMs: o.deleteHoldMs, extractHtml: o.extractHtml });
+  const data = new DataService(new Store(o.dbPath ?? ':memory:'), { now: o.now, deleteHoldMs: o.deleteHoldMs, mime: o.mime });
   const notices: CoreNotice[] = [];
   data.onNotice((n) => notices.push(n));
   const engine = new SyncEngine({
