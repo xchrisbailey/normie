@@ -457,3 +457,21 @@ describe('Labels', () => {
     expect(p.edits).toEqual([{ mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[1]], edit: { removeLabels: ['Receipts'] } }]);
   });
 });
+
+describe('real Account ids', () => {
+  it('works when the Account id has a colon in it, as Gmail ids do', async () => {
+    const { p, lunch } = mailbox();
+    const c = await createCore({ provider: p, extractText: fakeExtractText, now: () => NOW, accountId: 'gmail:me@example.com' });
+    cores.push(c);
+    await c.engine.syncOnce();
+    const key = await keyOf(c, 'Lunch');
+    expect((await c.thread(key)).map((m) => m.subject)).toEqual(['Lunch', 'Re: Lunch', 'Re: Lunch']);
+    await c.act(key, { type: 'star', on: true });
+    expect((await c.rows('inbox')).find((r) => r.subject === 'Lunch')!.starred).toBe(true);
+    await c.act(key, { type: 'done' });
+    expect(await subjects(c)).toEqual(['Invoice']);
+    await c.engine.replay();
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeLabels: ['\\Inbox'] } });
+    expect((await c.rows('inbox'))[0]!.accountId).toBe('gmail:me@example.com');
+  });
+});
