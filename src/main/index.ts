@@ -1,5 +1,5 @@
 // The main process: windows, process wiring and (later) sign-in and secrets.
-import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, MessageChannelMain, shell, utilityProcess, type MenuItemConstructorOptions, type UtilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, Tray, MessageChannelMain, shell, utilityProcess, type MenuItemConstructorOptions, type UtilityProcess } from 'electron';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -155,6 +155,13 @@ function createWindow() {
   });
   const w = win;
   w.webContents.on('did-finish-load', () => connectRenderer(w));
+  // Closing the window keeps Normie running in the menu bar, so sync and timed work carry on. Quit really quits.
+  w.on('close', (e) => {
+    if (quitting) return;
+    e.preventDefault();
+    w.hide();
+    if (process.platform === 'darwin') app.dock?.hide();
+  });
   // Coming back to the window is a good moment to check for changes.
   w.on('focus', () => syncProc?.postMessage({ type: 'poll' }));
   // Links never navigate the app window: http, https and mailto go to the system, everything else is dropped.
@@ -175,11 +182,80 @@ function createWindow() {
 let quitting = false;
 
 let readyTimeout: NodeJS.Timeout | undefined;
+let shownOnce = false;
+const openedAtLogin = process.platform === 'darwin' && app.isPackaged && app.getLoginItemSettings().wasOpenedAtLogin;
+
+// --- The menu bar item: open Normie, the Inbox count, start at login, quit.
+
+let tray: Tray | undefined;
+let inboxCount = 0;
+
+/** Bring the window back (from the menu bar, the Dock, or a notification). */
+function openWindow() {
+  shownOnce = true;
+  if (!win) return;
+  if (process.platform === 'darwin') void app.dock?.show();
+  win.show();
+  win.focus();
+}
+
+function buildTray() {
+  if (bench || coldStartRun) return;
+  const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'trayTemplate.png'));
+  icon.setTemplateImage(true);
+  tray = new Tray(icon);
+  tray.setToolTip('Normie');
+  updateTray();
+}
+
+function updateTray() {
+  if (!tray) return;
+  tray.setTitle(inboxCount ? ` ${inboxCount}` : '');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open Normie', click: openWindow },
+    { label: inboxCount === 1 ? '1 Thread in the Inbox' : `${inboxCount} Threads in the Inbox`, enabled: false },
+    { type: 'separator' },
+    { label: 'Start at Login', type: 'checkbox', checked: loginItem(), enabled: app.isPackaged, click: (i) => setLoginItem(i.checked) },
+    { type: 'separator' },
+    { label: 'Quit Normie', accelerator: 'CommandOrControl+Q', click: () => app.quit() },
+  ]));
+}
+
+// --- Start at login: on by default for the installed app (never for a dev build, which would register Electron).
+
+type Settings = { openAtLogin?: boolean };
+const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
+function readSettings(): Settings {
+  try {
+    return JSON.parse(readFileSync(settingsPath(), 'utf8')) as Settings;
+  } catch {
+    return {};
+  }
+}
+const loginItem = () => readSettings().openAtLogin ?? true;
+function setLoginItem(on: boolean) {
+  writeFileSync(settingsPath(), JSON.stringify({ ...readSettings(), openAtLogin: on }));
+  if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: on });
+  updateTray();
+}
+ipcMain.handle('login-item:toggle', () => {
+  setLoginItem(!loginItem());
+  return { on: loginItem(), packaged: app.isPackaged };
+});
+ipcMain.on('inbox-count', (_e, n: unknown) => {
+  if (typeof n !== 'number' || n === inboxCount) return;
+  inboxCount = n;
+  updateTray();
+});
 let showTimer: NodeJS.Timeout | undefined;
 
 function showWindow(w: BrowserWindow) {
   clearTimeout(showTimer);
   if (w.isVisible() || smoke || coldStartRun) return;
+  // Started at login: stay in the menu bar until asked.
+  if (openedAtLogin && !shownOnce) return;
+  shownOnce = true;
+  if (process.platform === 'darwin') void app.dock?.show();
   if (bench) w.showInactive();
   else w.show();
 }
@@ -558,8 +634,13 @@ async function smokeKeys(w: BrowserWindow) {
   await press('Return');
   await new Promise((r) => setTimeout(r, 300));
   const snooze = pickerShows.startsWith('Tomorrow, 9') && (await tabCount('Inbox')) === inboxBefore - 1 && (await tabCount('Snoozed')) === 1;
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick && snooze;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick, snooze, pickerShows };
+  // Closing the window keeps Normie running: the window hides, the page still answers, the menu bar item stays.
+  w.close();
+  await new Promise((r) => setTimeout(r, 200));
+  const stillAnswers = (await w.webContents.executeJavaScript('1 + 1').catch(() => 0)) === 2;
+  const keepsRunning = !w.isDestroyed() && !w.isVisible() && stillAnswers && !!tray && !tray.isDestroyed();
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick && snooze && keepsRunning;
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick, snooze, keepsRunning };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };
@@ -594,10 +675,8 @@ ipcMain.on('notify', (_e, n: { key: string; title: string; body: string }) => {
   if (!Notification.isSupported() || typeof n?.key !== 'string') return;
   const note = new Notification({ title: String(n.title).slice(0, 120), body: String(n.body).slice(0, 240) });
   note.on('click', () => {
-    if (!win) return;
-    win.show();
-    win.focus();
-    win.webContents.send('open-thread', n.key);
+    openWindow();
+    win?.webContents.send('open-thread', n.key);
   });
   note.show();
 });
@@ -717,7 +796,11 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+app.on('activate', openWindow);
+
 app.whenReady().then(() => {
+  if (app.isPackaged && !smoke) app.setLoginItemSettings({ openAtLogin: loginItem() });
+  buildTray();
   watchUserFiles();
   buildMenu();
   loadSnapshot();
@@ -739,4 +822,5 @@ app.on('before-quit', () => {
   syncProc?.kill();
 });
 
-app.on('window-all-closed', () => app.quit());
+// The window only ever hides (see createWindow); Normie lives on in the menu bar until Quit.
+app.on('window-all-closed', () => {});

@@ -20,6 +20,8 @@ declare global {
       fake: boolean;
       onMenuAction(fn: (ids: string[]) => void): () => void;
       notify(n: { key: string; title: string; body: string }): void;
+      setInboxCount(n: number): void;
+      toggleLoginItem(): Promise<{ on: boolean; packaged: boolean }>;
       onOpenThread(fn: (key: string) => void): () => void;
       openLink(url: string): void;
       trimMemory(): void;

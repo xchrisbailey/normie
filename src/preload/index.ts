@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld('normie', {
   openLink: (url: string) => ipcRenderer.send('open-link', url),
   openAttachment: (file: { filename: string; content: Uint8Array }): Promise<{ ok: boolean; reason?: string }> => ipcRenderer.invoke('attachment:open', file),
   saveAttachment: (file: { filename: string; content: Uint8Array }): Promise<{ ok: boolean; path?: string }> => ipcRenderer.invoke('attachment:save', file),
+  /** The Inbox count, for the menu bar. */
+  setInboxCount: (n: number) => ipcRenderer.send('inbox-count', n),
+  toggleLoginItem: (): Promise<{ on: boolean; packaged: boolean }> => ipcRenderer.invoke('login-item:toggle'),
   /** Show a notification for new mail. */
   notify: (n: { key: string; title: string; body: string }) => ipcRenderer.send('notify', n),
   /** A notification was clicked: open that Thread. */

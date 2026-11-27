@@ -82,6 +82,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const filterOf = useCallback((list: ThreadRow[]) => list.filter(split.match), [split]);
   const rows = useMemo(() => filterOf(allRows), [allRows, filterOf]);
   const counts = useMemo(() => splitCounts(splits, allRows), [splits, allRows]);
+  // The menu bar shows the Inbox count.
+  useEffect(() => window.normie.setInboxCount(counts.get('inbox') ?? 0), [counts]);
   const fromSnapshot = useRef(true);
   const [coreAnswered, setCoreAnswered] = useState(false);
   const painted = useRef(false);
@@ -358,6 +360,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
     'filter.all': () => filterAccount(0),
     'split.next': () => stepSplit(1),
     'split.prev': () => stepSplit(-1),
+    'app.loginItem': () => {
+      void window.normie.toggleLoginItem().then((r) => setNote(r.packaged ? `Start at login is ${r.on ? 'on' : 'off'}` : `Start at login is ${r.on ? 'on' : 'off'} (it applies to the installed app)`));
+    },
     'thread.snooze': () => {
       if (rows[clamp(selected)]) setPicker('snooze');
     },
