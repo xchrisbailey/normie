@@ -25,10 +25,14 @@ export class SafeStorageSecrets implements SecretStore {
   }
 
   async get(id: string) {
-    if (!(await this.isSecure())) {return this.memory.get(id);}
+    if (!(await this.isSecure())) {
+      return this.memory.get(id);
+    }
     try {
       const { result, shouldReEncrypt } = await safeStorage.decryptStringAsync(readFileSync(this.file(id)));
-      if (shouldReEncrypt) {await this.set(id, result);}
+      if (shouldReEncrypt) {
+        await this.set(id, result);
+      }
       return result;
     } catch {
       return undefined;
@@ -36,7 +40,9 @@ export class SafeStorageSecrets implements SecretStore {
   }
 
   async set(id: string, value: string) {
-    if (!(await this.isSecure())) {return void this.memory.set(id, value);}
+    if (!(await this.isSecure())) {
+      return void this.memory.set(id, value);
+    }
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     writeFileSync(this.file(id), await safeStorage.encryptStringAsync(value), { mode: 0o600 });
   }
@@ -49,10 +55,18 @@ export class SafeStorageSecrets implements SecretStore {
 
 /** The shape of a saved Account: what the rest of the code reads from it. */
 function isAccountRecord(r: unknown): r is AccountRecord {
-  if (typeof r !== 'object' || r === null) {return false;}
-  if (!('id' in r) || typeof r.id !== 'string' || !('email' in r) || typeof r.email !== 'string') {return false;}
-  if (!('status' in r) || (r.status !== 'ok' && r.status !== 'needs-sign-in')) {return false;}
-  if (!('kind' in r)) {return false;}
+  if (typeof r !== 'object' || r === null) {
+    return false;
+  }
+  if (!('id' in r) || typeof r.id !== 'string' || !('email' in r) || typeof r.email !== 'string') {
+    return false;
+  }
+  if (!('status' in r) || (r.status !== 'ok' && r.status !== 'needs-sign-in')) {
+    return false;
+  }
+  if (!('kind' in r)) {
+    return false;
+  }
   return r.kind === 'gmail' || (r.kind === 'imap' && 'settings' in r && typeof r.settings === 'object' && r.settings !== null);
 }
 
@@ -62,10 +76,14 @@ export class JsonAccountList implements AccountList {
   load(): Array<AccountRecord> {
     try {
       const v = parseJson(readFileSync(this.file, 'utf8'));
-      if (!Array.isArray(v)) {return [];}
+      if (!Array.isArray(v)) {
+        return [];
+      }
       const accounts: Array<AccountRecord> = [];
       for (const r of v) {
-        if (!isAccountRecord(r)) {return [];}
+        if (!isAccountRecord(r)) {
+          return [];
+        }
         accounts.push(r);
       }
       return accounts;

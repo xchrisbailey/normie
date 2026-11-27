@@ -11,7 +11,9 @@ export interface CoreClient extends CoreApi {
 export function waitForCore(): Promise<CoreClient> {
   return new Promise((resolve) => {
     const onMessage = (e: MessageEvent) => {
-      if (e.source !== window || e.data !== 'normie:core-port' || !e.ports[0]) {return;}
+      if (e.source !== window || e.data !== 'normie:core-port' || !e.ports[0]) {
+        return;
+      }
       window.removeEventListener('message', onMessage);
       const client = connect<CoreEvents>(domPortChannel(e.ports[0]));
       resolve({

@@ -17,26 +17,40 @@ export interface MenuSection {
   entries: Array<MenuEntry>;
 }
 
-const ACCEL_KEYS = new Map([['ArrowDown', 'Down'], ['ArrowUp', 'Up'], ['ArrowLeft', 'Left'], ['ArrowRight', 'Right'], ['Cmd', 'CommandOrControl']]);
+const ACCEL_KEYS = new Map([
+  ['ArrowDown', 'Down'],
+  ['ArrowUp', 'Up'],
+  ['ArrowLeft', 'Left'],
+  ['ArrowRight', 'Right'],
+  ['Cmd', 'CommandOrControl'],
+]);
 
 /** A registry key as an Electron accelerator, or undefined for sequences such as "g i". */
 export function acceleratorOf(key: string): string | undefined {
-  if (key.includes(' ')) {return undefined;}
+  if (key.includes(' ')) {
+    return undefined;
+  }
   const parts = key === '-' ? ['-'] : key.split('-');
   return parts.map((p) => ACCEL_KEYS.get(p) ?? (p.length === 1 ? p.toUpperCase() : p)).join('+');
 }
 
 const SECTION_OF = (id: string) =>
-  id.startsWith('compose.') || id.startsWith('send.') ? 'Message'
-  : id.startsWith('thread.') || id === 'undo' ? 'Thread'
-  : /^(dev|palette|help|theme|app)\./.test(id) ? 'View' : 'Go';
+  id.startsWith('compose.') || id.startsWith('send.')
+    ? 'Message'
+    : id.startsWith('thread.') || id === 'undo'
+      ? 'Thread'
+      : /^(dev|palette|help|theme|app)\./.test(id)
+        ? 'View'
+        : 'Go';
 
 /** Shortcuts the Edit menu owns (main builds it): shown on registry items, never registered twice. */
 const EDIT_MENU_KEYS = new Set(['Cmd-Z', 'Cmd-Shift-Z', 'Cmd-X', 'Cmd-C', 'Cmd-V', 'Cmd-A']);
 
 export function menuSections(actions: ReadonlyArray<ActionDef>): Array<MenuSection> {
   const sections = new Map<string, MenuSection>();
-  for (const label of ['Go', 'Thread', 'Message', 'View']) {sections.set(label, { label, entries: [] });}
+  for (const label of ['Go', 'Thread', 'Message', 'View']) {
+    sections.set(label, { label, entries: [] });
+  }
   for (const a of actions) {
     const section = expected(sections.get(SECTION_OF(a.id)), 'a section for the action');
     const same = section.entries.find((e) => e.label === a.name);
@@ -50,7 +64,9 @@ export function menuSections(actions: ReadonlyArray<ActionDef>): Array<MenuSecti
     const key = a.keys.find((k) => k.startsWith('Cmd-') && !EDIT_MENU_KEYS.has(k) && acceleratorOf(k));
     const accelerator = key ? acceleratorOf(key) : undefined;
     const entry: MenuEntry = { label: a.name, ids: [a.id], registerAccelerator: !!accelerator };
-    if (accelerator) {entry.accelerator = accelerator;}
+    if (accelerator) {
+      entry.accelerator = accelerator;
+    }
     section.entries.push(entry);
   }
   return [...sections.values()];

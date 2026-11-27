@@ -8,11 +8,15 @@ import { deflateSync } from 'node:zlib';
 function png(size, draw, rgba) {
   const px = rgba ?? new Uint8Array(size * size * 4);
   const set = (x, y, a) => {
-    if (x < 0 || y < 0 || x >= size || y >= size) {return;}
+    if (x < 0 || y < 0 || x >= size || y >= size) {
+      return;
+    }
     const i = (Math.floor(y) * size + Math.floor(x)) * 4;
     px[i + 3] = Math.max(px[i + 3], Math.round(a * 255));
   };
-  if (draw) {draw(set, size);}
+  if (draw) {
+    draw(set, size);
+  }
   const raw = Buffer.alloc((size * 4 + 1) * size);
   for (let y = 0; y < size; y++) {
     raw[y * (size * 4 + 1)] = 0;
@@ -20,12 +24,16 @@ function png(size, draw, rgba) {
   }
   const crcTable = Array.from({ length: 256 }, (_, n) => {
     let c = n;
-    for (let k = 0; k < 8; k++) {c = c & 1 ? 0xed_b8_83_20 ^ (c >>> 1) : c >>> 1;}
+    for (let k = 0; k < 8; k++) {
+      c = c & 1 ? 0xed_b8_83_20 ^ (c >>> 1) : c >>> 1;
+    }
     return c >>> 0;
   });
   const crc = (buf) => {
     let c = 0xff_ff_ff_ff;
-    for (const b of buf) {c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);}
+    for (const b of buf) {
+      c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+    }
     return (c ^ 0xff_ff_ff_ff) >>> 0;
   };
   const chunk = (type, data) => {
@@ -41,7 +49,12 @@ function png(size, draw, rgba) {
   ihdr.writeUInt32BE(size, 4);
   ihdr[8] = 8; // bit depth
   ihdr[9] = 6; // RGBA
-  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', deflateSync(raw)),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
 }
 
 /** An envelope: a rounded outline with a V for the flap. */

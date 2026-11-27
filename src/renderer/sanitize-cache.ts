@@ -10,14 +10,18 @@ let clean: ReturnType<typeof createSanitizer> | undefined;
 
 /** A message's sanitized HTML, with remote images blocked unless `allowRemote`. */
 export function sanitized(m: ThreadMessage, allowRemote: boolean): SanitizedMail {
-  if (!m.html) {return { html: '', remoteImages: 0 };}
+  if (!m.html) {
+    return { html: '', remoteImages: 0 };
+  }
   const key = `${m.id}:${allowRemote ? 1 : 0}:${m.html.length}`;
   let hit = cache.get(key);
   if (!hit) {
     clean ??= createSanitizer();
     hit = clean(m.html, { allowRemote });
     cache.set(key, hit);
-    while (cache.size > MAX) {cache.delete(expected(cache.keys().next().value, 'the oldest entry'));}
+    while (cache.size > MAX) {
+      cache.delete(expected(cache.keys().next().value, 'the oldest entry'));
+    }
   }
   return hit;
 }

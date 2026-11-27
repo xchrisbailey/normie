@@ -16,7 +16,9 @@ afterEach(async () => {
 
 function server(opts: { move?: boolean; mailboxes?: Array<Mailbox> } = {}) {
   const options: ConstructorParameters<typeof FakeProvider>[0] = { caps: { ...ICLOUD_CAPS, move: !!opts.move } };
-  if (opts.mailboxes) {options.mailboxes = opts.mailboxes;}
+  if (opts.mailboxes) {
+    options.mailboxes = opts.mailboxes;
+  }
   const p = new FakeProvider(options);
   const trip = p.deliver({ subject: 'Trip', messageId: '<a@x>', date: NOW - 3 * HOUR }, 'INBOX');
   const reply = p.deliver({ subject: 'Re: Trip', messageId: '<b@x>', inReplyTo: '<a@x>', date: NOW - 2 * HOUR }, 'Sent Messages');
@@ -30,7 +32,11 @@ const start = async (p: FakeProvider) => {
 };
 const subjects = async (c: TestCore) => (await c.rows('inbox')).map((r) => r.subject);
 const keyOf = async (c: TestCore, s: string) => (await c.rows('inbox')).find((r) => r.subject === s)!.key;
-const subjectsIn = (p: FakeProvider, path: string) => p.contents(path).map((m) => m.subject).sort();
+const subjectsIn = (p: FakeProvider, path: string) =>
+  p
+    .contents(path)
+    .map((m) => m.subject)
+    .sort();
 
 describe('Done on a folder server', () => {
   it('moves the Inbox messages to Archive with copy and delete (no MOVE), leaving Sent alone', async () => {
@@ -55,7 +61,12 @@ describe('Done on a folder server', () => {
   });
 
   it('creates Archive when the Account has none, and keeps it in sync after', async () => {
-    const { p } = server({ mailboxes: [{ path: 'INBOX', role: 'inbox' }, { path: 'Sent Messages', role: 'sent' }] });
+    const { p } = server({
+      mailboxes: [
+        { path: 'INBOX', role: 'inbox' },
+        { path: 'Sent Messages', role: 'sent' },
+      ],
+    });
     const c = await start(p);
     expect(c.engine.syncedMailboxes).toEqual(['INBOX', 'Sent Messages']);
     await c.act(await keyOf(c, 'Trip'), { type: 'done' });

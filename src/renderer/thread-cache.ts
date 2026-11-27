@@ -14,7 +14,9 @@ export class ThreadCache {
 
   constructor(private readonly core: CoreClient) {
     core.onNotice((n) => {
-      if (n.type === 'thread-changed' && this.entries.has(n.key)) {void this.load(n.key, true);}
+      if (n.type === 'thread-changed' && this.entries.has(n.key)) {
+        void this.load(n.key, true);
+      }
     });
   }
 
@@ -31,15 +33,23 @@ export class ThreadCache {
   load(key: string, force = false): Promise<Array<ThreadMessage>> {
     if (!force) {
       const hit = this.get(key);
-      if (hit) {return Promise.resolve(hit);}
+      if (hit) {
+        return Promise.resolve(hit);
+      }
       const p = this.inflight.get(key);
-      if (p) {return p;}
+      if (p) {
+        return p;
+      }
     }
     const p = this.core.thread(key).then((messages) => {
       this.inflight.delete(key);
       this.entries.set(key, messages);
-      while (this.entries.size > MAX) {this.entries.delete(expected(this.entries.keys().next().value, 'the oldest entry'));}
-      for (const fn of this.listeners) {fn(key, messages);}
+      while (this.entries.size > MAX) {
+        this.entries.delete(expected(this.entries.keys().next().value, 'the oldest entry'));
+      }
+      for (const fn of this.listeners) {
+        fn(key, messages);
+      }
       return messages;
     });
     this.inflight.set(key, p);
@@ -49,9 +59,14 @@ export class ThreadCache {
   /** Load Threads in idle time, so they open instantly. */
   prefetch(keys: Array<string>) {
     const missing = keys.filter((k) => !this.entries.has(k) && !this.inflight.has(k));
-    if (!missing.length) {return;}
+    if (!missing.length) {
+      return;
+    }
     // Load, then sanitize their HTML in idle time too, so opening one does no work on the key path.
-    requestIdleCallback(() => missing.forEach((k) => void this.load(k).then((ms) => requestIdleCallback(() => ms.forEach((m) => sanitized(m, m.imagesAllowed))))), { timeout: 500 });
+    requestIdleCallback(
+      () => missing.forEach((k) => void this.load(k).then((ms) => requestIdleCallback(() => ms.forEach((m) => sanitized(m, m.imagesAllowed))))),
+      { timeout: 500 },
+    );
   }
 
   onLoaded(fn: (key: string, messages: Array<ThreadMessage>) => void): () => void {

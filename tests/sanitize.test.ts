@@ -20,14 +20,31 @@ describe('sanitizing HTML mail', () => {
       <base href="https://evil.example/">
       <style>@import url(https://evil.example/x.css); @import "https://evil.example/y.css";</style>`);
     expect(html).not.toContain('evil.example');
-    for (const bad of ['<script', 'onclick', 'onerror', 'javascript:', 'vbscript:', '<form', '<input', '<button', '<iframe', '<object', '<embed', '<svg', '<meta', '<base']) {
+    for (const bad of [
+      '<script',
+      'onclick',
+      'onerror',
+      'javascript:',
+      'vbscript:',
+      '<form',
+      '<input',
+      '<button',
+      '<iframe',
+      '<object',
+      '<embed',
+      '<svg',
+      '<meta',
+      '<base',
+    ]) {
       expect(html.toLowerCase(), bad).not.toContain(bad);
     }
     expect(html).toContain('Hi');
   });
 
   it('keeps ordinary mail formatting and safe links', () => {
-    const { html } = clean(`<style>p { color: red }</style><table><tr><td bgcolor="#eee"><b>Bold</b> <a href="https://example.com/x">link</a> <a href="mailto:a@b.c">mail</a></td></tr></table>`);
+    const { html } = clean(
+      `<style>p { color: red }</style><table><tr><td bgcolor="#eee"><b>Bold</b> <a href="https://example.com/x">link</a> <a href="mailto:a@b.c">mail</a></td></tr></table>`,
+    );
     expect(html).toContain('<style>');
     expect(html).toContain('<table>');
     expect(html).toContain('href="https://example.com/x"');
@@ -48,7 +65,9 @@ describe('sanitizing HTML mail', () => {
   });
 
   it('keeps remote images once allowed', () => {
-    const { html, remoteImages } = clean(`<img src="https://cdn.example/logo.png"><div style="background:url(https://cdn.example/bg.png)">x</div>`, { allowRemote: true });
+    const { html, remoteImages } = clean(`<img src="https://cdn.example/logo.png"><div style="background:url(https://cdn.example/bg.png)">x</div>`, {
+      allowRemote: true,
+    });
     expect(remoteImages).toBe(2);
     expect(html).toContain('https://cdn.example/logo.png');
     expect(html).toContain('https://cdn.example/bg.png');

@@ -28,12 +28,22 @@ describe('opening a Thread', () => {
   it('returns every message as plain text, oldest to newest, with From, To and date', async () => {
     const p = new FakeProvider();
     p.deliver({ subject: 'Trip', threadId: 'trip', date: NOW - 2 * DAY, from: { name: 'Ada', address: 'ada@example.com' }, text: 'Shall we go?' });
-    p.deliver({ subject: 'Re: Trip', threadId: 'trip', date: NOW - DAY, from: { name: 'Me', address: 'me@example.com' }, to: [{ name: 'Ada', address: 'ada@example.com' }], text: 'Yes!\n\n> Shall we go?' });
+    p.deliver({
+      subject: 'Re: Trip',
+      threadId: 'trip',
+      date: NOW - DAY,
+      from: { name: 'Me', address: 'me@example.com' },
+      to: [{ name: 'Ada', address: 'ada@example.com' }],
+      text: 'Yes!\n\n> Shall we go?',
+    });
     const c = await start(p);
     await c.engine.syncOnce();
     const [row] = await c.rows('inbox');
     const messages = await c.thread(row!.key);
-    expect(messages.map((m) => [m.from?.name, m.text])).toEqual([['Ada', 'Shall we go?'], ['Me', 'Yes!\n\n> Shall we go?']]);
+    expect(messages.map((m) => [m.from?.name, m.text])).toEqual([
+      ['Ada', 'Shall we go?'],
+      ['Me', 'Yes!\n\n> Shall we go?'],
+    ]);
     expect(messages[1]).toMatchObject({ to: [{ name: 'Ada', address: 'ada@example.com' }], date: NOW - DAY });
   });
 
@@ -73,13 +83,35 @@ const startReal = async (p: FakeProvider) => {
 describe('HTML mail', () => {
   const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
   const newsletter = [
-    'Subject: News', 'MIME-Version: 1.0', 'Content-Type: multipart/related; boundary="rel"', '',
-    '--rel', 'Content-Type: multipart/alternative; boundary="alt"', '',
-    '--alt', 'Content-Type: text/plain; charset=utf-8', '', 'Plain news', '',
-    '--alt', 'Content-Type: text/html; charset=utf-8', '', '<p>Hello <b>news</b> <img src="cid:logo@x"> <img src="https://tracker.example/p.gif"></p>', '',
-    '--alt--', '',
-    '--rel', 'Content-Type: image/png', 'Content-Transfer-Encoding: base64', 'Content-ID: <logo@x>', 'Content-Disposition: inline', '', PNG, '',
-    '--rel--', '',
+    'Subject: News',
+    'MIME-Version: 1.0',
+    'Content-Type: multipart/related; boundary="rel"',
+    '',
+    '--rel',
+    'Content-Type: multipart/alternative; boundary="alt"',
+    '',
+    '--alt',
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    'Plain news',
+    '',
+    '--alt',
+    'Content-Type: text/html; charset=utf-8',
+    '',
+    '<p>Hello <b>news</b> <img src="cid:logo@x"> <img src="https://tracker.example/p.gif"></p>',
+    '',
+    '--alt--',
+    '',
+    '--rel',
+    'Content-Type: image/png',
+    'Content-Transfer-Encoding: base64',
+    'Content-ID: <logo@x>',
+    'Content-Disposition: inline',
+    '',
+    PNG,
+    '',
+    '--rel--',
+    '',
   ].join('\r\n');
 
   it('gives the reader the HTML part, with inline images embedded, and plain text alongside', async () => {
@@ -118,15 +150,37 @@ describe('HTML mail', () => {
 
 describe('attachments', () => {
   const withFiles = [
-    'Subject: Invoice', 'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="mix"', '',
-    '--mix', 'Content-Type: multipart/related; boundary="rel"', '',
-    '--rel', 'Content-Type: text/html; charset=utf-8', '', '<p>See attached <img src="cid:sig@x"></p>', '',
-    '--rel', 'Content-Type: image/png', 'Content-Transfer-Encoding: base64', 'Content-ID: <sig@x>', 'Content-Disposition: inline', '',
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', '',
-    '--rel--', '',
-    '--mix', 'Content-Type: application/pdf; name="invoice 42.pdf"', 'Content-Disposition: attachment; filename="invoice 42.pdf"',
-    'Content-Transfer-Encoding: base64', '', Buffer.from('%PDF-1.4 fake').toString('base64'), '',
-    '--mix--', '',
+    'Subject: Invoice',
+    'MIME-Version: 1.0',
+    'Content-Type: multipart/mixed; boundary="mix"',
+    '',
+    '--mix',
+    'Content-Type: multipart/related; boundary="rel"',
+    '',
+    '--rel',
+    'Content-Type: text/html; charset=utf-8',
+    '',
+    '<p>See attached <img src="cid:sig@x"></p>',
+    '',
+    '--rel',
+    'Content-Type: image/png',
+    'Content-Transfer-Encoding: base64',
+    'Content-ID: <sig@x>',
+    'Content-Disposition: inline',
+    '',
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    '',
+    '--rel--',
+    '',
+    '--mix',
+    'Content-Type: application/pdf; name="invoice 42.pdf"',
+    'Content-Disposition: attachment; filename="invoice 42.pdf"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    Buffer.from('%PDF-1.4 fake').toString('base64'),
+    '',
+    '--mix--',
+    '',
   ].join('\r\n');
 
   it('lists files attached, leaving out images shown in the body', async () => {

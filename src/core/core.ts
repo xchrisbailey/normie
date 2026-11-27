@@ -84,7 +84,9 @@ export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
     transport: o.transport,
     draftDebounceMs: o.draftDebounceMs,
   };
-  if (o.identities) {engineOptions.identities = o.identities;}
+  if (o.identities) {
+    engineOptions.identities = o.identities;
+  }
   const engine = new SyncEngine(engineOptions);
   data.bodyRequester = (loc) => void engine.fetchBodies(loc.mailbox, [loc.uid]).catch(() => {});
   data.replayRequester = () => engine.replaySoon();

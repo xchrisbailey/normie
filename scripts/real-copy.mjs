@@ -19,7 +19,9 @@ try {
   const copy = path.join(dir, 'copy.sqlite');
   execFileSync('sqlite3', ['-readonly', store, `.backup ${copy}`]);
   const entry = path.join(dir, 'run.ts');
-  writeFileSync(entry, `
+  writeFileSync(
+    entry,
+    `
     import probe from ${JSON.stringify(path.resolve(probe))};
     import { Store } from ${JSON.stringify(path.resolve('src/core/store'))};
     const store = new Store(${JSON.stringify(copy)});
@@ -28,9 +30,19 @@ try {
       console.log(JSON.stringify({ ms: Math.round(performance.now() - t), result }, null, 2));
       store.close();
     });
-  `);
+  `,
+  );
   const out = path.join(dir, 'run.cjs');
-  await build({ entryPoints: [entry], bundle: true, platform: 'node', format: 'cjs', outfile: out, logLevel: 'warning', external: ['better-sqlite3', 'mailparser', 'imapflow', 'nodemailer'], nodePaths: [path.resolve('node_modules')] });
+  await build({
+    entryPoints: [entry],
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    outfile: out,
+    logLevel: 'warning',
+    external: ['better-sqlite3', 'mailparser', 'imapflow', 'nodemailer'],
+    nodePaths: [path.resolve('node_modules')],
+  });
   execFileSync(process.execPath, [out], { stdio: 'inherit', env: { ...process.env, NODE_PATH: path.resolve('node_modules') } });
 } finally {
   rmSync(dir, { recursive: true, force: true });

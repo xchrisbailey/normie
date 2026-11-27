@@ -1,7 +1,7 @@
 {
   "name": "normie",
-  "private": true,
   "version": "0.1.0",
+  "private": true,
   "description": "Keyboard-first desktop mail client",
   "author": "Chris Bailey",
   "main": "out/main/index.js",
@@ -24,6 +24,41 @@
     "lint": "oxlint --deny-warnings",
     "format": "oxfmt",
     "format:check": "oxfmt --check"
+  },
+  "dependencies": {
+    "better-sqlite3": "13.2.0",
+    "dompurify": "3.5.0",
+    "imapflow": "2.12.2",
+    "mailparser": "3.15.0",
+    "marked": "18.3.0",
+    "nodemailer": "10.6.1"
+  },
+  "devDependencies": {
+    "@cloudflare/oxlint-config": "0.2.0",
+    "@tanstack/react-virtual": "3.14.28",
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "26.6.11",
+    "@types/react": "19.3.3",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "electron": "45.5.0",
+    "electron-builder": "26.18.0",
+    "esbuild": "0.28.2",
+    "jsdom": "31.0.1",
+    "oxfmt": "0.80.0",
+    "oxlint": "1.95.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "tsrs": "7.1.0-beta.tsrs5",
+    "typescript": "7.0.2",
+    "vite": "8.4.0",
+    "vitest": "5.1.2"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.2.0": true,
+    "electron-winstaller": false,
+    "fsevents": false,
+    "esbuild": false
   },
   "build": {
     "appId": "dev.normie.app",
@@ -59,40 +94,5 @@
       "title": "Normie"
     },
     "npmRebuild": false
-  },
-  "dependencies": {
-    "better-sqlite3": "13.2.0",
-    "dompurify": "3.5.0",
-    "imapflow": "2.12.2",
-    "mailparser": "3.15.0",
-    "marked": "18.3.0",
-    "nodemailer": "10.6.1"
-  },
-  "allowScripts": {
-    "better-sqlite3@13.2.0": true,
-    "electron-winstaller": false,
-    "fsevents": false,
-    "esbuild": false
-  },
-  "devDependencies": {
-    "@cloudflare/oxlint-config": "0.2.0",
-    "@tanstack/react-virtual": "3.14.28",
-    "@types/better-sqlite3": "9.6.0",
-    "@types/node": "26.6.11",
-    "@types/react": "19.3.3",
-    "@types/react-dom": "19.3.0",
-    "@vitejs/plugin-react": "6.3.0",
-    "electron": "45.5.0",
-    "electron-builder": "26.18.0",
-    "esbuild": "0.28.2",
-    "jsdom": "31.0.1",
-    "oxfmt": "0.80.0",
-    "oxlint": "1.95.0",
-    "react": "19.3.1",
-    "react-dom": "19.3.1",
-    "tsrs": "7.1.0-beta.tsrs5",
-    "typescript": "7.0.2",
-    "vite": "8.4.0",
-    "vitest": "5.1.2"
   }
 }

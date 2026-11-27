@@ -15,8 +15,7 @@ type Wire =
   | { t: 'res'; id: number; ok: false; error: string }
   | { t: 'evt'; name: string; payload: unknown };
 
-const isWire = (m: unknown): m is Wire =>
-  typeof m === 'object' && m !== null && 't' in m && (m.t === 'req' || m.t === 'res' || m.t === 'evt');
+const isWire = (m: unknown): m is Wire => typeof m === 'object' && m !== null && 't' in m && (m.t === 'req' || m.t === 'res' || m.t === 'evt');
 
 /** A value from Normie's other process, typed as that process sent it (see the top of this file). */
 function trusted<T>(value: unknown): T {
@@ -119,11 +118,7 @@ export function proxy<T>(client: Pick<Client, 'call'>, methods: ReadonlyArray<st
 }
 
 /** Electron MessagePortMain (utility process or main) as a Channel. */
-export function mainPortChannel(port: {
-  postMessage(m: unknown): void;
-  on(ev: 'message', fn: (e: { data: unknown }) => void): void;
-  start(): void;
-}): Channel {
+export function mainPortChannel(port: { postMessage(m: unknown): void; on(ev: 'message', fn: (e: { data: unknown }) => void): void; start(): void }): Channel {
   const fns: Array<(m: unknown) => void> = [];
   port.on('message', (e) => {
     for (const fn of fns) {

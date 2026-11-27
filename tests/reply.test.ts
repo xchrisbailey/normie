@@ -10,14 +10,30 @@ const alan = { name: 'Alan', address: 'alan@example.com' };
 const when = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' });
 
 const original = (over: Partial<Original> = {}): Original => ({
-  messageId: '<m2@example.com>', references: ['<m1@example.com>'], from: ada, replyTo: [], to: [me, grace], cc: [alan],
-  subject: 'Lunch', date: Date.UTC(2026, 10, 27, 12), text: 'Friday?\nNoon works.', attachments: [], ...over,
+  messageId: '<m2@example.com>',
+  references: ['<m1@example.com>'],
+  from: ada,
+  replyTo: [],
+  to: [me, grace],
+  cc: [alan],
+  subject: 'Lunch',
+  date: Date.UTC(2026, 10, 27, 12),
+  text: 'Friday?\nNoon works.',
+  attachments: [],
+  ...over,
 });
 
 describe('replying', () => {
   it('replies to the sender, from the Identity the message was sent to, with threading headers', () => {
     const r = planReply('reply', original(), [{ address: 'other@example.com' }, me], when);
-    expect(r).toMatchObject({ from: me, to: [ada], cc: [], subject: 'Re: Lunch', inReplyTo: '<m2@example.com>', references: ['<m1@example.com>', '<m2@example.com>'] });
+    expect(r).toMatchObject({
+      from: me,
+      to: [ada],
+      cc: [],
+      subject: 'Re: Lunch',
+      inReplyTo: '<m2@example.com>',
+      references: ['<m1@example.com>', '<m2@example.com>'],
+    });
     expect(r.body).toBe('\n\nOn Nov 27, 2026, 12:00 PM, Ada <ada@example.com> wrote:\n> Friday?\n> Noon works.');
   });
 

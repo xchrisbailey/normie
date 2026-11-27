@@ -18,8 +18,12 @@ export function measureToNextFrame(action: string, start: number) {
       performance.measure(`action:${action}`, { start, end });
       const s = { action, ms: end - start };
       samples.push(s);
-      if (samples.length > MAX) {samples.shift();}
-      for (const fn of listeners) {fn(s);}
+      if (samples.length > MAX) {
+        samples.shift();
+      }
+      for (const fn of listeners) {
+        fn(s);
+      }
     };
     ch.port2.postMessage(null);
   });

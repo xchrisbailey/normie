@@ -10,7 +10,10 @@ declare global {
     status: 'ok' | 'needs-sign-in';
     /** iCloud and IMAP Accounts: their servers (never the password). */
     settings?: {
-      provider: 'icloud' | 'imap'; email: string; user: string; savesSent: boolean;
+      provider: 'icloud' | 'imap';
+      email: string;
+      user: string;
+      savesSent: boolean;
       imap: { host: string; port: number; security: 'tls' | 'starttls' | 'none' };
       smtp: { host: string; port: number; security: 'tls' | 'starttls' | 'none' };
     };
@@ -48,7 +51,11 @@ declare global {
         remove(id: string): Promise<void>;
         setIdentities(id: string, identities: Array<{ name?: string; address: string }>): Promise<{ ok: true } | { ok: false; error: string }>;
         addPassword(input: {
-          provider: 'icloud' | 'imap'; email: string; user?: string; password: string; savesSent?: boolean;
+          provider: 'icloud' | 'imap';
+          email: string;
+          user?: string;
+          password: string;
+          savesSent?: boolean;
           imap?: { host: string; port: number; security: 'tls' | 'starttls' | 'none' };
           smtp?: { host: string; port: number; security: 'tls' | 'starttls' | 'none' };
         }): Promise<{ ok: true; account: AccountRecord } | { ok: false; error: string; field?: string }>;

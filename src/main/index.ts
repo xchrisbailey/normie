@@ -36,18 +36,27 @@ const useFake = provider === 'fake';
 const noRealAccounts = provider === 'fake' || provider === 'none';
 const launchedAt = performance.now();
 // Smoke runs never touch the real Accounts or mail database; benchmark runs can name their own folder.
-if (process.env.NORMIE_USER_DATA) {app.setPath('userData', process.env.NORMIE_USER_DATA);}
-else if (smoke) {app.setPath('userData', path.join(app.getPath('temp'), `normie-smoke-${process.pid}`));}
+if (process.env.NORMIE_USER_DATA) {
+  app.setPath('userData', process.env.NORMIE_USER_DATA);
+} else if (smoke) {
+  app.setPath('userData', path.join(app.getPath('temp'), `normie-smoke-${process.pid}`));
+}
 
 let dataProc: UtilityProcess | undefined;
 let syncProc: UtilityProcess | undefined;
 let win: BrowserWindow | undefined;
 
 function dbPath() {
-  if (process.env.NORMIE_DB) {return process.env.NORMIE_DB;}
+  if (process.env.NORMIE_DB) {
+    return process.env.NORMIE_DB;
+  }
   const name = useFake ? 'normie-fake.sqlite' : 'normie.sqlite';
   const p = path.join(app.getPath('userData'), name);
-  if (smoke) {for (const ext of ['', '-wal', '-shm']) {rmSync(p + ext, { force: true });}}
+  if (smoke) {
+    for (const ext of ['', '-wal', '-shm']) {
+      rmSync(p + ext, { force: true });
+    }
+  }
   return p;
 }
 
@@ -60,11 +69,25 @@ function initAccounts() {
   const dir = app.getPath('userData');
   // The fake smoke run has an iCloud Account whose password stopped working, to check "Sign in again" opens its own form.
   if (smoke && useFake) {
-    writeFileSync(path.join(dir, 'accounts.json'), JSON.stringify([{
-      id: 'icloud:smoke@icloud.com@imap.mail.me.com', kind: 'imap', email: 'smoke@icloud.com', status: 'needs-sign-in',
-      settings: { provider: 'icloud', email: 'smoke@icloud.com', user: 'smoke@icloud.com', savesSent: false,
-        imap: { host: 'imap.mail.me.com', port: 993, security: 'tls' }, smtp: { host: 'smtp.mail.me.com', port: 587, security: 'starttls' } },
-    }]));
+    writeFileSync(
+      path.join(dir, 'accounts.json'),
+      JSON.stringify([
+        {
+          id: 'icloud:smoke@icloud.com@imap.mail.me.com',
+          kind: 'imap',
+          email: 'smoke@icloud.com',
+          status: 'needs-sign-in',
+          settings: {
+            provider: 'icloud',
+            email: 'smoke@icloud.com',
+            user: 'smoke@icloud.com',
+            savesSent: false,
+            imap: { host: 'imap.mail.me.com', port: 993, security: 'tls' },
+            smtp: { host: 'smtp.mail.me.com', port: 587, security: 'starttls' },
+          },
+        },
+      ]),
+    );
   }
   accounts = new Accounts({
     secrets: new SafeStorageSecrets(path.join(dir, 'secrets')),
@@ -79,7 +102,9 @@ function initAccounts() {
 }
 
 function syncAccounts(): Array<AccountConfig> {
-  if (provider === 'none') {return [];}
+  if (provider === 'none') {
+    return [];
+  }
   if (useFake) {
     const seed = Number(process.env.NORMIE_FAKE_SEED) || undefined;
     return [{ kind: 'fake', accountId: 'fake:me@example.com', email: 'me@example.com', seed }];
@@ -102,7 +127,9 @@ function startData() {
 
 /** Sync starts after the first paint, so the network never competes with drawing the inbox. */
 function startSync() {
-  if (syncProc || !dataProc) {return;}
+  if (syncProc || !dataProc) {
+    return;
+  }
   syncProc = utilityProcess.fork(path.join(__dirname, '../sync/index.js'), [], { serviceName: 'Normie Sync', stdio: 'inherit' });
   const dataSync = new MessageChannelMain();
   dataProc.postMessage({ type: 'sync-port' }, [dataSync.port1]);
@@ -117,7 +144,9 @@ function startSync() {
 
 function watchExit(name: string, proc: UtilityProcess) {
   proc.on('exit', (code) => {
-    if (code !== 0 && !quitting) {logError(`[main] ${name} process exited with ${code}`);}
+    if (code !== 0 && !quitting) {
+      logError(`[main] ${name} process exited with ${code}`);
+    }
   });
 }
 
@@ -145,7 +174,9 @@ function saveSnapshot() {
 
 ipcMain.on('snapshot:get', (e) => (e.returnValue = snapshot));
 ipcMain.on('snapshot:set', (_e, rows: Array<unknown>) => {
-  if (Array.isArray(rows)) {snapshot = rows.slice(0, 100);}
+  if (Array.isArray(rows)) {
+    snapshot = rows.slice(0, 100);
+  }
 });
 
 /** Give the renderer a fresh port to the data process. Called on every load, so reloads work. */
@@ -175,25 +206,35 @@ function createWindow() {
   w.webContents.on('did-finish-load', () => connectRenderer(w));
   // Closing the window keeps Normie running in the menu bar, so sync and timed work carry on. Quit really quits.
   w.on('close', (e) => {
-    if (quitting) {return;}
+    if (quitting) {
+      return;
+    }
     e.preventDefault();
     w.hide();
-    if (process.platform === 'darwin') {app.dock?.hide();}
+    if (process.platform === 'darwin') {
+      app.dock?.hide();
+    }
   });
   // Coming back to the window is a good moment to check for changes.
   w.on('focus', () => syncProc?.postMessage({ type: 'poll' }));
   // Links never navigate the app window: http, https and mailto go to the system, everything else is dropped.
   w.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^(https?|mailto):/i.test(url)) {void shell.openExternal(url);}
+    if (/^(https?|mailto):/i.test(url)) {
+      void shell.openExternal(url);
+    }
     return { action: 'deny' };
   });
   w.webContents.on('will-navigate', (e) => e.preventDefault());
   // The reader frame is filled from this page and never navigates; nor does any other frame.
   w.webContents.on('will-frame-navigate', (e) => {
-    if (!e.isMainFrame && !/^about:(srcdoc|blank)$/.test(e.url)) {e.preventDefault();}
+    if (!e.isMainFrame && !/^about:(srcdoc|blank)$/.test(e.url)) {
+      e.preventDefault();
+    }
   });
   // Shown once the first useful frame is painted (see renderer-ready), with a fallback so it always appears.
-  if (!smoke && !bench && !coldStartRun) {showTimer = setTimeout(() => showWindow(w), 3000);}
+  if (!smoke && !bench && !coldStartRun) {
+    showTimer = setTimeout(() => showWindow(w), 3000);
+  }
   void w.loadFile(path.join(__dirname, '../renderer/index.html'));
 }
 
@@ -216,14 +257,20 @@ let inboxCount = 0;
 /** Bring the window back (from the menu bar, the Dock, or a notification). */
 function openWindow() {
   shownOnce = true;
-  if (!win) {return;}
-  if (process.platform === 'darwin') {void app.dock?.show();}
+  if (!win) {
+    return;
+  }
+  if (process.platform === 'darwin') {
+    void app.dock?.show();
+  }
   win.show();
   win.focus();
 }
 
 function buildTray() {
-  if (bench || coldStartRun) {return;}
+  if (bench || coldStartRun) {
+    return;
+  }
   const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'trayTemplate.png'));
   icon.setTemplateImage(true);
   tray = new Tray(icon);
@@ -232,17 +279,21 @@ function buildTray() {
 }
 
 function updateTray() {
-  if (!tray) {return;}
+  if (!tray) {
+    return;
+  }
   tray.setTitle(inboxCount ? ` ${inboxCount}` : '');
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Open Normie', click: openWindow },
-    { label: inboxCount === 1 ? '1 Thread in the Inbox' : `${inboxCount} Threads in the Inbox`, enabled: false },
-    { type: 'separator' },
-    { label: 'Start at Login', type: 'checkbox', checked: loginItem(), enabled: app.isPackaged, click: (i) => setLoginItem(i.checked) },
-    { type: 'separator' },
-    { label: `Build ${buildLabel}`, enabled: false },
-    { label: 'Quit Normie', accelerator: 'CommandOrControl+Q', click: () => app.quit() },
-  ]));
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Open Normie', click: openWindow },
+      { label: inboxCount === 1 ? '1 Thread in the Inbox' : `${inboxCount} Threads in the Inbox`, enabled: false },
+      { type: 'separator' },
+      { label: 'Start at Login', type: 'checkbox', checked: loginItem(), enabled: app.isPackaged, click: (i) => setLoginItem(i.checked) },
+      { type: 'separator' },
+      { label: `Build ${buildLabel}`, enabled: false },
+      { label: 'Quit Normie', accelerator: 'CommandOrControl+Q', click: () => app.quit() },
+    ]),
+  );
 }
 
 // --- Start at login: on by default for the installed app (never for a dev build, which would register Electron).
@@ -260,7 +311,9 @@ function readSettings(): Settings {
 const loginItem = () => readSettings().openAtLogin ?? true;
 function setLoginItem(on: boolean) {
   writeFileSync(settingsPath(), JSON.stringify({ ...readSettings(), openAtLogin: on }));
-  if (app.isPackaged) {app.setLoginItemSettings({ openAtLogin: on });}
+  if (app.isPackaged) {
+    app.setLoginItemSettings({ openAtLogin: on });
+  }
   updateTray();
 }
 ipcMain.handle('login-item:toggle', () => {
@@ -268,12 +321,16 @@ ipcMain.handle('login-item:toggle', () => {
   return { on: loginItem(), packaged: app.isPackaged };
 });
 ipcMain.on('theme', (_e, t: unknown) => {
-  if (t !== 'mocha' && t !== 'latte' && t !== 'system') {return;}
+  if (t !== 'mocha' && t !== 'latte' && t !== 'system') {
+    return;
+  }
   nativeTheme.themeSource = t === 'mocha' ? 'dark' : t === 'latte' ? 'light' : 'system';
   win?.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1e1e2e' : '#eff1f5');
 });
 ipcMain.on('inbox-count', (_e, n: unknown) => {
-  if (typeof n !== 'number' || n === inboxCount) {return;}
+  if (typeof n !== 'number' || n === inboxCount) {
+    return;
+  }
   inboxCount = n;
   updateTray();
 });
@@ -281,18 +338,29 @@ let showTimer: NodeJS.Timeout | undefined;
 
 function showWindow(w: BrowserWindow) {
   clearTimeout(showTimer);
-  if (w.isVisible() || smoke || coldStartRun) {return;}
+  if (w.isVisible() || smoke || coldStartRun) {
+    return;
+  }
   // Started at login: stay in the menu bar until asked.
-  if (openedAtLogin && !shownOnce) {return;}
+  if (openedAtLogin && !shownOnce) {
+    return;
+  }
   shownOnce = true;
-  if (process.platform === 'darwin') {void app.dock?.show();}
-  if (bench) {w.showInactive();}
-  else {w.show();}
+  if (process.platform === 'darwin') {
+    void app.dock?.show();
+  }
+  if (bench) {
+    w.showInactive();
+  } else {
+    w.show();
+  }
 }
 
 async function onFirstPaint(info: { rows: number; fromSnapshot: boolean }) {
   const msSinceProcessStart = Math.round(process.uptime() * 1000);
-  if (win) {showWindow(win);}
+  if (win) {
+    showWindow(win);
+  }
   startSync();
   if (coldStartRun) {
     clearTimeout(readyTimeout);
@@ -315,12 +383,19 @@ async function onRendererReady(info: { rows: number; view: 'list' | 'empty' }) {
     quitting = true;
     return void app.exit(ok ? 0 : 1);
   }
-  if (!smoke || !win) {return;}
-  const { ok, report } = await runSmoke(win, info, {
-    trayAlive: () => !!tray && !tray.isDestroyed(),
-    userFile: (name) => path.join(app.getPath('userData'), name),
-    noRealAccounts,
-  }, Math.round(performance.now() - launchedAt));
+  if (!smoke || !win) {
+    return;
+  }
+  const { ok, report } = await runSmoke(
+    win,
+    info,
+    {
+      trayAlive: () => !!tray && !tray.isDestroyed(),
+      userFile: (name) => path.join(app.getPath('userData'), name),
+      noRealAccounts,
+    },
+    Math.round(performance.now() - launchedAt),
+  );
   log(`[smoke] ${JSON.stringify(report)}`);
   quitting = true;
   app.exit(ok ? 0 : 1);
@@ -335,9 +410,13 @@ const validFile = (f: unknown): f is AttachmentFile =>
 
 /** Open an attachment with the system's app for it. Anything that runs code is refused: save it instead. */
 ipcMain.handle('attachment:open', async (_e, file: unknown): Promise<{ ok: boolean; reason?: string }> => {
-  if (!validFile(file)) {return { ok: false, reason: 'bad request' };}
+  if (!validFile(file)) {
+    return { ok: false, reason: 'bad request' };
+  }
   const name = safeFilename(file.filename);
-  if (isRisky(name)) {return { ok: false, reason: 'risky' };}
+  if (isRisky(name)) {
+    return { ok: false, reason: 'risky' };
+  }
   const dir = mkdtempSync(path.join(app.getPath('temp'), 'normie-attachment-'));
   const target = path.join(dir, name);
   writeFileSync(target, file.content, { mode: 0o600 });
@@ -348,9 +427,13 @@ ipcMain.handle('attachment:open', async (_e, file: unknown): Promise<{ ok: boole
 
 /** Save an attachment where the user chooses. */
 ipcMain.handle('attachment:save', async (_e, file: unknown): Promise<{ ok: boolean; path?: string }> => {
-  if (!validFile(file) || !win) {return { ok: false };}
+  if (!validFile(file) || !win) {
+    return { ok: false };
+  }
   const r = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath('downloads'), safeFilename(file.filename)) });
-  if (r.canceled || !r.filePath) {return { ok: false };}
+  if (r.canceled || !r.filePath) {
+    return { ok: false };
+  }
   writeFileSync(r.filePath, file.content);
   await quarantine(r.filePath);
   return { ok: true, path: r.filePath };
@@ -358,7 +441,9 @@ ipcMain.handle('attachment:save', async (_e, file: unknown): Promise<{ ok: boole
 
 /** New mail in a notifying Split. Clicking brings Normie forward with that Thread open. */
 ipcMain.on('notify', (_e, n: { key: string; title: string; body: string }) => {
-  if (!Notification.isSupported() || typeof n?.key !== 'string') {return;}
+  if (!Notification.isSupported() || typeof n?.key !== 'string') {
+    return;
+  }
   const note = new Notification({ title: String(n.title).slice(0, 120), body: String(n.body).slice(0, 240) });
   note.on('click', () => {
     openWindow();
@@ -368,7 +453,9 @@ ipcMain.on('notify', (_e, n: { key: string; title: string; body: string }) => {
 });
 
 ipcMain.on('open-link', (_e, url: unknown) => {
-  if (typeof url === 'string' && /^(https?|mailto):/i.test(url)) {void shell.openExternal(url);}
+  if (typeof url === 'string' && /^(https?|mailto):/i.test(url)) {
+    void shell.openExternal(url);
+  }
 });
 
 ipcMain.handle('accounts:list', () => accounts.list());
@@ -392,15 +479,20 @@ ipcMain.handle('accounts:set-identities', (_e, id: string, identities: Array<Ide
 type AddPasswordFailure = { ok: false; error: string; field?: string };
 
 /** Add an iCloud or IMAP Account. Errors come back as plain messages the form shows. */
-ipcMain.handle('accounts:add-password', async (_e, input: PasswordAccountInput): Promise<{ ok: true; account: AccountRecord } | { ok: false; error: string; field?: string }> => {
-  try {
-    return { ok: true, account: await accounts.addPassword(input, verifyPasswordAccount) };
-  } catch (error) {
-    const failure: AddPasswordFailure = { ok: false, error: errorMessage(error) };
-    if (error instanceof AccountSetupError && error.field) {failure.field = error.field;}
-    return failure;
-  }
-});
+ipcMain.handle(
+  'accounts:add-password',
+  async (_e, input: PasswordAccountInput): Promise<{ ok: true; account: AccountRecord } | { ok: false; error: string; field?: string }> => {
+    try {
+      return { ok: true, account: await accounts.addPassword(input, verifyPasswordAccount) };
+    } catch (error) {
+      const failure: AddPasswordFailure = { ok: false, error: errorMessage(error) };
+      if (error instanceof AccountSetupError && error.field) {
+        failure.field = error.field;
+      }
+      return failure;
+    }
+  },
+);
 
 // --- Keymap: the user's key overrides, in keymap.json next to the store. Read at launch and whenever it changes.
 
@@ -414,7 +506,9 @@ let snippets: UserFile = {};
 let splitsFile: UserFile = {};
 
 function readUserFile(file: string): UserFile {
-  if (!existsSync(file)) {return {};}
+  if (!existsSync(file)) {
+    return {};
+  }
   try {
     return { file: parseJson(readFileSync(file, 'utf8')) };
   } catch (error) {
@@ -430,7 +524,9 @@ function watchUserFiles() {
   try {
     // Watch the folder, not the files: editors often save by replacing them.
     watch(app.getPath('userData'), (_event, name) => {
-      if (name !== 'keymap.json' && name !== 'snippets.json' && name !== 'splits.json') {return;}
+      if (name !== 'keymap.json' && name !== 'snippets.json' && name !== 'splits.json') {
+        return;
+      }
       clearTimeout(timers[name]);
       timers[name] = setTimeout(() => {
         if (name === 'keymap.json') {
@@ -487,7 +583,9 @@ function buildMenu() {
   ];
   if (!app.isPackaged) {
     const view = expected(template.at(-2), 'the View menu').submenu;
-    if (Array.isArray(view)) {view.push({ type: 'separator' }, { role: 'reload' }, { role: 'toggleDevTools' });}
+    if (Array.isArray(view)) {
+      view.push({ type: 'separator' }, { role: 'reload' }, { role: 'toggleDevTools' });
+    }
   }
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -501,7 +599,9 @@ app.once('ready', () => {
     version: buildLabel,
     credits: 'A keyboard-first mail client for Gmail, iCloud and IMAP.',
   });
-  if (app.isPackaged && !smoke) {app.setLoginItemSettings({ openAtLogin: loginItem() });}
+  if (app.isPackaged && !smoke) {
+    app.setLoginItemSettings({ openAtLogin: loginItem() });
+  }
   buildTray();
   watchUserFiles();
   buildMenu();
@@ -511,10 +611,12 @@ app.once('ready', () => {
   createWindow();
   // If the renderer never reports a first frame, still start sync.
   setTimeout(startSync, 5000);
-  if (smoke || bench || coldStartRun) {readyTimeout = setTimeout(() => {
-    logError('[smoke/bench] renderer never reported ready');
-    app.exit(1);
-  }, 20_000);}
+  if (smoke || bench || coldStartRun) {
+    readyTimeout = setTimeout(() => {
+      logError('[smoke/bench] renderer never reported ready');
+      app.exit(1);
+    }, 20_000);
+  }
 });
 
 app.on('before-quit', () => {

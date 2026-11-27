@@ -44,7 +44,7 @@ export function builtInSplits(accounts: Array<{ id: string; name: string }>): Ar
 
 const RULE_KEYS = ['from', 'account', 'label', 'newsletter', 'vip'] as const;
 const KNOWN_KEYS = new Set<string>(['id', 'name', 'notify', ...RULE_KEYS]);
-const strings = (v: unknown): Array<string> | null => (typeof v === 'string' ? [v] : Array.isArray(v) && v.every((x) => typeof x === 'string') ? (v) : null);
+const strings = (v: unknown): Array<string> | null => (typeof v === 'string' ? [v] : Array.isArray(v) && v.every((x) => typeof x === 'string') ? v : null);
 
 export interface SplitsResult {
   splits: Array<SplitDef>;
@@ -53,8 +53,12 @@ export interface SplitsResult {
 
 /** The Splits from splits.json (none: the built-ins), and what was wrong with it. */
 export function splitsFrom(file: unknown, accounts: Array<{ id: string; name: string }>): SplitsResult {
-  if (file === undefined || file === null) {return { splits: builtInSplits(accounts), problems: [] };}
-  if (!Array.isArray(file)) {return { splits: builtInSplits(accounts), problems: ['splits.json must be a list of Splits, in the order of the tabs.'] };}
+  if (file === undefined || file === null) {
+    return { splits: builtInSplits(accounts), problems: [] };
+  }
+  if (!Array.isArray(file)) {
+    return { splits: builtInSplits(accounts), problems: ['splits.json must be a list of Splits, in the order of the tabs.'] };
+  }
   const problems: Array<string> = [];
   const out: Array<SplitDef> = [];
   const seen = new Set<string>();
@@ -100,8 +104,12 @@ export function splitsFrom(file: unknown, accounts: Array<{ id: string; name: st
       }
       seen.add(id);
       const split: SplitDef = { id, ...builtIn };
-      if (name) {split.name = name;}
-      if (notify !== undefined) {split.notify = notify;}
+      if (name) {
+        split.name = name;
+      }
+      if (notify !== undefined) {
+        split.notify = notify;
+      }
       out.push(split);
       continue;
     }
@@ -113,8 +121,9 @@ export function splitsFrom(file: unknown, accounts: Array<{ id: string; name: st
     let bad = false;
     if ('from' in e) {
       const from = strings(e.from)?.map((f) => f.trim().toLowerCase());
-      if (!from) {bad = !!problems.push(`"${id}": "from" is an address, "@domain", or a list of them.`);}
-      else {
+      if (!from) {
+        bad = !!problems.push(`"${id}": "from" is an address, "@domain", or a list of them.`);
+      } else {
         tests.push((r) => {
           const sender = t(r).sender;
           return !!sender && from.some((f) => (f.startsWith('@') ? sender.endsWith(f) : sender === f));
@@ -124,24 +133,35 @@ export function splitsFrom(file: unknown, accounts: Array<{ id: string; name: st
     if ('account' in e) {
       const want = typeof e.account === 'string' ? e.account.trim().toLowerCase() : '';
       const acct = accounts.find((a) => a.id.toLowerCase() === want || a.name.toLowerCase() === want);
-      if (!acct) {bad = !!problems.push(`"${id}": no Account "${String(e.account)}".`);}
-      else {tests.push((r) => r.accountId === acct.id);}
+      if (!acct) {
+        bad = !!problems.push(`"${id}": no Account "${String(e.account)}".`);
+      } else {
+        tests.push((r) => r.accountId === acct.id);
+      }
     }
     if ('label' in e) {
       const labels = strings(e.label)?.map((l) => l.toLowerCase());
-      if (!labels) {bad = !!problems.push(`"${id}": "label" is a Label name or a list of them.`);}
-      else {tests.push((r) => (t(r).labels ?? []).some((l) => labels.includes(l.toLowerCase())));}
+      if (!labels) {
+        bad = !!problems.push(`"${id}": "label" is a Label name or a list of them.`);
+      } else {
+        tests.push((r) => (t(r).labels ?? []).some((l) => labels.includes(l.toLowerCase())));
+      }
     }
     for (const flag of ['newsletter', 'vip'] as const) {
-      if (!(flag in e)) {continue;}
-      if (typeof e[flag] !== 'boolean') {bad = !!problems.push(`"${id}": "${flag}" is true or false.`);}
-      else {
+      if (!(flag in e)) {
+        continue;
+      }
+      if (typeof e[flag] !== 'boolean') {
+        bad = !!problems.push(`"${id}": "${flag}" is true or false.`);
+      } else {
         const want = e[flag];
         tests.push((r) => t(r)[flag] === want);
       }
     }
     // A Split with a broken rule would show the wrong mail: leave it out until it's fixed.
-    if (bad) {continue;}
+    if (bad) {
+      continue;
+    }
     seen.add(id);
     out.push({ id, name, notify: notify ?? false, match: (r) => tests.every((f) => f(r)) });
   }

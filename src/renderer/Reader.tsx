@@ -10,7 +10,17 @@ export function blockedMessages(messages: Array<ThreadMessage> | undefined, allo
   return (messages ?? []).filter((m) => m.html && !m.imagesAllowed && !allowed.has(m.id) && sanitized(m, false).remoteImages > 0);
 }
 
-export const Reader = memo(function Reader({ threadKey, subject, messages, allowed, frame, onLoadImages, onAlwaysLoadImages, onAttachment, theme }: {
+export const Reader = memo(function Reader({
+  threadKey,
+  subject,
+  messages,
+  allowed,
+  frame,
+  onLoadImages,
+  onAlwaysLoadImages,
+  onAttachment,
+  theme,
+}: {
   threadKey: string;
   subject: string;
   messages: Array<ThreadMessage> | undefined;
@@ -31,11 +41,19 @@ export const Reader = memo(function Reader({ threadKey, subject, messages, allow
       {blocked.length > 0 && (
         <div className="images-bar" role="note">
           <span>Remote images are hidden. Loading them tells the sender you opened this.</span>
-          <button type="button" onClick={onLoadImages}>Load images <kbd>I</kbd></button>
-          <button type="button" onClick={onAlwaysLoadImages}>Always from {blocked.length === 1 ? 'this sender' : 'these senders'} <kbd>⇧I</kbd></button>
+          <button type="button" onClick={onLoadImages}>
+            Load images <kbd>I</kbd>
+          </button>
+          <button type="button" onClick={onAlwaysLoadImages}>
+            Always from {blocked.length === 1 ? 'this sender' : 'these senders'} <kbd>⇧I</kbd>
+          </button>
         </div>
       )}
-      {messages ? <MailFrame threadKey={threadKey} messages={messages} allow={allow} remote={remote} handle={frame} onAttachment={onAttachment} theme={theme} /> : <p className="pending">Loading…</p>}
+      {messages ? (
+        <MailFrame threadKey={threadKey} messages={messages} allow={allow} remote={remote} handle={frame} onAttachment={onAttachment} theme={theme} />
+      ) : (
+        <p className="pending">Loading…</p>
+      )}
     </section>
   );
 });

@@ -1,6 +1,19 @@
 // The contract between the renderer and the core. No runtime dependencies, so the renderer can import it.
 import type { Original } from './reply';
-import type { Address, CoreNotice, ScheduledSummary, DraftContent, DraftSummary, LabelSet, OutgoingMessage, PendingStatus, SplitId, ThreadAction, ThreadMessage, ThreadRow } from './types';
+import type {
+  Address,
+  CoreNotice,
+  ScheduledSummary,
+  DraftContent,
+  DraftSummary,
+  LabelSet,
+  OutgoingMessage,
+  PendingStatus,
+  SplitId,
+  ThreadAction,
+  ThreadMessage,
+  ThreadRow,
+} from './types';
 
 /** What the core tells the renderer: event name → payload. */
 export interface CoreEvents {
@@ -46,4 +59,25 @@ export interface CoreApi {
   pending(): Promise<PendingStatus>;
 }
 
-export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment', 'send', 'cancelSend', 'original', 'saveDraft', 'deleteDraft', 'drafts', 'draft', 'contacts', 'setVip', 'scheduled', 'search', 'searchServer'] as const satisfies ReadonlyArray<keyof CoreApi>;
+export const CORE_API_METHODS = [
+  'rows',
+  'thread',
+  'act',
+  'undo',
+  'pending',
+  'labels',
+  'allowImagesFrom',
+  'attachment',
+  'send',
+  'cancelSend',
+  'original',
+  'saveDraft',
+  'deleteDraft',
+  'drafts',
+  'draft',
+  'contacts',
+  'setVip',
+  'scheduled',
+  'search',
+  'searchServer',
+] as const satisfies ReadonlyArray<keyof CoreApi>;

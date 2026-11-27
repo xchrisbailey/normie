@@ -51,7 +51,15 @@ describe('news from the core', () => {
 });
 
 const row = (key: string, over: Partial<ThreadRow['tags']> = {}): ThreadRow => ({
-  key, accountId: 'a', subject: `Subject ${key}`, from: `From ${key}`, date: NOW, snippet: '', unread: true, starred: false, count: 1,
+  key,
+  accountId: 'a',
+  subject: `Subject ${key}`,
+  from: `From ${key}`,
+  date: NOW,
+  snippet: '',
+  unread: true,
+  starred: false,
+  count: 1,
   tags: { newsletter: false, vip: false, known: false, ...over },
 });
 
@@ -59,12 +67,19 @@ describe('what notifies', () => {
   const rows = [row('known', { known: true }), row('stranger'), row('news', { known: true, newsletter: true })];
 
   it('only Threads in a notifying Split (Important by default)', () => {
-    expect(toNotify(['known', 'stranger', 'news', 'gone'], rows, builtInSplits([]), new Map(), NOW))
-      .toEqual([{ key: 'known', title: 'From known', body: 'Subject known' }]);
+    expect(toNotify(['known', 'stranger', 'news', 'gone'], rows, builtInSplits([]), new Map(), NOW)).toEqual([
+      { key: 'known', title: 'From known', body: 'Subject known' },
+    ]);
   });
 
   it('follows splits.json', () => {
-    const { splits } = splitsFrom([{ id: 'important', notify: false }, { id: 'other', notify: true }], []);
+    const { splits } = splitsFrom(
+      [
+        { id: 'important', notify: false },
+        { id: 'other', notify: true },
+      ],
+      [],
+    );
     expect(toNotify(['known', 'stranger'], rows, splits, new Map(), NOW).map((n) => n.key)).toEqual(['stranger']);
   });
 

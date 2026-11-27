@@ -9,7 +9,9 @@ const NOW = Date.UTC(2026, 10, 27, 12);
 const HOUR = 3_600_000;
 const cores: Array<TestCore> = [];
 afterEach(async () => {
-  for (const c of cores.splice(0)) {await c.close();}
+  for (const c of cores.splice(0)) {
+    await c.close();
+  }
 });
 
 async function sync(p: FakeProvider, accountId = 'icloud:me@icloud.com@imap.mail.me.com') {
@@ -26,7 +28,10 @@ describe('local threading', () => {
     p.deliver({ subject: 'Trip', messageId: '<a@x>', date: NOW - 3 * HOUR });
     p.deliver({ subject: 'Re: Trip', messageId: '<b@x>', inReplyTo: '<a@x>', references: ['<a@x>'], date: NOW - 2 * HOUR });
     p.deliver({ subject: 'Lunch', messageId: '<c@x>', date: NOW - HOUR });
-    expect(await threads(await sync(p))).toEqual([['Lunch', 1], ['Trip', 2]]);
+    expect(await threads(await sync(p))).toEqual([
+      ['Lunch', 1],
+      ['Trip', 2],
+    ]);
   });
 
   it('follows References when In-Reply-To is missing', async () => {
@@ -63,7 +68,10 @@ describe('local threading', () => {
     const p = new FakeProvider({ caps: ICLOUD_CAPS });
     p.deliver({ subject: 'One', messageId: '<a@x>', date: NOW - 2 * HOUR });
     p.deliver({ subject: 'Two', messageId: '<b@x>', inReplyTo: '<gone@x>', date: NOW - HOUR });
-    expect(await threads(await sync(p))).toEqual([['Two', 1], ['One', 1]]);
+    expect(await threads(await sync(p))).toEqual([
+      ['Two', 1],
+      ['One', 1],
+    ]);
   });
 
   it('never joins Threads across Accounts, even for the same Message-ID', async () => {
@@ -73,13 +81,26 @@ describe('local threading', () => {
     // A second Account in the same store gets a reply to the same message.
     c.data.upsertAccount('imap:two', 'imap', 'two@example.com');
     c.data.setMailboxes('imap:two', [{ path: 'INBOX', role: 'inbox' }]);
-    c.data.applyChanges('imap:two', 'INBOX', { headers: [{
-      uid: 1, remoteId: 'INBOX:1', messageId: '<b@x>', inReplyTo: '<a@x>', references: ['<a@x>'], subject: 'Re: Trip',
-      to: [], date: NOW - HOUR, flags: [], labels: ['INBOX'],
-    }] });
+    c.data.applyChanges('imap:two', 'INBOX', {
+      headers: [
+        {
+          uid: 1,
+          remoteId: 'INBOX:1',
+          messageId: '<b@x>',
+          inReplyTo: '<a@x>',
+          references: ['<a@x>'],
+          subject: 'Re: Trip',
+          to: [],
+          date: NOW - HOUR,
+          flags: [],
+          labels: ['INBOX'],
+        },
+      ],
+    });
     const rows = await c.rows('inbox');
     expect(rows.map((r) => [r.subject, r.count, r.accountId])).toEqual([
-      ['Re: Trip', 1, 'imap:two'], ['Trip', 1, 'icloud:me@icloud.com@imap.mail.me.com'],
+      ['Re: Trip', 1, 'imap:two'],
+      ['Trip', 1, 'icloud:me@icloud.com@imap.mail.me.com'],
     ]);
   });
 });

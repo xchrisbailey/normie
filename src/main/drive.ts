@@ -32,7 +32,9 @@ export function drive(w: BrowserWindow) {
     press: async (keyCode: string, n = 1, modifiers: Array<Modifier> = []) => {
       for (let i = 0; i < n; i++) {
         wc.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
-        if (!modifiers.includes('meta')) {wc.sendInputEvent({ type: 'char', keyCode, modifiers });}
+        if (!modifiers.includes('meta')) {
+          wc.sendInputEvent({ type: 'char', keyCode, modifiers });
+        }
         wc.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
       }
       await pause(100);
@@ -62,7 +64,9 @@ export function drive(w: BrowserWindow) {
         const top = document.elementFromPoint(x, y);
         return { x, y, hit: !!top && (top === el || el.contains(top)) };
       })()`);
-      if (!at) {return { found: false, hit: false };}
+      if (!at) {
+        return { found: false, hit: false };
+      }
       for (const type of ['mouseDown', 'mouseUp'] as const) {
         wc.sendInputEvent({ type, x: Math.round(at.x), y: Math.round(at.y), button: 'left', clickCount: 1 });
       }
@@ -79,7 +83,9 @@ export function drive(w: BrowserWindow) {
     /** With NORMIE_SMOKE_SHOTS=<folder>, save a screenshot to look at (a hidden window still renders). */
     shot: async (name: string) => {
       const dir = process.env.NORMIE_SMOKE_SHOTS;
-      if (dir) {writeFileSync(path.join(dir, `${name}.png`), (await wc.capturePage()).toPNG());}
+      if (dir) {
+        writeFileSync(path.join(dir, `${name}.png`), (await wc.capturePage()).toPNG());
+      }
     },
   };
 }

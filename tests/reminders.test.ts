@@ -21,7 +21,14 @@ async function start() {
   t.send = async (raw, env) => {
     await send(raw, env);
     const text = new TextDecoder().decode(raw);
-    p.deliver({ subject: /^Subject: (.*)$/m.exec(text)![1]!.trim(), raw: text, from: { address: 'me@example.com' }, labels: [String.raw`\Sent`], flags: [String.raw`\Seen`], date: now });
+    p.deliver({
+      subject: /^Subject: (.*)$/m.exec(text)![1]!.trim(),
+      raw: text,
+      from: { address: 'me@example.com' },
+      labels: [String.raw`\Sent`],
+      flags: [String.raw`\Seen`],
+      date: now,
+    });
   };
   core = await createCore({ provider: p, transport: t, extractText: fakeExtractText, now: () => now, email: 'me@example.com' });
   await core.engine.syncOnce();
@@ -30,7 +37,14 @@ async function start() {
 
 async function sendWithReminder(c: TestCore, remindAt: number) {
   const id = await c.send({
-    accountId: 'gmail:me@example.com', from: { address: 'me@example.com' }, to: [{ address: 'ada@example.com' }], cc: [], bcc: [], subject: 'Proposal', body: 'Thoughts?', remindAt,
+    accountId: 'gmail:me@example.com',
+    from: { address: 'me@example.com' },
+    to: [{ address: 'ada@example.com' }],
+    cc: [],
+    bcc: [],
+    subject: 'Proposal',
+    body: 'Thoughts?',
+    remindAt,
   });
   now += 5000;
   await c.engine.sendOutbox();
@@ -55,7 +69,10 @@ describe('Reminders', () => {
   it('clear themselves when someone else answers first', async () => {
     const { c, p } = await start();
     await sendWithReminder(c, now + 2 * 24 * HOUR);
-    const sentId = expected(c.data.store.db.prepare<[], string>(`select message_id from messages where subject = 'Proposal'`).pluck().get(), 'the sent message id');
+    const sentId = expected(
+      c.data.store.db.prepare<[], string>(`select message_id from messages where subject = 'Proposal'`).pluck().get(),
+      'the sent message id',
+    );
     now += HOUR;
     p.deliver({ subject: 'Re: Proposal', from: { address: 'ada@example.com' }, inReplyTo: sentId, date: now });
     await c.engine.syncOnce();
@@ -68,7 +85,10 @@ describe('Reminders', () => {
   it("don't count my own follow-up as an answer", async () => {
     const { c, p } = await start();
     await sendWithReminder(c, now + 2 * 24 * HOUR);
-    const sentId = expected(c.data.store.db.prepare<[], string>(`select message_id from messages where subject = 'Proposal'`).pluck().get(), 'the sent message id');
+    const sentId = expected(
+      c.data.store.db.prepare<[], string>(`select message_id from messages where subject = 'Proposal'`).pluck().get(),
+      'the sent message id',
+    );
     now += HOUR;
     p.deliver({ subject: 'Re: Proposal', from: { address: 'me@example.com' }, inReplyTo: sentId, labels: [String.raw`\Sent`], date: now });
     await c.engine.syncOnce();
@@ -90,7 +110,14 @@ describe('Reminders', () => {
   it('go with the message when its send is undone', async () => {
     const { c } = await start();
     const id = await c.send({
-      accountId: 'gmail:me@example.com', from: { address: 'me@example.com' }, to: [{ address: 'ada@example.com' }], cc: [], bcc: [], subject: 'Proposal', body: 'x', remindAt: now + HOUR,
+      accountId: 'gmail:me@example.com',
+      from: { address: 'me@example.com' },
+      to: [{ address: 'ada@example.com' }],
+      cc: [],
+      bcc: [],
+      subject: 'Proposal',
+      body: 'x',
+      remindAt: now + HOUR,
     });
     expect((await c.cancelSend(id))?.remindAt).toBe(now + HOUR);
     expect(c.data.store.nextReminderAt()).toBeUndefined();

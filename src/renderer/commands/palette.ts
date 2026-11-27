@@ -8,14 +8,18 @@ import type { ActionDef, Context } from './keys';
  */
 export function fuzzyScore(query: string, text: string): number | null {
   const q = query.toLowerCase().replaceAll(/\s+/g, '');
-  if (!q) {return 0;}
+  if (!q) {
+    return 0;
+  }
   const t = text.toLowerCase();
   let score = 0;
   let ti = 0;
   let run = 0;
   for (const ch of q) {
     const at = t.indexOf(ch, ti);
-    if (at < 0) {return null;}
+    if (at < 0) {
+      return null;
+    }
     const wordStart = at === 0 || /[\s\-_/.:]/.test(t.charAt(at - 1));
     run = at === ti && ti > 0 ? run + 1 : 0;
     score += 1 + (wordStart ? 8 : 0) + run * 4 - Math.min(at - ti, 10) * 0.5;
@@ -36,7 +40,9 @@ export interface PaletteItem {
 
 /** Items matching the query, best first. An empty query keeps the given order. */
 export function rankItems<T extends PaletteItem>(query: string, items: ReadonlyArray<T>, limit = 50): Array<T> {
-  if (!query.trim()) {return items.slice(0, limit);}
+  if (!query.trim()) {
+    return items.slice(0, limit);
+  }
   return items
     .flatMap((item, i) => {
       const score = Math.max(fuzzyScore(query, item.name) ?? -Infinity, (fuzzyScore(query, item.keywords ?? '') ?? -Infinity) - 2);
@@ -48,14 +54,28 @@ export function rankItems<T extends PaletteItem>(query: string, items: ReadonlyA
 }
 
 const KEY_GLYPHS = new Map([
-  ['Cmd', '⌘'], ['Shift', '⇧'], ['Alt', '⌥'], ['Enter', '↩'], ['Escape', 'Esc'], ['ArrowDown', '↓'], ['ArrowUp', '↑'], ['ArrowLeft', '←'], ['ArrowRight', '→'], ['Tab', '⇥'],
+  ['Cmd', '⌘'],
+  ['Shift', '⇧'],
+  ['Alt', '⌥'],
+  ['Enter', '↩'],
+  ['Escape', 'Esc'],
+  ['ArrowDown', '↓'],
+  ['ArrowUp', '↑'],
+  ['ArrowLeft', '←'],
+  ['ArrowRight', '→'],
+  ['Tab', '⇥'],
 ]);
 
 /** A key as the palette and menus show it: "Cmd-Shift-D" → "⌘⇧D", "g i" → "G I". */
 export function keyLabel(key: string): string {
   return key
     .split(' ')
-    .map((token) => token.split('-').map((p) => KEY_GLYPHS.get(p) ?? (p.length === 1 ? p.toUpperCase() : p)).join(''))
+    .map((token) =>
+      token
+        .split('-')
+        .map((p) => KEY_GLYPHS.get(p) ?? (p.length === 1 ? p.toUpperCase() : p))
+        .join(''),
+    )
     .join(' ');
 }
 
@@ -64,10 +84,14 @@ export function actionItems(actions: ReadonlyArray<ActionDef>, context: Context,
   const seen = new Set<string>();
   const out: Array<PaletteItem> = [];
   for (const a of actions) {
-    if (!a.contexts.includes(context) || !has(a.id) || seen.has(a.name)) {continue;}
+    if (!a.contexts.includes(context) || !has(a.id) || seen.has(a.name)) {
+      continue;
+    }
     seen.add(a.name);
     const item: PaletteItem = { id: a.id, name: a.name };
-    if (a.keys[0]) {item.hint = keyLabel(a.keys[0]);}
+    if (a.keys[0]) {
+      item.hint = keyLabel(a.keys[0]);
+    }
     out.push(item);
   }
   return out;

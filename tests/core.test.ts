@@ -90,11 +90,17 @@ describe('Unified Inbox', () => {
     // A second Account in the same store, with a message sharing a thread id.
     c.data.upsertAccount('icloud:me', 'imap', 'me@icloud.com');
     c.data.setMailboxes('icloud:me', [{ path: 'INBOX', role: 'inbox' }]);
-    c.data.applyChanges('icloud:me', 'INBOX', { headers: [
-      { uid: 1, remoteId: 'INBOX:1', threadId: 't-1', messageId: '<p@x>', subject: 'Personal', to: [], date: NOW - 2 * HOUR, flags: [], labels: ['INBOX'] },
-    ] });
+    c.data.applyChanges('icloud:me', 'INBOX', {
+      headers: [
+        { uid: 1, remoteId: 'INBOX:1', threadId: 't-1', messageId: '<p@x>', subject: 'Personal', to: [], date: NOW - 2 * HOUR, flags: [], labels: ['INBOX'] },
+      ],
+    });
     const rows = await c.rows('inbox');
-    expect(rows.map((r) => [r.subject, r.accountId])).toEqual([['Work again', 'gmail:me@example.com'], ['Personal', 'icloud:me'], ['Work', 'gmail:me@example.com']]);
+    expect(rows.map((r) => [r.subject, r.accountId])).toEqual([
+      ['Work again', 'gmail:me@example.com'],
+      ['Personal', 'icloud:me'],
+      ['Work', 'gmail:me@example.com'],
+    ]);
     await c.act(rows[1]!.key, { type: 'star', on: true });
     expect(c.data.pendingChanges('icloud:me')).toMatchObject([{ accountId: 'icloud:me', mailbox: 'INBOX', uids: [1] }]);
     expect(c.data.pendingChanges('gmail:me@example.com')).toEqual([]);

@@ -9,14 +9,24 @@ const CLIENT: GoogleClient = { clientId: 'cid', clientSecret: 'csecret', authUri
 
 class MemSecrets implements SecretStore {
   m = new Map<string, string>();
-  async get(id: string) { return this.m.get(id); }
-  async set(id: string, v: string) { this.m.set(id, v); }
-  async delete(id: string) { this.m.delete(id); }
+  async get(id: string) {
+    return this.m.get(id);
+  }
+  async set(id: string, v: string) {
+    this.m.set(id, v);
+  }
+  async delete(id: string) {
+    this.m.delete(id);
+  }
 }
 class MemList implements AccountList {
   saved: Array<AccountRecord> = [];
-  load() { return structuredClone(this.saved); }
-  save(a: Array<AccountRecord>) { this.saved = structuredClone(a); }
+  load() {
+    return structuredClone(this.saved);
+  }
+  save(a: Array<AccountRecord>) {
+    this.saved = structuredClone(a);
+  }
 }
 
 /** A fake Google: issues codes, checks PKCE, hands out and refreshes tokens. */
@@ -24,20 +34,28 @@ function fakeGoogle() {
   const g = { challenge: '', issued: 0, refreshes: 0, revoked: false, lastTokenBody: undefined as URLSearchParams | undefined, realFetch: fetch };
   const fetchFn: Fetch = async (input, init) => {
     const url = String(input);
-    if (url.startsWith('http://127.0.0.1')) {return g.realFetch(input, init);}
+    if (url.startsWith('http://127.0.0.1')) {
+      return g.realFetch(input, init);
+    }
     if (url === CLIENT.tokenUri) {
       const body = new URLSearchParams(String(init!.body));
       g.lastTokenBody = body;
       if (body.get('grant_type') === 'authorization_code') {
-        if (challengeOf(body.get('code_verifier')!) !== g.challenge) {return Response.json({ error: 'invalid_grant' }, { status: 400 });}
+        if (challengeOf(body.get('code_verifier')!) !== g.challenge) {
+          return Response.json({ error: 'invalid_grant' }, { status: 400 });
+        }
         g.issued++;
         return Response.json({ access_token: `at-${g.issued}`, refresh_token: 'rt-1', expires_in: 3600 });
       }
-      if (g.revoked) {return Response.json({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }, { status: 400 });}
+      if (g.revoked) {
+        return Response.json({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }, { status: 400 });
+      }
       g.refreshes++;
       return Response.json({ access_token: `at-refreshed-${g.refreshes}`, expires_in: 3600 });
     }
-    if (url.endsWith('/users/me/profile')) {return Response.json({ emailAddress: 'Chris@Example.com' });}
+    if (url.endsWith('/users/me/profile')) {
+      return Response.json({ emailAddress: 'Chris@Example.com' });
+    }
     throw new Error(`unexpected fetch ${url}`);
   };
   /** Plays the user approving in the browser: follows the redirect with a code. */
@@ -118,7 +136,10 @@ describe('Gmail sign-in', () => {
   it('rejects a redirect whose state does not match', async () => {
     const { g, fetchFn } = fakeGoogle();
     const accounts = new Accounts({
-      secrets: new MemSecrets(), list: new MemList(), googleClient: () => CLIENT, fetch: fetchFn,
+      secrets: new MemSecrets(),
+      list: new MemList(),
+      googleClient: () => CLIENT,
+      fetch: fetchFn,
       openUrl: async (authUrl) => {
         const redirect = new URL(new URL(authUrl).searchParams.get('redirect_uri')!);
         redirect.search = 'code=x&state=forged';

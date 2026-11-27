@@ -24,7 +24,12 @@ const node = {
 };
 
 await Promise.all([
-  esbuild({ ...node, entryPoints: { 'main/index': 'src/main/index.ts', 'data/index': 'src/data/index.ts', 'sync/index': 'src/sync/index.ts' }, outdir: 'out', define: { __NORMIE_BUILD__: JSON.stringify(build) } }),
+  esbuild({
+    ...node,
+    entryPoints: { 'main/index': 'src/main/index.ts', 'data/index': 'src/data/index.ts', 'sync/index': 'src/sync/index.ts' },
+    outdir: 'out',
+    define: { __NORMIE_BUILD__: JSON.stringify(build) },
+  }),
   esbuild({ ...node, entryPoints: { 'preload/index': 'src/preload/index.ts' }, outdir: 'out' }),
   esbuild({ ...node, entryPoints: { 'bench/make-fixture': 'bench/make-fixture.ts' }, outdir: 'out', sourcemap: false }),
 ]);

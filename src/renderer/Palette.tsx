@@ -3,7 +3,12 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { rankItems } from './commands/palette';
 import type { PaletteItem } from './commands/palette';
 
-export function Palette({ items, onRun, onClose, placeholder = 'Type a command' }: {
+export function Palette({
+  items,
+  onRun,
+  onClose,
+  placeholder = 'Type a command',
+}: {
   items: Array<PaletteItem>;
   onRun: (item: PaletteItem) => void;
   onClose: () => void;
@@ -19,11 +24,17 @@ export function Palette({ items, onRun, onClose, placeholder = 'Type a command' 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const down = e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n');
     const up = e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p');
-    if (e.key === 'Escape' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')) {onClose();}
-    else if (down) {setIndex((i) => Math.min(shown.length - 1, i + 1));}
-    else if (up) {setIndex((i) => Math.max(0, i - 1));}
-    else if (e.key === 'Enter' && shown[index]) {onRun(shown[index]);}
-    else {return;}
+    if (e.key === 'Escape' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')) {
+      onClose();
+    } else if (down) {
+      setIndex((i) => Math.min(shown.length - 1, i + 1));
+    } else if (up) {
+      setIndex((i) => Math.max(0, i - 1));
+    } else if (e.key === 'Enter' && shown[index]) {
+      onRun(shown[index]);
+    } else {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
   };

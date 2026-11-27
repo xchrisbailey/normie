@@ -19,9 +19,12 @@ export function gmailTransport(user: string, accessToken: () => Promise<string>)
   return {
     async send(raw, envelope) {
       const t = nodemailer.createTransport({
-        host: 'smtp.gmail.com', port: 465, secure: true,
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
         auth: { type: 'OAuth2', user, accessToken: await accessToken() },
-        connectionTimeout: 20_000, socketTimeout: 60_000,
+        connectionTimeout: 20_000,
+        socketTimeout: 60_000,
       });
       try {
         await t.sendMail({ envelope, raw: Buffer.from(raw) });
@@ -39,8 +42,13 @@ export function passwordTransport(server: { host: string; port: number; security
   return {
     async send(raw, envelope) {
       const t = nodemailer.createTransport({
-        host: server.host, port: server.port, secure: server.security === 'tls', requireTLS: server.security === 'starttls',
-        auth: { user, pass }, connectionTimeout: 20_000, socketTimeout: 60_000,
+        host: server.host,
+        port: server.port,
+        secure: server.security === 'tls',
+        requireTLS: server.security === 'starttls',
+        auth: { user, pass },
+        connectionTimeout: 20_000,
+        socketTimeout: 60_000,
       });
       try {
         await t.sendMail({ envelope, raw: Buffer.from(raw) });

@@ -18,9 +18,15 @@ type Message =
   | { type: 'debug-memory' };
 
 const isMessage = (v: unknown): v is Message => {
-  if (typeof v !== 'object' || v === null || !('type' in v)) {return false;}
-  if (v.type === 'init') {return 'dbPath' in v && typeof v.dbPath === 'string';}
-  if (v.type === 'debug-search') {return 'queries' in v && Array.isArray(v.queries);}
+  if (typeof v !== 'object' || v === null || !('type' in v)) {
+    return false;
+  }
+  if (v.type === 'init') {
+    return 'dbPath' in v && typeof v.dbPath === 'string';
+  }
+  if (v.type === 'debug-search') {
+    return 'queries' in v && Array.isArray(v.queries);
+  }
   return v.type === 'renderer-port' || v.type === 'sync-port' || v.type === 'debug-memory';
 };
 
@@ -40,7 +46,9 @@ const busy = () => {
 };
 
 function attach(kind: 'renderer-port' | 'sync-port', port: MessagePortMain) {
-  if (!data) {return void pendingPorts.push({ kind, port });}
+  if (!data) {
+    return void pendingPorts.push({ kind, port });
+  }
   const ds = data;
   const ch = mainPortChannel(port);
   port.on('message', busy);
@@ -62,12 +70,18 @@ function attach(kind: 'renderer-port' | 'sync-port', port: MessagePortMain) {
 
 process.parentPort.on('message', (e) => {
   const msg: unknown = e.data;
-  if (!isMessage(msg)) {return;}
+  if (!isMessage(msg)) {
+    return;
+  }
   if (msg.type === 'debug-search') {
-    if (!data) {return;}
+    if (!data) {
+      return;
+    }
     // The benchmark: time each query, as the renderer would ask it.
     const ds = data;
-    while (ds.indexSearchBatch(5000)){;}
+    while (ds.indexSearchBatch(5000)) {
+      // Each call does one batch; it returns false once there's nothing left.
+    }
     const times = msg.queries.map((q) => {
       const t = performance.now();
       const n = ds.search(q).length;
@@ -79,46 +93,68 @@ process.parentPort.on('message', (e) => {
     const m = process.memoryUsage();
     const cache: unknown = data?.store.db.pragma('cache_size', { simple: true });
     const sqlite = typeof cache === 'number' ? cache : 0;
-    return void process.parentPort.postMessage({ type: 'debug-memory', rss: mb(m.rss), heapUsed: mb(m.heapUsed), heapTotal: mb(m.heapTotal), external: mb(m.external), arrayBuffers: mb(m.arrayBuffers), sqliteCache: sqlite });
+    return void process.parentPort.postMessage({
+      type: 'debug-memory',
+      rss: mb(m.rss),
+      heapUsed: mb(m.heapUsed),
+      heapTotal: mb(m.heapTotal),
+      external: mb(m.external),
+      arrayBuffers: mb(m.arrayBuffers),
+      sqliteCache: sqlite,
+    });
   }
   if (msg.type === 'init') {
     data = new DataService(new Store(msg.dbPath), { mime: { readMessage, attachmentContent, readOriginal } });
     // Main sends the Account list when it's the source of truth (not in fake or benchmark runs).
     if (msg.keepAccounts) {
       const removed = data.pruneAccounts(msg.keepAccounts);
-      if (removed.length) {log(`[data] removed ${removed.length} Account(s) that are no longer signed in`);}
+      if (removed.length) {
+        log(`[data] removed ${removed.length} Account(s) that are no longer signed in`);
+      }
     }
     data.bodyRequester = (loc) => emitToSync?.('fetch-body', loc);
-    data.serverSearcher = (query) => new Promise<void>((resolve) => {
-      const id = ++nextSearch;
-      const done = () => {
-        pendingSearches.delete(id);
-        resolve();
-      };
-      pendingSearches.set(id, done);
-      // A server that never answers doesn't hold the search up for long.
-      setTimeout(done, 30_000);
-      if (emitToSync) {emitToSync('search-server', { id, query });}
-      else {done();}
-    });
+    data.serverSearcher = (query) =>
+      new Promise<void>((resolve) => {
+        const id = ++nextSearch;
+        const done = () => {
+          pendingSearches.delete(id);
+          resolve();
+        };
+        pendingSearches.set(id, done);
+        // A server that never answers doesn't hold the search up for long.
+        setTimeout(done, 30_000);
+        if (emitToSync) {
+          emitToSync('search-server', { id, query });
+        } else {
+          done();
+        }
+      });
     data.startScheduler();
     // Mail stored before list headers were fetched gets its Newsletters tag in the background.
     const ds = data;
     const backfill = () => {
-      if (ds.backfillListFlags(1000)) {setTimeout(backfill, 20);}
+      if (ds.backfillListFlags(1000)) {
+        setTimeout(backfill, 20);
+      }
     };
     setTimeout(backfill, 3000);
     // Mail stored before search existed is indexed in the background, newest first.
     const index = () => {
-      if (ds.indexSearchBatch(400)) {setTimeout(index, 30);}
+      if (ds.indexSearchBatch(400)) {
+        setTimeout(index, 30);
+      }
     };
     setTimeout(index, 4000);
     data.replayRequester = (accountId) => emitToSync?.('replay', { accountId });
     data.outboxRequester = (accountId) => emitToSync?.('outbox', { accountId });
     data.draftsRequester = (accountId) => emitToSync?.('drafts', { accountId });
-    for (const p of pendingPorts.splice(0)) {attach(p.kind, p.port);}
+    for (const p of pendingPorts.splice(0)) {
+      attach(p.kind, p.port);
+    }
   } else {
     const port = e.ports[0];
-    if (port) {attach(msg.type, port);}
+    if (port) {
+      attach(msg.type, port);
+    }
   }
 });

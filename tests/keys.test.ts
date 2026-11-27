@@ -24,7 +24,9 @@ describe('KeyResolver over the registry', () => {
         const r = new KeyResolver(ACTIONS);
         const tokens = k.split(' ');
         let res;
-        for (const t of tokens) {res = r.feed(t, a.contexts[0]);}
+        for (const t of tokens) {
+          res = r.feed(t, a.contexts[0]);
+        }
         expect(res, `${k} -> ${a.id}`).toEqual({ type: 'action', id: a.id });
       }
     }

@@ -18,13 +18,22 @@ afterEach(async () => {
 
 const inSplits = (rows: Array<ThreadRow>, subject: string) => {
   const r = rows.find((x) => x.subject === subject)!;
-  return builtInSplits([]).filter((s) => s.match(r)).map((s) => s.id);
+  return builtInSplits([])
+    .filter((s) => s.match(r))
+    .map((s) => s.id);
 };
 
 async function inbox() {
   const p = new FakeProvider();
   p.deliver({ subject: 'Hi from Ada', threadId: 't-ada', from: { address: 'ada@example.com' }, date: NOW - 5 * HOUR });
-  p.deliver({ subject: 'Re: Hi from Ada', threadId: 't-ada', from: me, to: [{ address: 'ada@example.com' }], date: NOW - 4 * HOUR, labels: [String.raw`\Sent`] });
+  p.deliver({
+    subject: 'Re: Hi from Ada',
+    threadId: 't-ada',
+    from: me,
+    to: [{ address: 'ada@example.com' }],
+    date: NOW - 4 * HOUR,
+    labels: [String.raw`\Sent`],
+  });
   p.deliver({ subject: 'Weekly digest', threadId: 't-news', from: { address: 'news@example.com' }, list: true, date: NOW - 3 * HOUR });
   p.deliver({ subject: 'Who is this', threadId: 't-stranger', from: { address: 'stranger@example.com' }, date: NOW - 2 * HOUR });
   p.deliver({ subject: 'Boss newsletter', threadId: 't-boss', from: { address: 'boss@example.com' }, list: true, date: NOW - HOUR });
@@ -59,7 +68,10 @@ describe('Splits', () => {
     const c = await inbox();
     const rows = await c.rows('inbox');
     expect(Object.fromEntries(splitCounts(builtInSplits([]), rows))).toEqual({ inbox: 4, important: 1, other: 1, newsletters: 2, vip: 0, snoozed: 0 });
-    const two = builtInSplits([{ id: 'gmail:me@example.com', name: 'Work' }, { id: 'icloud:me', name: 'Home' }]);
+    const two = builtInSplits([
+      { id: 'gmail:me@example.com', name: 'Work' },
+      { id: 'icloud:me', name: 'Home' },
+    ]);
     expect(two.map((s) => s.name)).toEqual(['Inbox', 'Important', 'Other', 'Newsletters', 'VIP', 'Work', 'Home', 'Snoozed']);
     expect(splitCounts(two, rows).get('account:gmail:me@example.com')).toBe(4);
   });
@@ -74,30 +86,58 @@ describe('Splits', () => {
 
   it('tag mail stored before list headers were fetched, from the stored message', async () => {
     const p = new FakeProvider();
-    p.deliver({ subject: 'Old digest', from: { address: 'old@news.example' }, date: NOW - HOUR, raw: 'Subject: Old digest\r\nList-Unsubscribe: <https://x>\r\n\r\nHi' });
+    p.deliver({
+      subject: 'Old digest',
+      from: { address: 'old@news.example' },
+      date: NOW - HOUR,
+      raw: 'Subject: Old digest\r\nList-Unsubscribe: <https://x>\r\n\r\nHi',
+    });
     core = await createCore({ provider: p, extractText: fakeExtractText, now: () => NOW });
     await core.engine.syncOnce();
     // As if it had been stored before this version: unknown.
     core.data.store.db.prepare('update messages set is_list = null').run();
     core.data.store.db.prepare('update threads set is_list = 0').run();
     expect((await core.rows('inbox'))[0]!.tags!.newsletter).toBe(false);
-    while (core.data.backfillListFlags(10)){;}
+    while (core.data.backfillListFlags(10)) {
+      // Each call does one batch; it returns false once there's nothing left.
+    }
     expect((await core.rows('inbox'))[0]!.tags!.newsletter).toBe(true);
   });
 });
 
 const row = (over: Omit<Partial<ThreadRow>, 'tags'> & { tags?: Partial<NonNullable<ThreadRow['tags']>> } = {}): ThreadRow => ({
-  key: 'k', accountId: 'gmail:work@acme.com', subject: 's', from: 'f', date: 0, snippet: '', unread: false, starred: false, count: 1,
-  ...over, tags: { newsletter: false, vip: false, known: false, ...over.tags },
+  key: 'k',
+  accountId: 'gmail:work@acme.com',
+  subject: 's',
+  from: 'f',
+  date: 0,
+  snippet: '',
+  unread: false,
+  starred: false,
+  count: 1,
+  ...over,
+  tags: { newsletter: false, vip: false, known: false, ...over.tags },
 });
 
 describe('splits.json', () => {
-  const accounts = [{ id: 'gmail:work@acme.com', name: 'work@acme.com' }, { id: 'icloud:me', name: 'me@icloud.com' }];
+  const accounts = [
+    { id: 'gmail:work@acme.com', name: 'work@acme.com' },
+    { id: 'icloud:me', name: 'me@icloud.com' },
+  ];
 
   it('keeps the built-ins when there is no file', () => {
     const { splits, problems } = splitsFrom(undefined, accounts);
     expect(problems).toEqual([]);
-    expect(splits.map((s) => s.id)).toEqual(['inbox', 'important', 'other', 'newsletters', 'vip', 'account:gmail:work@acme.com', 'account:icloud:me', 'snoozed']);
+    expect(splits.map((s) => s.id)).toEqual([
+      'inbox',
+      'important',
+      'other',
+      'newsletters',
+      'vip',
+      'account:gmail:work@acme.com',
+      'account:icloud:me',
+      'snoozed',
+    ]);
     expect(splits.filter((s) => s.notify).map((s) => s.id)).toEqual(['important']);
   });
 
@@ -108,12 +148,15 @@ describe('splits.json', () => {
   });
 
   it('matches my own Splits on every rule given', () => {
-    const { splits, problems } = splitsFrom([
-      { id: 'acme', name: 'Acme', from: ['@acme.com', 'boss@elsewhere.com'], newsletter: false, notify: true },
-      { id: 'home', name: 'Home', account: 'me@icloud.com' },
-      { id: 'clients', name: 'Clients', label: 'Clients' },
-      { id: 'vips', name: 'VIP lists', vip: true, newsletter: true },
-    ], accounts);
+    const { splits, problems } = splitsFrom(
+      [
+        { id: 'acme', name: 'Acme', from: ['@acme.com', 'boss@elsewhere.com'], newsletter: false, notify: true },
+        { id: 'home', name: 'Home', account: 'me@icloud.com' },
+        { id: 'clients', name: 'Clients', label: 'Clients' },
+        { id: 'vips', name: 'VIP lists', vip: true, newsletter: true },
+      ],
+      accounts,
+    );
     expect(problems).toEqual([]);
     const by = (id: string) => splits.find((s) => s.id === id)!;
     expect(by('acme').match(row({ tags: { sender: 'ana@acme.com' } }))).toBe(true);
@@ -129,10 +172,18 @@ describe('splits.json', () => {
   });
 
   it('reports problems and skips just those entries', () => {
-    const { splits, problems } = splitsFrom([
-      { id: 'Bad Id' }, { id: 'nameless', from: '@x.com' }, { id: 'vip', from: '@x.com' }, { id: 'vip' },
-      { id: 'who', name: 'Who', account: 'nobody@nowhere' }, { id: 'odd', name: 'Odd', colour: 'red' }, 'nope',
-    ], accounts);
+    const { splits, problems } = splitsFrom(
+      [
+        { id: 'Bad Id' },
+        { id: 'nameless', from: '@x.com' },
+        { id: 'vip', from: '@x.com' },
+        { id: 'vip' },
+        { id: 'who', name: 'Who', account: 'nobody@nowhere' },
+        { id: 'odd', name: 'Odd', colour: 'red' },
+        'nope',
+      ],
+      accounts,
+    );
     // Bad id, nameless, rules on a built-in, unknown Account, unknown setting, not an object. A broken Split is left out.
     expect(problems).toHaveLength(6);
     expect(splits.map((s) => s.id)).toEqual(['inbox', 'vip', 'odd', 'snoozed']);
@@ -143,10 +194,20 @@ describe('splits.json', () => {
 
 const snoozableRow = (key: string, snoozedUntil?: number): ThreadRow => {
   const row: ThreadRow = {
-    key, accountId: 'a', subject: key, from: 'f', date: 0, snippet: '', unread: false, starred: false, count: 1,
+    key,
+    accountId: 'a',
+    subject: key,
+    from: 'f',
+    date: 0,
+    snippet: '',
+    unread: false,
+    starred: false,
+    count: 1,
     tags: { newsletter: false, vip: false, known: true },
   };
-  if (snoozedUntil && row.tags) {row.tags.snoozedUntil = snoozedUntil;}
+  if (snoozedUntil && row.tags) {
+    row.tags.snoozedUntil = snoozedUntil;
+  }
   return row;
 };
 

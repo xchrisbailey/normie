@@ -35,7 +35,17 @@ export class SignInRequiredError extends Error {
 export function loadGoogleClient(path: string): GoogleClient {
   const json = parseJson(readFileSync(path, 'utf8'));
   const c = typeof json === 'object' && json !== null && !Array.isArray(json) ? json.installed : undefined;
-  if (typeof c !== 'object' || c === null || Array.isArray(c) || typeof c.client_id !== 'string' || !c.client_id || typeof c.client_secret !== 'string' || !c.client_secret) {throw new Error(`${path} is not a Google Desktop OAuth client`);}
+  if (
+    typeof c !== 'object' ||
+    c === null ||
+    Array.isArray(c) ||
+    typeof c.client_id !== 'string' ||
+    !c.client_id ||
+    typeof c.client_secret !== 'string' ||
+    !c.client_secret
+  ) {
+    throw new Error(`${path} is not a Google Desktop OAuth client`);
+  }
   return {
     clientId: c.client_id,
     clientSecret: c.client_secret,
@@ -58,12 +68,24 @@ interface TokenResponse {
 /** The fields of Google's token reply that are there and the right type. */
 function tokenResponseOf(v: unknown): TokenResponse {
   const tok: TokenResponse = {};
-  if (typeof v !== 'object' || v === null) {return tok;}
-  if ('access_token' in v && typeof v.access_token === 'string') {tok.access_token = v.access_token;}
-  if ('refresh_token' in v && typeof v.refresh_token === 'string') {tok.refresh_token = v.refresh_token;}
-  if ('expires_in' in v && typeof v.expires_in === 'number') {tok.expires_in = v.expires_in;}
-  if ('error' in v && typeof v.error === 'string') {tok.error = v.error;}
-  if ('error_description' in v && typeof v.error_description === 'string') {tok.error_description = v.error_description;}
+  if (typeof v !== 'object' || v === null) {
+    return tok;
+  }
+  if ('access_token' in v && typeof v.access_token === 'string') {
+    tok.access_token = v.access_token;
+  }
+  if ('refresh_token' in v && typeof v.refresh_token === 'string') {
+    tok.refresh_token = v.refresh_token;
+  }
+  if ('expires_in' in v && typeof v.expires_in === 'number') {
+    tok.expires_in = v.expires_in;
+  }
+  if ('error' in v && typeof v.error === 'string') {
+    tok.error = v.error;
+  }
+  if ('error_description' in v && typeof v.error_description === 'string') {
+    tok.error_description = v.error_description;
+  }
   return tok;
 }
 
@@ -75,7 +97,9 @@ async function tokenRequest(client: GoogleClient, body: Record<string, string>, 
   });
   const tok = tokenResponseOf(await res.json());
   if (!res.ok || !tok.access_token) {
-    if (tok.error === 'invalid_grant') {throw new SignInRequiredError(tok.error_description ?? 'refresh token no longer valid');}
+    if (tok.error === 'invalid_grant') {
+      throw new SignInRequiredError(tok.error_description ?? 'refresh token no longer valid');
+    }
     throw new Error(`Google token request failed: ${tok.error ?? res.status}`);
   }
   return { accessToken: tok.access_token, refreshToken: tok.refresh_token, expiresAt: now + (tok.expires_in ?? 3600) * 1000 };
@@ -105,19 +129,26 @@ export async function signInWithGoogle(o: SignInOptions): Promise<TokenSet> {
     }, o.timeoutMs ?? 300_000);
     const server = createServer((req, res) => {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-      if (url.pathname !== '/') {return void res.writeHead(404).end();}
+      if (url.pathname !== '/') {
+        return void res.writeHead(404).end();
+      }
       const err = url.searchParams.get('error');
       const gotCode = url.searchParams.get('code');
       const ok = !err && gotCode && url.searchParams.get('state') === state;
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(
-        `<!doctype html><meta charset="utf-8"><title>Normie</title><body style="font:15px system-ui;padding:3em">${
-          ok ? 'Signed in to Normie. You can close this tab.' : 'Sign-in did not complete. You can close this tab and try again from Normie.'
-        }</body>`,
-      );
+      res
+        .writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+        .end(
+          `<!doctype html><meta charset="utf-8"><title>Normie</title><body style="font:15px system-ui;padding:3em">${
+            ok ? 'Signed in to Normie. You can close this tab.' : 'Sign-in did not complete. You can close this tab and try again from Normie.'
+          }</body>`,
+        );
       clearTimeout(timer);
       server.close();
-      if (ok) {resolve({ code: gotCode, redirectUri });}
-      else {reject(new Error(err ? `Google sign-in failed: ${err}` : 'Google sign-in returned an unexpected response'));}
+      if (ok) {
+        resolve({ code: gotCode, redirectUri });
+      } else {
+        reject(new Error(err ? `Google sign-in failed: ${err}` : 'Google sign-in returned an unexpected response'));
+      }
     });
     server.on('error', reject);
     server.listen(0, '127.0.0.1', () => {
@@ -135,7 +166,9 @@ export async function signInWithGoogle(o: SignInOptions): Promise<TokenSet> {
         access_type: 'offline',
         prompt: 'consent',
       });
-      if (o.loginHint) {params.set('login_hint', o.loginHint);}
+      if (o.loginHint) {
+        params.set('login_hint', o.loginHint);
+      }
       auth.search = params.toString();
       const open = async () => {
         try {
@@ -151,7 +184,9 @@ export async function signInWithGoogle(o: SignInOptions): Promise<TokenSet> {
   });
 
   const t = await tokenRequest(o.client, { code, redirect_uri: redirectUri, grant_type: 'authorization_code', code_verifier: verifier }, fetchFn, now());
-  if (!t.refreshToken) {throw new Error('Google did not return a refresh token');}
+  if (!t.refreshToken) {
+    throw new Error('Google did not return a refresh token');
+  }
   return { accessToken: t.accessToken, refreshToken: t.refreshToken, expiresAt: t.expiresAt };
 }
 
@@ -164,7 +199,9 @@ export async function refreshGoogle(client: GoogleClient, refreshToken: string, 
 /** The signed-in Gmail address, from the Gmail API profile (covered by the mail scope). */
 export async function gmailAddress(accessToken: string, fetchFn: Fetch = fetch): Promise<string> {
   const res = await fetchFn('https://gmail.googleapis.com/gmail/v1/users/me/profile', { headers: { authorization: `Bearer ${accessToken}` } });
-  if (!res.ok) {throw new Error(`Could not read the Gmail address (${res.status})`);}
+  if (!res.ok) {
+    throw new Error(`Could not read the Gmail address (${res.status})`);
+  }
   const profile: unknown = await res.json();
   if (typeof profile !== 'object' || profile === null || !('emailAddress' in profile) || typeof profile.emailAddress !== 'string') {
     throw new Error('Could not read the Gmail address (no address in the reply)');

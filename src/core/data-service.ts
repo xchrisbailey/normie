@@ -7,7 +7,27 @@ import { serverQuery } from './search-query';
 import type { ServerQuery } from './search-query';
 import type { BodyInput, Store } from './store';
 import type {
-  AccountId, Address, AttachmentInfo, ChangeResult, ChangeSet, ScheduledSummary, LabelSet, DraftContent, DraftSummary, DraftToSync, OutboxItem, OutgoingMessage, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
+  AccountId,
+  Address,
+  AttachmentInfo,
+  ChangeResult,
+  ChangeSet,
+  ScheduledSummary,
+  LabelSet,
+  DraftContent,
+  DraftSummary,
+  DraftToSync,
+  OutboxItem,
+  OutgoingMessage,
+  CoreNotice,
+  MailboxRole,
+  PendingChange,
+  PendingStatus,
+  SplitId,
+  SyncState,
+  ThreadAction,
+  ThreadMessage,
+  ThreadRow,
 } from './types';
 
 /** Reads stored messages (mailparser in the app). Injected, so the core can run without it. */
@@ -41,7 +61,10 @@ export class DataService {
   /** Called when an Account's drafts changed and the server should catch up. */
   draftsRequester?: (accountId: AccountId) => void;
 
-  constructor(readonly store: Store, opts: { now?: () => number; deleteHoldMs?: number; mime?: MimeReader; undoSendMs?: number } = {}) {
+  constructor(
+    readonly store: Store,
+    opts: { now?: () => number; deleteHoldMs?: number; mime?: MimeReader; undoSendMs?: number } = {},
+  ) {
     this.now = opts.now ?? Date.now;
     this.deleteHoldMs = opts.deleteHoldMs;
     this.mime = opts.mime;
@@ -52,7 +75,9 @@ export class DataService {
 
   /** Put a message in the Outbox. It goes out after the undo window. Returns its Outbox id. Its draft, if any, goes. */
   send(message: OutgoingMessage, draftId?: number, sendAt?: number): number {
-    if (draftId !== undefined) {this.deleteDraft(draftId);}
+    if (draftId !== undefined) {
+      this.deleteDraft(draftId);
+    }
     // Send Later: at the time chosen. Otherwise after the undo window.
     const at = sendAt !== undefined && sendAt > this.now() ? sendAt : this.now() + this.undoSendMs;
     const messageId = newMessageId(message.from);
@@ -83,9 +108,13 @@ export class DataService {
   /** Fire everything due now. Returns how many fired. */
   runDue(): number {
     const due = this.store.dueSnoozes(this.now());
-    for (const d of due) {this.wake(d.accountId, d.threadKey);}
+    for (const d of due) {
+      this.wake(d.accountId, d.threadKey);
+    }
     const reminded = this.store.fireReminders(this.now());
-    if (reminded) {this.emit({ type: 'rows-changed', split: 'inbox' });}
+    if (reminded) {
+      this.emit({ type: 'rows-changed', split: 'inbox' });
+    }
     this.armScheduler();
     return due.length + (reminded ? 1 : 0);
   }
@@ -94,17 +123,23 @@ export class DataService {
   private armScheduler() {
     clearTimeout(this.timer);
     const times = [this.store.nextWakeAt(), this.store.nextReminderAt()].filter((t): t is number => t !== undefined);
-    if (!times.length) {return;}
+    if (!times.length) {
+      return;
+    }
     const next = Math.min(...times);
     this.timer = setTimeout(() => this.runDue(), Math.min(60_000, Math.max(0, next - this.now())));
   }
 
   private wake(accountId: AccountId, threadKey: string) {
     const accounts = this.store.wake(accountId, threadKey, this.now());
-    if (!accounts) {return;}
+    if (!accounts) {
+      return;
+    }
     this.emit({ type: 'rows-changed', split: 'inbox' });
     this.emitPending();
-    for (const a of accounts) {this.replayRequester?.(a);}
+    for (const a of accounts) {
+      this.replayRequester?.(a);
+    }
   }
 
   // --- Drafts
@@ -119,7 +154,9 @@ export class DataService {
   /** Discard a draft, here and on the server. */
   deleteDraft(id: number) {
     const account = this.store.deleteDraft(id);
-    if (account) {this.draftsRequester?.(account);}
+    if (account) {
+      this.draftsRequester?.(account);
+    }
   }
 
   drafts(): Array<DraftSummary> {
@@ -175,7 +212,9 @@ export class DataService {
   outboxFailed(id: number, error: string, rejected: boolean): boolean {
     const failed = this.store.outboxFailed(id, error, rejected, MAX_REJECTIONS);
     this.emitPending();
-    if (failed) {this.emit({ type: 'send-failed', id, error });}
+    if (failed) {
+      this.emit({ type: 'send-failed', id, error });
+    }
     return failed;
   }
 
@@ -185,7 +224,9 @@ export class DataService {
   }
 
   private emit(n: CoreNotice) {
-    for (const fn of this.listeners) {fn(n);}
+    for (const fn of this.listeners) {
+      fn(n);
+    }
   }
 
   // --- Queries (renderer)
@@ -200,7 +241,9 @@ export class DataService {
     for (const m of messages) {
       if (m.text === null && this.bodyRequester) {
         const loc = this.store.messageLocation(m.id);
-        if (loc) {this.bodyRequester(loc);}
+        if (loc) {
+          this.bodyRequester(loc);
+        }
       }
     }
     if (this.mime) {
@@ -219,12 +262,18 @@ export class DataService {
   /** What a reply or forward needs from a message: its full headers when the body is stored, else what the store has. */
   async original(messageId: number, withAttachments: boolean): Promise<Original | null> {
     const s = this.store.messageSummary(messageId);
-    if (!s) {return null;}
+    if (!s) {
+      return null;
+    }
     const known: Original = { ...s, references: [], replyTo: [], cc: [], text: s.text ?? '', attachments: [] };
     const raw = this.store.rawOf(messageId);
-    if (!raw?.length || !this.mime?.readOriginal) {return known;}
+    if (!raw?.length || !this.mime?.readOriginal) {
+      return known;
+    }
     const read = await this.mime.readOriginal(raw, withAttachments).catch(() => null);
-    if (!read) {return known;}
+    if (!read) {
+      return known;
+    }
     // The raw message has the full headers; the store fills in anything it lacks.
     const merged: Original = {
       ...read,
@@ -233,15 +282,21 @@ export class DataService {
       date: read.date || known.date,
       text: read.text || known.text,
     };
-    if (!read.messageId && known.messageId) {merged.messageId = known.messageId;}
-    if (!read.from && known.from) {merged.from = known.from;}
+    if (!read.messageId && known.messageId) {
+      merged.messageId = known.messageId;
+    }
+    if (!read.from && known.from) {
+      merged.from = known.from;
+    }
     return merged;
   }
 
   /** One attachment's bytes, read from the stored message. */
   async attachment(messageId: number, index: number): Promise<{ filename: string; contentType: string; content: Uint8Array } | null> {
     const raw = this.store.rawOf(messageId);
-    if (!raw || !this.mime) {return null;}
+    if (!raw || !this.mime) {
+      return null;
+    }
     return this.mime.attachmentContent(raw, index);
   }
 
@@ -261,7 +316,9 @@ export class DataService {
   /** Search the servers too (for mail not stored here), then answer from the store again. */
   async searchServer(query: string, limit?: number): Promise<Array<ThreadRow>> {
     const q = serverQuery(query);
-    if (q && this.serverSearcher) {await this.serverSearcher(q);}
+    if (q && this.serverSearcher) {
+      await this.serverSearcher(q);
+    }
     return this.store.search(query, limit);
   }
 
@@ -279,7 +336,9 @@ export class DataService {
   /** One batch of the list-header backfill; returns how many were done. Tells the renderer when it finishes. */
   backfillListFlags(batch?: number): number {
     const n = this.store.backfillListFlags(batch);
-    if (!n) {this.emit({ type: 'rows-changed', split: 'inbox' });}
+    if (!n) {
+      this.emit({ type: 'rows-changed', split: 'inbox' });
+    }
     return n;
   }
 
@@ -302,10 +361,16 @@ export class DataService {
       return [];
     }
     const { changes } = this.store.recordAction(key, action, this.now(), this.deleteHoldMs);
-    if (action.type === 'snooze') {this.armScheduler();}
-    if (changes.length) {this.emitPending();}
+    if (action.type === 'snooze') {
+      this.armScheduler();
+    }
+    if (changes.length) {
+      this.emitPending();
+    }
     const accounts = new Set(changes.map((c) => c.accountId));
-    for (const a of accounts) {this.replayRequester?.(a);}
+    for (const a of accounts) {
+      this.replayRequester?.(a);
+    }
     return changes.map((c) => c.id);
   }
 
@@ -333,16 +398,22 @@ export class DataService {
     const replayAgain = this.store.changeApplied(id, result);
     this.emitPending();
     // It was undone while on its way: its inverse is now queued.
-    if (replayAgain) {this.replayRequester?.(replayAgain);}
+    if (replayAgain) {
+      this.replayRequester?.(replayAgain);
+    }
   }
 
   /** Undo triage actions by their change ids. The local copy goes back at once; the server catches up. */
   undo(ids: Array<number>) {
     this.store.dropSnoozesFor(ids);
     const { accounts, inboxChanged } = this.store.undo(ids);
-    if (inboxChanged) {this.emit({ type: 'rows-changed', split: 'inbox' });}
+    if (inboxChanged) {
+      this.emit({ type: 'rows-changed', split: 'inbox' });
+    }
     this.emitPending();
-    for (const a of accounts) {this.replayRequester?.(a);}
+    for (const a of accounts) {
+      this.replayRequester?.(a);
+    }
   }
 
   /** Returns whether the change was given up on and rolled back. */
@@ -353,7 +424,9 @@ export class DataService {
       const r = this.store.rollbackChange(id);
       if (r) {
         rolledBack = true;
-        if (r.inboxChanged) {this.emit({ type: 'rows-changed', split: 'inbox' });}
+        if (r.inboxChanged) {
+          this.emit({ type: 'rows-changed', split: 'inbox' });
+        }
         this.emit({ type: 'change-failed', subject: r.subject, error });
       }
     }
@@ -387,7 +460,9 @@ export class DataService {
   /** Drop local mail for Accounts that no longer exist, such as leftovers from a dev run. */
   pruneAccounts(keep: Array<AccountId>): Array<AccountId> {
     const removed = this.store.pruneAccounts(keep);
-    if (removed.length) {this.emit({ type: 'rows-changed', split: 'inbox' });}
+    if (removed.length) {
+      this.emit({ type: 'rows-changed', split: 'inbox' });
+    }
     return removed;
   }
 
@@ -404,7 +479,9 @@ export class DataService {
   }
 
   applyChanges(accountId: AccountId, mailbox: string, cs: Partial<ChangeSet>) {
-    if (this.store.applyChanges(accountId, mailbox, cs, this.now())) {this.emit({ type: 'rows-changed', split: 'inbox' });}
+    if (this.store.applyChanges(accountId, mailbox, cs, this.now())) {
+      this.emit({ type: 'rows-changed', split: 'inbox' });
+    }
     if (this.store.arrivals.size) {
       const keys = [...this.store.arrivals];
       this.store.arrivals.clear();
@@ -414,14 +491,20 @@ export class DataService {
       const accounts = [...this.store.replayNeeded];
       this.store.replayNeeded.clear();
       this.emitPending();
-      for (const a of accounts) {this.replayRequester?.(a);}
+      for (const a of accounts) {
+        this.replayRequester?.(a);
+      }
     }
   }
 
   putBodies(accountId: AccountId, mailbox: string, bodies: Array<BodyInput>) {
     const { keys, inboxChanged } = this.store.putBodies(accountId, mailbox, bodies);
-    if (inboxChanged) {this.emit({ type: 'rows-changed', split: 'inbox' });}
-    for (const key of keys) {this.emit({ type: 'thread-changed', key });}
+    if (inboxChanged) {
+      this.emit({ type: 'rows-changed', split: 'inbox' });
+    }
+    for (const key of keys) {
+      this.emit({ type: 'thread-changed', key });
+    }
   }
 }
 
@@ -451,9 +534,27 @@ export interface DataPort {
 }
 
 export const DATA_PORT_METHODS = [
-  'upsertAccount', 'setMailboxes', 'setIdentities', 'removeAccount', 'mailboxState', 'knownUids', 'uidsNeedingBodies', 'applyChanges', 'putBodies',
-  'pendingChanges', 'nextSendAt', 'changeApplied', 'changeFailed', 'dueOutbox', 'nextOutboxAt', 'outboxSent', 'outboxFailed',
-  'draftsToSync', 'draftSynced', 'draftDeletions', 'draftDeleted',
+  'upsertAccount',
+  'setMailboxes',
+  'setIdentities',
+  'removeAccount',
+  'mailboxState',
+  'knownUids',
+  'uidsNeedingBodies',
+  'applyChanges',
+  'putBodies',
+  'pendingChanges',
+  'nextSendAt',
+  'changeApplied',
+  'changeFailed',
+  'dueOutbox',
+  'nextOutboxAt',
+  'outboxSent',
+  'outboxFailed',
+  'draftsToSync',
+  'draftSynced',
+  'draftDeletions',
+  'draftDeleted',
 ] as const satisfies ReadonlyArray<keyof DataPort>;
 
 /** What the data process tells sync over the same port: event name → payload. */
