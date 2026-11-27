@@ -43,7 +43,6 @@ export const ACTIONS = [
   { id: 'filter.9', name: 'Show Account 9', keys: ['9'], contexts: ['list', 'reader'] },
   { id: 'go.inbox', name: 'Go to Inbox', keys: ['g i'], contexts: ['list', 'reader'] },
   { id: 'palette.open', name: 'Command Palette', keys: ['Cmd-K'], contexts: ['list', 'reader', 'composer'] },
-  { id: 'dev.testNotification', name: 'Send a Test Notification', keys: [], contexts: ['list', 'reader'] },
   { id: 'dev.overlay', name: 'Toggle Performance Overlay', keys: ['Cmd-Shift-D'], contexts: ['list', 'reader', 'composer'] },
 ] as const satisfies readonly ActionDef[];
 

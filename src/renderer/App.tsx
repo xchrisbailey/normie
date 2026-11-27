@@ -352,11 +352,6 @@ function Inbox({ core }: { core: CoreClient | null }) {
     undo,
     'dev.overlay': () => setOverlay((o) => !o),
     'palette.open': () => setPalette((p) => (p ? null : 'actions')),
-    // macOS lists an app under Notifications only once it has tried to show one: this asks.
-    'dev.testNotification': () => {
-      window.normie.notify({ key: rows[0]?.key ?? '', title: 'Normie', body: 'Notifications are on. New mail in Important will show here.' });
-      setNote('Sent a test notification. If macOS asks, choose Allow.');
-    },
     'filter.all': () => filterAccount(0),
     'split.next': () => stepSplit(1),
     'split.prev': () => stepSplit(-1),
