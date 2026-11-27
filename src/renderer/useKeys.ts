@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { KeyResolver, tokenOf, type ActionDef, type Context } from './commands/keys';
 import { mergeKeymap } from './commands/keymap';
+import { parseSnippets, type Snippet } from './commands/snippets';
 import { ACTIONS, type ActionId } from './commands/registry';
 import { measureToNextFrame } from './perf';
 
@@ -21,6 +22,22 @@ export function useKeymap() {
     };
     void window.normie.keymap().then(apply);
     return window.normie.onKeymapChanged(apply);
+  }, []);
+  return state;
+}
+
+/** Snippets from snippets.json, plus any problems with it. Updates when the file changes. */
+export function useSnippets() {
+  const [state, setState] = useState<{ snippets: Snippet[]; problems: string[] }>({ snippets: [], problems: [] });
+  useEffect(() => {
+    const apply = (k: { file?: unknown; error?: string }) => {
+      const parsed = parseSnippets(k.file);
+      const problems = k.error ? [k.error] : parsed.problems;
+      for (const p of problems) console.warn(`[snippets] ${p}`);
+      setState({ snippets: parsed.snippets, problems });
+    };
+    void window.normie.snippets().then(apply);
+    return window.normie.onSnippetsChanged(apply);
   }, []);
   return state;
 }

@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { formatAddresses, parseAddresses } from '../core/addresses';
 import { AddressField } from './AddressField';
+import { expandAt, insertAt, type Snippet } from './commands/snippets';
 import type { Address, DraftContent, OutgoingMessage } from '../core/types';
 
 export interface Identity {
@@ -33,7 +34,12 @@ async function readFiles(files: FileList | File[]): Promise<Attachment[]> {
   return Promise.all([...files].map(async (f) => ({ filename: f.name, contentType: f.type || 'application/octet-stream', content: new Uint8Array(await f.arrayBuffer()) })));
 }
 
-export default function Composer({ start, identities, onSend, onClose, onSaveDraft, onDiscard, suggest }: {
+/** What the app can do to an open composer: insert text at the cursor in the body (a snippet from the palette). */
+export interface ComposerHandle {
+  insert(text: string): void;
+}
+
+export default function Composer({ start, identities, onSend, onClose, onSaveDraft, onDiscard, suggest, snippets, handle }: {
   start: ComposeStart;
   identities: Identity[];
   onSend: (m: OutgoingMessage, draftId?: number) => void;
@@ -43,6 +49,8 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
   onDiscard: (draftId: number | null) => void;
   /** People to suggest in address fields. */
   suggest: (query: string) => Promise<Address[]>;
+  snippets: readonly Snippet[];
+  handle?: React.MutableRefObject<ComposerHandle | null>;
 }) {
   const same = (a?: Address, b?: Address) => !!a && !!b && a.address.toLowerCase() === b.address.toLowerCase();
   const first = identities.find((i) => i.accountId === start.accountId && same(i.from, start.from))
@@ -63,6 +71,35 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
   };
   const toField = useRef<HTMLInputElement>(null);
   const bodyField = useRef<HTMLTextAreaElement>(null);
+  /** Where to put the cursor after the body changes from code (a snippet). */
+  const nextCursor = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (nextCursor.current === null || !bodyField.current) return;
+    bodyField.current.focus();
+    bodyField.current.setSelectionRange(nextCursor.current, nextCursor.current);
+    nextCursor.current = null;
+  }, [body]);
+  const lastSelection = useRef({ start: (start.body ?? '').length, end: (start.body ?? '').length });
+  if (handle) {
+    handle.current = {
+      insert: (text) => {
+        const { start: s, end } = lastSelection.current;
+        const r = insertAt(body, Math.min(s, body.length), Math.min(end, body.length), text);
+        nextCursor.current = r.cursor;
+        setBody(r.text);
+      },
+    };
+  }
+  const onBodyKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== 'Tab' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+    const el = e.currentTarget;
+    if (el.selectionStart !== el.selectionEnd) return;
+    const r = expandAt(body, el.selectionStart, snippets);
+    if (!r) return;
+    e.preventDefault();
+    nextCursor.current = r.cursor;
+    setBody(r.text);
+  };
 
   // The draft: saved a moment after typing stops, and once more on close. Nothing is saved until something is typed.
   const draftId = useRef<number | null>(start.draftId ?? null);
@@ -193,7 +230,15 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
         )}
         <label><span>Subject</span><input value={subject} onChange={(e) => setSubject(e.target.value)} /></label>
       </div>
-      <textarea ref={bodyField} className="body" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Write in Markdown" />
+      <textarea
+        ref={bodyField}
+        className="body"
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        onKeyDown={onBodyKeyDown}
+        onSelect={(e) => (lastSelection.current = { start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd })}
+        placeholder="Write in Markdown"
+      />
       {attachments.length > 0 && (
         <ul className="attachments" aria-label="Attachments">
           {attachments.map((a, i) => (

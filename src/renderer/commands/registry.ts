@@ -28,7 +28,7 @@ export const ACTIONS = [
   { id: 'thread.unmute', name: 'Unmute', keys: [], contexts: ['list', 'reader'] },
   { id: 'undo', name: 'Undo', keys: ['z'], contexts: ['list', 'reader'] },
   { id: 'go.inbox', name: 'Go to Inbox', keys: ['g i'], contexts: ['list', 'reader'] },
-  { id: 'palette.open', name: 'Command Palette', keys: ['Cmd-K'], contexts: ['list', 'reader'] },
+  { id: 'palette.open', name: 'Command Palette', keys: ['Cmd-K'], contexts: ['list', 'reader', 'composer'] },
   { id: 'dev.overlay', name: 'Toggle Performance Overlay', keys: ['Cmd-Shift-D'], contexts: ['list', 'reader', 'composer'] },
 ] as const satisfies readonly ActionDef[];
 

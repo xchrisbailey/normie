@@ -448,8 +448,21 @@ async function smokeKeys(w: BrowserWindow) {
   const picked = (await w.webContents.executeJavaScript(`document.querySelector('.composer input:not([type=file])').value`)) as string;
   await press('Escape');
   const autocomplete = suggested.startsWith('Grace Hopper') && picked === 'Grace Hopper <grace@example.com>, ';
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, picked };
+  // Snippets: snippets.json is picked up without a restart; ";thanks" then Tab in the body expands it.
+  writeFileSync(snippetsPath(), JSON.stringify({ thanks: 'Thanks so much!' }));
+  await new Promise((r) => setTimeout(r, 600));
+  await press('c');
+  await new Promise((r) => setTimeout(r, 300));
+  await typeText('ada@example.com');
+  await press('Tab');
+  await press('Tab');
+  await typeText('Great work. ;thanks');
+  await press('Tab');
+  const expanded = (await w.webContents.executeJavaScript(`document.querySelector('.composer textarea').value`)) as string;
+  await press('Escape');
+  const snippet = expanded === 'Great work. Thanks so much!';
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet;
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, expanded };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };
@@ -494,38 +507,48 @@ ipcMain.handle('accounts:remove', (_e, id: string) => accounts.remove(id));
 
 // --- Keymap: the user's key overrides, in keymap.json next to the store. Read at launch and whenever it changes.
 
-type KeymapFile = { file?: unknown; error?: string };
+// The user's own files next to the store: keymap.json (keys) and snippets.json (text to insert while writing).
+type UserFile = { file?: unknown; error?: string };
 const keymapPath = () => path.join(app.getPath('userData'), 'keymap.json');
-let keymap: KeymapFile = {};
+const snippetsPath = () => path.join(app.getPath('userData'), 'snippets.json');
+let keymap: UserFile = {};
+let snippets: UserFile = {};
 
-function readKeymap(): KeymapFile {
-  if (!existsSync(keymapPath())) return {};
+function readUserFile(file: string): UserFile {
+  if (!existsSync(file)) return {};
   try {
-    return { file: JSON.parse(readFileSync(keymapPath(), 'utf8')) as unknown };
+    return { file: JSON.parse(readFileSync(file, 'utf8')) as unknown };
   } catch (e) {
-    return { error: `keymap.json isn't valid JSON: ${(e as Error).message}` };
+    return { error: `${path.basename(file)} isn't valid JSON: ${(e as Error).message}` };
   }
 }
 
-function watchKeymap() {
-  keymap = readKeymap();
-  let timer: NodeJS.Timeout | undefined;
+function watchUserFiles() {
+  keymap = readUserFile(keymapPath());
+  snippets = readUserFile(snippetsPath());
+  const timers: Record<string, NodeJS.Timeout | undefined> = {};
   try {
-    // Watch the folder, not the file: editors often save by replacing it.
+    // Watch the folder, not the files: editors often save by replacing them.
     watch(app.getPath('userData'), (_event, name) => {
-      if (name !== 'keymap.json') return;
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        keymap = readKeymap();
-        buildMenu();
-        win?.webContents.send('keymap:changed', keymap);
+      if (name !== 'keymap.json' && name !== 'snippets.json') return;
+      clearTimeout(timers[name]);
+      timers[name] = setTimeout(() => {
+        if (name === 'keymap.json') {
+          keymap = readUserFile(keymapPath());
+          buildMenu();
+          win?.webContents.send('keymap:changed', keymap);
+        } else {
+          snippets = readUserFile(snippetsPath());
+          win?.webContents.send('snippets:changed', snippets);
+        }
       }, 100);
     });
   } catch (e) {
-    console.error(`[main] can't watch keymap.json: ${(e as Error).message}`);
+    console.error(`[main] can't watch the data folder: ${(e as Error).message}`);
   }
 }
 ipcMain.handle('keymap:get', () => keymap);
+ipcMain.handle('snippets:get', () => snippets);
 
 /** Native menus: the standard Mac menus plus Go, Thread and View built from the registry, with the user's keys. */
 function buildMenu() {
@@ -560,7 +583,7 @@ function buildMenu() {
 }
 
 app.whenReady().then(() => {
-  watchKeymap();
+  watchUserFiles();
   buildMenu();
   loadSnapshot();
   initAccounts();
