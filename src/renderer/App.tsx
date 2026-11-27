@@ -13,6 +13,7 @@ import { blockedMessages, Reader } from './Reader';
 import { SyncBadge } from './SyncBadge';
 import { ThreadCache } from './thread-cache';
 import { toNotify } from './notify';
+import { applyTheme, currentTheme, type Theme } from './theme';
 import { WhenPicker } from './WhenPicker';
 import { describeWhen } from '../core/when';
 import { splitCounts, splitsFrom } from './splits';
@@ -40,7 +41,7 @@ const UNDO_SEND_WINDOW_MS = 4500;
 const LABEL_ITEM = 'label:';
 const DRAFT_ITEM = 'draft:';
 /** One color per Account, for the marker on each row. */
-const ACCOUNT_COLORS = ['#89b4fa', '#a6e3a1', '#fab387', '#f5c2e7', '#94e2d5', '#f9e2af', '#cba6f7', '#eba0ac', '#74c7ec'];
+const ACCOUNT_COLORS = ['blue', 'green', 'peach', 'pink', 'teal', 'yellow', 'mauve', 'maroon', 'sapphire'].map((c) => `var(--${c})`);
 const SNIPPET_ITEM = 'snippet:';
 const SCHEDULED_ITEM = 'scheduled:';
 
@@ -101,6 +102,12 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const selectedKey = useRef<string | undefined>(undefined);
   const reported = useRef(false);
   const [overlay, setOverlay] = useState(false);
+  const [theme, setThemeState] = useState<Theme>(currentTheme);
+  const setTheme = (t: Theme) => {
+    applyTheme(t);
+    setThemeState(t);
+    setNote(t === 'system' ? 'Theme follows the system' : `Theme: ${t === 'latte' ? 'Latte' : 'Mocha'}`);
+  };
   /** The open palette: every action, or Labels for the selected Thread. */
   const [palette, setPalette] = useState<null | 'actions' | 'label'>(null);
   /** The time picker, and what it's for. */
@@ -381,6 +388,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
       requestAnimationFrame(() => searchInput.current?.focus());
     },
     'search.close': () => closeSearch(),
+    'theme.mocha': () => setTheme('mocha'),
+    'theme.latte': () => setTheme('latte'),
+    'theme.system': () => setTheme('system'),
     'thread.snooze': () => {
       if (rows[clamp(selected)]) setPicker('snooze');
     },
@@ -690,6 +700,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
               onLoadImages={() => loadImages(false)}
               onAlwaysLoadImages={() => loadImages(true)}
               onAttachment={onAttachment}
+              theme={theme}
             />
           )}
         </div>

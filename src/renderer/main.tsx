@@ -2,6 +2,10 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { waitForCore } from './core-client';
 import './styles.css';
+import { applyTheme, currentTheme } from './theme';
+
+// The theme first, so the first frame is already in the right colours.
+applyTheme(currentTheme());
 
 // A file dropped anywhere but the composer is ignored, never opened in the window.
 for (const type of ['dragover', 'drop'] as const) window.addEventListener(type, (e) => e.preventDefault());

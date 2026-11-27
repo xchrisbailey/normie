@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('normie', {
   openLink: (url: string) => ipcRenderer.send('open-link', url),
   openAttachment: (file: { filename: string; content: Uint8Array }): Promise<{ ok: boolean; reason?: string }> => ipcRenderer.invoke('attachment:open', file),
   saveAttachment: (file: { filename: string; content: Uint8Array }): Promise<{ ok: boolean; path?: string }> => ipcRenderer.invoke('attachment:save', file),
+  /** The theme, for the parts main draws (menus, the window's background). */
+  setTheme: (t: 'mocha' | 'latte' | 'system') => ipcRenderer.send('theme', t),
   /** The Inbox count, for the menu bar. */
   setInboxCount: (n: number) => ipcRenderer.send('inbox-count', n),
   toggleLoginItem: (): Promise<{ on: boolean; packaged: boolean }> => ipcRenderer.invoke('login-item:toggle'),
