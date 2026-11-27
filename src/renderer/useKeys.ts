@@ -61,6 +61,8 @@ export function useKeys(context: Context, handlers: Handlers, actions: readonly 
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      // While a form or the palette is open, keys are its own: none reach the list behind it.
+      if (document.querySelector('.palette-backdrop')) return;
       const token = tokenOf(e, window.normie.platform);
       if (!token) return;
       const res = resolver.feed(token, latest.current.context);
