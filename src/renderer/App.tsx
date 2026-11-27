@@ -3,11 +3,14 @@ import type { ThreadAction, ThreadMessage, ThreadRow } from '../core/types';
 import { AccountBar, EmptyState, useAccounts } from './AccountBar';
 import type { CoreClient } from './core-client';
 import { DevOverlay } from './DevOverlay';
+import { actionItems } from './commands/palette';
+import { ACTIONS } from './commands/registry';
+import { Palette } from './Palette';
 import { Reader } from './Reader';
 import { SyncBadge } from './SyncBadge';
 import { ThreadCache } from './thread-cache';
 import { ThreadList } from './ThreadList';
-import { useKeys } from './useKeys';
+import { useKeys, type Handlers } from './useKeys';
 
 const PREFETCH = 3;
 
@@ -31,6 +34,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const reported = useRef(false);
   const accounts = useAccounts();
   const [overlay, setOverlay] = useState(false);
+  const [palette, setPalette] = useState(false);
   const cache = useMemo(() => (core ? new ThreadCache(core) : null), [core]);
   /**
    * Triage changes the rows in memory first; these overrides stay laid over the core's rows until the core
@@ -215,7 +219,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
       });
   };
 
-  useKeys(open ? 'reader' : 'list', {
+  const context = open ? 'reader' : 'list';
+  const handlers: Handlers = {
     'list.down': () => move((s) => s + 1),
     'list.up': () => move((s) => s - 1),
     'list.top': () => move(() => 0),
@@ -236,7 +241,19 @@ function Inbox({ core }: { core: CoreClient | null }) {
     'thread.toggleRead': () => triage((r) => ({ type: 'read', on: r.unread }), (r) => ({ ...r, unread: !r.unread })),
     undo,
     'dev.overlay': () => setOverlay((o) => !o),
-  });
+    'palette.open': () => setPalette((p) => !p),
+  };
+  useKeys(context, handlers);
+
+  /** Run a registry action by id, as the palette and the native menus do. Of several ids, the one that applies here. */
+  const latest = useRef({ handlers, context });
+  latest.current = { handlers, context };
+  const runAction = useCallback((ids: string[]) => {
+    const { handlers: h, context: ctx } = latest.current;
+    const id = ids.find((x) => ACTIONS.some((a) => a.id === x && (a.contexts as readonly string[]).includes(ctx)) && h[x as keyof Handlers]);
+    if (id) void h[id as keyof Handlers]!();
+  }, []);
+  useEffect(() => window.normie.onMenuAction(runAction), [runAction]);
 
   return (
     <main className="app">
@@ -255,6 +272,16 @@ function Inbox({ core }: { core: CoreClient | null }) {
         </div>
       )}
       {overlay && <DevOverlay />}
+      {palette && (
+        <Palette
+          items={actionItems(ACTIONS, context, (id) => id !== 'palette.open' && !!handlers[id as keyof Handlers])}
+          onClose={() => setPalette(false)}
+          onRun={(item) => {
+            setPalette(false);
+            runAction([item.id]);
+          }}
+        />
+      )}
     </main>
   );
 }

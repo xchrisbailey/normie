@@ -33,7 +33,8 @@ const Row = memo(function Row({ row, selected, top }: { row: ThreadRow; selected
   );
 });
 
-export function ThreadList({ rows, selected }: { rows: ThreadRow[]; selected: number }) {
+/** Memoized: opening the palette or an overlay shouldn't re-render the list. */
+export const ThreadList = memo(function ThreadList({ rows, selected }: { rows: ThreadRow[]; selected: number }) {
   const scroller = useRef<HTMLDivElement>(null);
   const v = useVirtualizer({ count: rows.length, getScrollElement: () => scroller.current, estimateSize: () => ROW_HEIGHT, overscan: 12 });
 
@@ -50,4 +51,4 @@ export function ThreadList({ rows, selected }: { rows: ThreadRow[]; selected: nu
       </div>
     </div>
   );
-}
+});

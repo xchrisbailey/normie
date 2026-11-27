@@ -1,5 +1,5 @@
 // The main process: windows, process wiring and (later) sign-in and secrets.
-import { app, BrowserWindow, ipcMain, MessageChannelMain, shell, utilityProcess, type UtilityProcess } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, MessageChannelMain, shell, utilityProcess, type MenuItemConstructorOptions, type UtilityProcess } from 'electron';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -10,6 +10,8 @@ import { Accounts, type AccountRecord } from './auth/accounts';
 import { JsonAccountList, SafeStorageSecrets } from './auth/electron-stores';
 import { loadGoogleClient } from './auth/google-oauth';
 import { BUDGETS } from '../core/budgets';
+import { menuSections } from '../renderer/commands/menu';
+import { ACTIONS } from '../renderer/commands/registry';
 
 const smoke = process.env.NORMIE_SMOKE === '1';
 const bench = process.env.NORMIE_BENCH === '1';
@@ -199,10 +201,10 @@ ipcMain.on('renderer-ready', async (_e, info: { rows: number; view: 'list' | 'em
 /** The benchmark: real key presses against the 100,000-message fixture, checked against the budgets. */
 async function runBench(w: BrowserWindow, info: { rows: number }) {
   const budgets = { ...BUDGETS, keyMoveMs: Number(process.env.NORMIE_BUDGET_KEY_MS) || BUDGETS.keyMoveMs };
-  const press = async (keyCode: string) => {
-    w.webContents.sendInputEvent({ type: 'keyDown', keyCode });
-    w.webContents.sendInputEvent({ type: 'char', keyCode });
-    w.webContents.sendInputEvent({ type: 'keyUp', keyCode });
+  const press = async (keyCode: string, modifiers: 'meta'[] = []) => {
+    w.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
+    if (!modifiers.length) w.webContents.sendInputEvent({ type: 'char', keyCode });
+    w.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
     await new Promise((r) => setTimeout(r, 25));
   };
   await new Promise((r) => setTimeout(r, 500)); // let the first frames settle
@@ -223,6 +225,13 @@ async function runBench(w: BrowserWindow, info: { rows: number }) {
   await new Promise((r) => setTimeout(r, 200));
   for (let i = 0; i < 50; i++) await press('e');
   await new Promise((r) => setTimeout(r, 200));
+  // The palette: open with Cmd-K, close with Escape.
+  for (let i = 0; i < 40; i++) {
+    await press('K', ['meta']);
+    await new Promise((r) => setTimeout(r, 50));
+    await press('Escape');
+  }
+  await new Promise((r) => setTimeout(r, 200));
   const samples = (await w.webContents.executeJavaScript('window.__normiePerf.samples()')) as { action: string; ms: number }[];
   const sorted = (xs: { ms: number }[]) => xs.map((s) => s.ms).sort((a, b) => a - b);
   const pctOf = (xs: number[]) => (p: number) => xs[Math.min(xs.length - 1, Math.floor((p / 100) * xs.length))] ?? Infinity;
@@ -232,6 +241,8 @@ async function runBench(w: BrowserWindow, info: { rows: number }) {
   const openPct = pctOf(opens);
   const dones = sorted(samples.filter((s) => s.action === 'thread.done'));
   const donePct = pctOf(dones);
+  const palettes = sorted(samples.filter((s) => s.action === 'palette.open'));
+  const palettePct = pctOf(palettes);
   // Memory is a steady-state budget: Chromium caches raster tiles while scrolling and frees them once idle
   // (measured: 444 MB right after 300 rapid presses, 271 MB about 7 s later). Report the peak, judge the settled value.
   const peak = measureMemory();
@@ -241,12 +252,13 @@ async function runBench(w: BrowserWindow, info: { rows: number }) {
     { budget: 'keyMoveMs', value: pct(95), limit: budgets.keyMoveMs, detail: `p50 ${pct(50).toFixed(1)}, p95 ${pct(95).toFixed(1)}, max ${(ms.at(-1) ?? 0).toFixed(1)} ms over ${ms.length} presses` },
     { budget: 'openCachedMs', value: openPct(95), limit: budgets.openCachedMs, detail: `p50 ${openPct(50).toFixed(1)}, p95 ${openPct(95).toFixed(1)}, max ${(opens.at(-1) ?? 0).toFixed(1)} ms over ${opens.length} opens` },
     { budget: 'triageMs', value: donePct(95), limit: budgets.triageMs, detail: `Done: p50 ${donePct(50).toFixed(1)}, p95 ${donePct(95).toFixed(1)}, max ${(dones.at(-1) ?? 0).toFixed(1)} ms over ${dones.length} Threads` },
+    { budget: 'paletteMs', value: palettePct(95), limit: budgets.paletteMs, detail: `Cmd-K: p50 ${palettePct(50).toFixed(1)}, p95 ${palettePct(95).toFixed(1)}, max ${(palettes.at(-1) ?? 0).toFixed(1)} ms over ${palettes.length} opens` },
     { budget: 'memoryMb', value: memory.mb, limit: budgets.memoryMb, detail: `settled; ${memory.detail}; peak while scrolling ${peak.mb.toFixed(0)}` },
   ];
-  const pressesOk = ms.length === 300 && opens.length === 31 && dones.length === 50;
+  const pressesOk = ms.length === 300 && opens.length === 31 && dones.length === 50 && palettes.length === 40;
   console.log(`\n[bench] fixture: ${info.rows} Inbox rows in the renderer`);
   for (const r of results) console.log(`[bench] ${r.value <= r.limit ? 'ok  ' : 'FAIL'} ${r.budget.padEnd(12)} ${r.value.toFixed(1).padStart(7)} / ${r.limit}   ${r.detail}`);
-  if (!pressesOk) console.log(`[bench] FAIL expected 300 moves, 31 opens and 50 Dones, got ${ms.length}, ${opens.length} and ${dones.length}`);
+  if (!pressesOk) console.log(`[bench] FAIL expected 300 moves, 31 opens, 50 Dones and 40 palettes, got ${ms.length}, ${opens.length}, ${dones.length} and ${palettes.length}`);
   quitting = true;
   app.exit(pressesOk && results.every((r) => r.value <= r.limit) ? 0 : 1);
 }
@@ -276,11 +288,11 @@ async function smokeKeys(w: BrowserWindow) {
     w.webContents.executeJavaScript(
       `(() => { const s = document.querySelector('.row.selected'); return s ? Math.round(s.offsetTop / s.offsetHeight) : -1; })()`,
     ) as Promise<number>;
-  const press = async (keyCode: string, n = 1) => {
+  const press = async (keyCode: string, n = 1, modifiers: ('meta' | 'shift')[] = []) => {
     for (let i = 0; i < n; i++) {
-      w.webContents.sendInputEvent({ type: 'keyDown', keyCode });
-      w.webContents.sendInputEvent({ type: 'char', keyCode });
-      w.webContents.sendInputEvent({ type: 'keyUp', keyCode });
+      w.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
+      if (!modifiers.includes('meta')) w.webContents.sendInputEvent({ type: 'char', keyCode, modifiers });
+      w.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
     }
     await new Promise((r) => setTimeout(r, 100));
   };
@@ -309,8 +321,15 @@ async function smokeKeys(w: BrowserWindow) {
   // s stars the selected Thread.
   await press('s');
   const starred = (await w.webContents.executeJavaScript(`!!document.querySelector('.row.selected .star')`)) as boolean;
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred;
-  return { ok, start, afterJ, afterK, afterGG, reader, done, undone, starred };
+  // Cmd-K, type "done", Enter: the palette runs Mark Done and closes.
+  const beforePalette = await count();
+  await press('K', 1, ['meta']);
+  const paletteOpen = (await w.webContents.executeJavaScript(`!!document.querySelector('.palette input')`)) as boolean;
+  for (const ch of 'done') await press(ch);
+  await press('Enter');
+  const palette = paletteOpen && (await count()) === beforePalette - 1 && !((await w.webContents.executeJavaScript(`!!document.querySelector('.palette')`)) as boolean);
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette;
+  return { ok, start, afterJ, afterK, afterGG, reader, done, undone, starred, palette };
 }
 
 ipcMain.handle('accounts:list', () => accounts.list());
@@ -322,7 +341,28 @@ ipcMain.handle('accounts:add-gmail', async (_e, loginHint?: string): Promise<Acc
 });
 ipcMain.handle('accounts:remove', (_e, id: string) => accounts.remove(id));
 
+/** Native menus: the standard Mac menus plus Go, Thread and View built from the registry. */
+function buildMenu() {
+  const fromRegistry: MenuItemConstructorOptions[] = menuSections(ACTIONS).map((s) => ({
+    label: s.label,
+    submenu: s.entries.map((e) => ({
+      label: e.label,
+      ...(e.accelerator ? { accelerator: e.accelerator, registerAccelerator: e.registerAccelerator } : {}),
+      click: () => win?.webContents.send('menu:action', e.ids),
+    })),
+  }));
+  const template: MenuItemConstructorOptions[] = [
+    ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : [{ role: 'fileMenu' as const }]),
+    { role: 'editMenu' },
+    ...fromRegistry,
+    { role: 'windowMenu' },
+  ];
+  if (!app.isPackaged) (template.at(-2)!.submenu as MenuItemConstructorOptions[]).push({ type: 'separator' }, { role: 'reload' }, { role: 'toggleDevTools' });
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 app.whenReady().then(() => {
+  buildMenu();
   loadSnapshot();
   initAccounts();
   startData();
