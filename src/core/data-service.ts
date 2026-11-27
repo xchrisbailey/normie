@@ -247,6 +247,16 @@ export class DataService {
     return this.store.contacts(query, limit, this.now());
   }
 
+  /** Threads matching a search, newest first. */
+  search(query: string, limit?: number): ThreadRow[] {
+    return this.store.search(query, limit);
+  }
+
+  /** One batch of indexing mail stored before search existed. */
+  indexSearchBatch(batch?: number): number {
+    return this.store.indexSearchBatch(batch);
+  }
+
   /** Add a sender to the VIP list, or take them off. The Splits change. */
   setVip(address: string, on: boolean) {
     this.store.setVip(address, on);

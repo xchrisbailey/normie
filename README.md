@@ -35,6 +35,7 @@ A keyboard-first desktop mail client for Gmail, iCloud and any IMAP/SMTP server.
 | `g i`, `g g`, `Shift-G` | Inbox, first Thread, last Thread |
 | `Space` / `Shift-Space` | Scroll the open Thread |
 | `i` / `Shift-I` | Load hidden images in this Thread / always from these senders |
+| `/` | Search: words, "a phrase", `from:`, `to:`, `subject:`; Enter goes to the results, Esc closes |
 | `c`, `r`, `Shift-R`, `f` | Compose, reply, reply all, forward |
 | `Cmd-Z` | Undo Send (for 5 s after sending) |
 

@@ -40,6 +40,17 @@ function attach(kind: 'renderer-port' | 'sync-port', port: MessagePortMain) {
 }
 
 process.parentPort.on('message', (e) => {
+  if ((e.data as { type: string }).type === 'debug-search' && data) {
+    // The benchmark: time each query, as the renderer would ask it.
+    const ds = data;
+    while (ds.indexSearchBatch(5000));
+    const times = (e.data as { queries: string[] }).queries.map((q) => {
+      const t = performance.now();
+      const n = ds.search(q).length;
+      return { q, n, ms: performance.now() - t };
+    });
+    return void process.parentPort.postMessage({ type: 'debug-search', times });
+  }
   if ((e.data as { type: string }).type === 'debug-memory') {
     const m = process.memoryUsage();
     const mb = (n: number) => Math.round(n / 1048576);
@@ -62,6 +73,11 @@ process.parentPort.on('message', (e) => {
       if (ds.backfillListFlags(1000)) setTimeout(backfill, 20);
     };
     setTimeout(backfill, 3000);
+    // Mail stored before search existed is indexed in the background, newest first.
+    const index = () => {
+      if (ds.indexSearchBatch(400)) setTimeout(index, 30);
+    };
+    setTimeout(index, 4000);
     data.replayRequester = (accountId) => emitToSync?.('replay', { accountId });
     data.outboxRequester = (accountId) => emitToSync?.('outbox', { accountId });
     data.draftsRequester = (accountId) => emitToSync?.('drafts', { accountId });

@@ -1,5 +1,6 @@
 // The local store: one SQLite file in WAL mode, owned by the data process.
 import Database from 'better-sqlite3';
+import { ftsQuery } from './search-query';
 import { SNOOZED } from './types';
 import type {
   AccountId, Address, AttachmentInfo, ChangeResult, ScheduledSummary, DraftContent, LabelSet, DraftSummary, DraftToSync, FlagChange, OutboxItem, OutgoingMessage, MailboxRole, MessageEdit, PendingChange, RemoteHeader, SplitId, SyncState, ThreadAction,
@@ -259,7 +260,59 @@ const MIGRATIONS: string[] = [
   alter table threads add column reminded_at integer;
   create index threads_reminded on threads (reminded_at) where reminded_at is not null;
   `,
+  // Full-text search: subject, sender, recipients and body of every message, kept in step by triggers. Mail already
+  // stored is indexed in the background (Store.indexSearchBatch), newest first, so this migration stays instant.
+  `
+  create virtual table search using fts5(subject, sender, recipients, body, tokenize = 'unicode61 remove_diacritics 2');
+  create table meta (key text primary key, value text);
+  insert into meta(key, value) select 'search_backfill_below', coalesce(max(id), 0) + 1 from messages;
+  create trigger search_message_insert after insert on messages begin
+    insert into search(rowid, subject, sender, recipients, body) values (new.id, new.subject, ${PEOPLE('new.from_json', 'single')}, ${PEOPLE('new.to_json', 'list')}, '');
+  end;
+  create trigger search_message_update after update of subject, from_json, to_json on messages begin
+    update search set subject = new.subject, sender = ${PEOPLE('new.from_json', 'single')}, recipients = ${PEOPLE('new.to_json', 'list')} where rowid = new.id;
+  end;
+  create trigger search_message_delete after delete on messages begin
+    delete from search where rowid = old.id;
+  end;
+  create trigger search_body_insert after insert on bodies begin
+    update search set body = new.text where rowid = new.message_id;
+  end;
+  create trigger search_body_update after update of text on bodies begin
+    update search set body = new.text where rowid = new.message_id;
+  end;
+  `,
 ];
+
+/** The columns a Thread row is built from (alias t), with the tags the Splits need. */
+const ROW_COLS = `t.account_id, t.thread_key, t.subject, t.from_label, t.last_date, t.snippet, t.unread, t.starred, t.count, t.is_list, t.sender,
+  t.labels_json, t.woke_at, t.sender in (select address from vip) vip, t.sender in (select address from contacts where sent_count > 0) known`;
+
+type RowData = {
+  account_id: string; thread_key: string; subject: string; from_label: string; last_date: number; snippet: string;
+  unread: number; starred: number; count: number; is_list: number; sender: string | null; labels_json: string; woke_at: number | null;
+  vip: number | null; known: number | null; wake_at?: number; reminded?: number;
+};
+
+function toThreadRow(r: RowData): ThreadRow {
+  return {
+    key: threadRowKey(r.account_id, r.thread_key), accountId: r.account_id, subject: r.subject, from: r.from_label,
+    date: Math.max(r.last_date, r.woke_at ?? 0), snippet: r.snippet, unread: r.unread === 1, starred: r.starred === 1, count: r.count,
+    tags: {
+      ...(r.wake_at !== undefined && r.wake_at !== null ? { snoozedUntil: r.wake_at } : {}),
+      ...(r.reminded ? { reminder: true } : {}),
+      newsletter: r.is_list === 1, vip: r.vip === 1, known: r.known === 1, ...(r.sender ? { sender: r.sender } : {}),
+      ...(r.labels_json !== '[]' ? { labels: JSON.parse(r.labels_json) as string[] } : {}),
+    },
+  };
+}
+
+/** SQL for the searchable text of an address (single) or a list of them: names and addresses. */
+function PEOPLE(json: string, kind: 'single' | 'list'): string {
+  return kind === 'single'
+    ? `coalesce(json_extract(${json}, '$.name'), '') || ' ' || coalesce(json_extract(${json}, '$.address'), '')`
+    : `coalesce((select group_concat(coalesce(json_extract(value, '$.name'), '') || ' ' || coalesce(json_extract(value, '$.address'), ''), ' ') from json_each(${json})), '')`;
+}
 
 /** Mail dated a little before the last check still counts as news (clocks differ; servers deliver late). */
 const NEWS_SLACK_MS = 10 * 60_000;
@@ -1262,38 +1315,68 @@ export class Store {
   rows(split: SplitId, limit = 5000): ThreadRow[] {
     if (split !== 'inbox') return [];
     // Three queries that each use an index, merged here: an OR across them made SQLite scan and sort every Thread.
-    const cols = `t.account_id, t.thread_key, t.subject, t.from_label, t.last_date, t.snippet, t.unread, t.starred, t.count, t.is_list, t.sender,
-                  t.labels_json, t.woke_at, t.sender in (select address from vip) vip, t.sender in (select address from contacts where sent_count > 0) known`;
-    type Row = {
-      account_id: string; thread_key: string; subject: string; from_label: string; last_date: number; snippet: string;
-      unread: number; starred: number; count: number; is_list: number; sender: string | null; labels_json: string; woke_at: number | null;
-      vip: number | null; known: number | null; wake_at?: number; reminded?: number;
-    };
     // The Inbox, newest first; woken Threads (rare) are fetched apart, since waking puts an old Thread on top.
-    const inbox = this.sql(`select ${cols} from threads t where t.in_inbox = 1 order by t.last_date desc limit ?`).all(limit) as Row[];
-    const woken = this.sql(`select ${cols} from threads t where t.woke_at is not null and t.woke_at > t.last_date and t.in_inbox = 1`).all() as Row[];
-    const snoozed = this.sql(`select ${cols}, s.wake_at from snoozes s join threads t on t.account_id = s.account_id and t.thread_key = s.thread_key`).all() as Row[];
-    const reminded = this.sql(`select ${cols}, 1 reminded from threads t where t.reminded_at is not null`).all() as Row[];
+    const inbox = this.sql(`select ${ROW_COLS} from threads t where t.in_inbox = 1 order by t.last_date desc limit ?`).all(limit) as RowData[];
+    const woken = this.sql(`select ${ROW_COLS} from threads t where t.woke_at is not null and t.woke_at > t.last_date and t.in_inbox = 1`).all() as RowData[];
+    const snoozed = this.sql(`select ${ROW_COLS}, s.wake_at from snoozes s join threads t on t.account_id = s.account_id and t.thread_key = s.thread_key`).all() as RowData[];
+    const reminded = this.sql(`select ${ROW_COLS}, 1 reminded from threads t where t.reminded_at is not null`).all() as RowData[];
     const seen = new Set<string>();
-    const all: (Row & { sort: number })[] = [];
+    const all: RowData[] = [];
     for (const r of [...snoozed, ...reminded, ...woken, ...inbox]) {
       const k = `${r.account_id}\u0000${r.thread_key}`;
       if (seen.has(k)) continue;
       seen.add(k);
-      all.push({ ...r, sort: Math.max(r.last_date, r.woke_at ?? 0) });
+      all.push(r);
     }
-    all.sort((x, y) => y.sort - x.sort);
-    return all.slice(0, limit).map((r) => ({
-      key: threadRowKey(r.account_id, r.thread_key), accountId: r.account_id, subject: r.subject, from: r.from_label,
-      date: r.sort, snippet: r.snippet, unread: r.unread === 1, starred: r.starred === 1, count: r.count,
-      tags: {
-        ...(r.wake_at !== undefined ? { snoozedUntil: r.wake_at } : {}),
-        ...(r.reminded ? { reminder: true } : {}),
-        newsletter: r.is_list === 1, vip: r.vip === 1, known: r.known === 1, ...(r.sender ? { sender: r.sender } : {}),
-        ...(r.labels_json !== '[]' ? { labels: JSON.parse(r.labels_json) as string[] } : {}),
-      },
-    }));
+    const sortOf = (r: RowData) => Math.max(r.last_date, r.woke_at ?? 0);
+    all.sort((x, y) => sortOf(y) - sortOf(x));
+    return all.slice(0, limit).map(toThreadRow);
   }
+
+  // --- Search
+
+  /**
+   * Threads with a message matching the query (see search-query.ts), newest first. Any mailbox: archived and
+   * old mail too. The index covers what's stored; the server is searched for the rest (#81).
+   */
+  search(query: string, limit = 200): ThreadRow[] {
+    const match = ftsQuery(query);
+    if (!match) return [];
+    const hits = this.sql(`select m.account_id, m.thread_key, max(m.date) d from search s join messages m on m.id = s.rowid
+                            where search match ? group by m.account_id, m.thread_key order by d desc limit ?`).all(match, limit) as { account_id: string; thread_key: string }[];
+    const one = this.sql(`select ${ROW_COLS}, (select wake_at from snoozes s where s.account_id = t.account_id and s.thread_key = t.thread_key) wake_at
+                          from threads t where t.account_id = ? and t.thread_key = ?`);
+    return hits.flatMap((h) => {
+      const r = one.get(h.account_id, h.thread_key) as (RowData & { wake_at: number | null }) | undefined;
+      if (!r) return [];
+      const { wake_at, ...rest } = r;
+      return [toThreadRow(wake_at === null ? rest : { ...rest, wake_at })];
+    });
+  }
+
+  /**
+   * Index mail stored before search existed, newest first, a batch at a time (the data process runs this in its idle
+   * time). Returns how many were indexed; 0 when done.
+   */
+  indexSearchBatch(batch = 2000): number {
+    const below = Number(this.sql(`select value from meta where key = 'search_backfill_below'`).pluck().get() ?? 0);
+    if (below <= 1) return 0;
+    const ids = this.sql('select id from messages where id < ? order by id desc limit ?').pluck().all(below, batch) as number[];
+    if (!ids.length) {
+      this.sql(`update meta set value = '0' where key = 'search_backfill_below'`).run();
+      return 0;
+    }
+    const lo = ids.at(-1)!;
+    this.db.transaction(() => {
+      this.sql(`insert into search(rowid, subject, sender, recipients, body)
+                select m.id, m.subject, ${PEOPLE('m.from_json', 'single')}, ${PEOPLE('m.to_json', 'list')}, coalesce(b.text, '')
+                from messages m left join bodies b on b.message_id = m.id
+                where m.id >= ? and m.id < ? and m.id not in (select rowid from search where rowid >= ? and rowid < ?)`).run(lo, below, lo, below);
+      this.sql(`update meta set value = ? where key = 'search_backfill_below'`).run(String(lo));
+    })();
+    return ids.length;
+  }
+
 
 
   /** Mark a sender as VIP, or not. */
