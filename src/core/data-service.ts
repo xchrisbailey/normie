@@ -226,15 +226,16 @@ export class DataService {
     const read = await this.mime.readOriginal(raw, withAttachments).catch(() => null);
     if (!read) {return known;}
     // The raw message has the full headers; the store fills in anything it lacks.
-    return {
+    const merged: Original = {
       ...read,
-      ...(read.messageId ? {} : known.messageId ? { messageId: known.messageId } : {}),
-      ...(read.from ? {} : known.from ? { from: known.from } : {}),
       to: read.to.length ? read.to : known.to,
       subject: read.subject || known.subject,
       date: read.date || known.date,
       text: read.text || known.text,
     };
+    if (!read.messageId && known.messageId) {merged.messageId = known.messageId;}
+    if (!read.from && known.from) {merged.from = known.from;}
+    return merged;
   }
 
   /** One attachment's bytes, read from the stored message. */
@@ -466,7 +467,27 @@ export interface SyncEvents {
 
 /** Adapts an in-process DataService to the async DataPort. */
 export function localDataPort(ds: DataService): DataPort {
-  const port = {} as Record<string, unknown>;
-  for (const m of DATA_PORT_METHODS) {port[m] = async (...args: unknown[]) => (ds[m] as (...a: unknown[]) => unknown)(...args);}
-  return port as unknown as DataPort;
+  return {
+    upsertAccount: async (...a) => ds.upsertAccount(...a),
+    setMailboxes: async (...a) => ds.setMailboxes(...a),
+    setIdentities: async (...a) => ds.setIdentities(...a),
+    removeAccount: async (...a) => ds.removeAccount(...a),
+    mailboxState: async (...a) => ds.mailboxState(...a),
+    knownUids: async (...a) => ds.knownUids(...a),
+    uidsNeedingBodies: async (...a) => ds.uidsNeedingBodies(...a),
+    applyChanges: async (...a) => ds.applyChanges(...a),
+    putBodies: async (...a) => ds.putBodies(...a),
+    pendingChanges: async (...a) => ds.pendingChanges(...a),
+    nextSendAt: async (...a) => ds.nextSendAt(...a),
+    changeApplied: async (...a) => ds.changeApplied(...a),
+    changeFailed: async (...a) => ds.changeFailed(...a),
+    dueOutbox: async (...a) => ds.dueOutbox(...a),
+    nextOutboxAt: async (...a) => ds.nextOutboxAt(...a),
+    outboxSent: async (...a) => ds.outboxSent(...a),
+    outboxFailed: async (...a) => ds.outboxFailed(...a),
+    draftsToSync: async (...a) => ds.draftsToSync(...a),
+    draftSynced: async (...a) => ds.draftSynced(...a),
+    draftDeletions: async (...a) => ds.draftDeletions(...a),
+    draftDeleted: async (...a) => ds.draftDeleted(...a),
+  };
 }

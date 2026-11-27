@@ -1,3 +1,5 @@
+import type { ThreadRow } from '../core/types';
+
 export {};
 
 declare global {
@@ -20,8 +22,8 @@ declare global {
     normie: {
       firstPaint(info: { rows: number; fromSnapshot: boolean }): void;
       ready(info: { rows: number; view: 'list' | 'empty'; fromSnapshot: boolean }): void;
-      snapshot(): Array<import('../core/types').ThreadRow>;
-      saveSnapshot(rows: Array<import('../core/types').ThreadRow>): void;
+      snapshot(): Array<ThreadRow>;
+      saveSnapshot(rows: Array<ThreadRow>): void;
       platform: string;
       fake: boolean;
       onMenuAction(fn: (ids: Array<string>) => void): () => void;

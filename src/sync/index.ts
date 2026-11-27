@@ -1,13 +1,13 @@
 // The sync process: talks to mail servers and hands changes to the data process.
 // Main tells it which Accounts exist; it keeps one SyncEngine per Account in step with that list.
-import type { MessagePortMain } from 'electron';
 import { DATA_PORT_METHODS } from '../core/data-service';
+import { errorMessage, expected } from '../core/errors';
+import { log as print } from '../core/log';
 import type { DataPort, SyncEvents } from '../core/data-service';
 import { FakeProvider, FakeTransport, seedDemo, seedNewsletter } from '../core/fake-provider';
 import { connect, mainPortChannel, proxy } from '../core/rpc';
 import type { Client } from '../core/rpc';
 import { SyncEngine } from '../core/sync-engine';
-import type { ServerQuery } from '../core/search-query';
 import type { MailProvider, MailTransport } from '../core/types';
 import type { PasswordAccountSettings } from '../main/auth/password-accounts';
 import { extractText } from './extract-text';
@@ -25,7 +25,13 @@ type Message =
   | { type: 'data-port' }
   | { type: 'main-port' };
 
-const log = (m: string) => console.log(`[sync] ${m}`);
+const isMessage = (v: unknown): v is Message =>
+  typeof v === 'object' &&
+  v !== null &&
+  'type' in v &&
+  (v.type === 'poll' || v.type === 'data-port' || v.type === 'main-port' || (v.type === 'accounts' && 'accounts' in v && Array.isArray(v.accounts)));
+
+const log = (m: string) => print(`[sync] ${m}`);
 let data: DataPort | undefined;
 let dataClient: Client<SyncEvents> | undefined;
 let mainClient: Client | undefined;
@@ -34,8 +40,8 @@ const engines = new Map<string, SyncEngine>();
 const starting = new Set<string>();
 
 /** Access tokens and passwords come from main, which holds the secrets. */
-const accessToken = (accountId: string) => mainClient!.call<string>('accessToken', accountId);
-const password = (accountId: string) => mainClient!.call<string>('password', accountId);
+const accessToken = (accountId: string) => expected(mainClient, 'main client').call<string>('accessToken', accountId);
+const password = (accountId: string) => expected(mainClient, 'main client').call<string>('password', accountId);
 
 async function providerFor(a: AccountConfig): Promise<{ provider: MailProvider; transport: MailTransport; extractText: (raw: Uint8Array) => Promise<string> }> {
   if (a.kind === 'imap') {
@@ -73,15 +79,14 @@ async function startAccount(a: AccountConfig) {
   try {
     made = await providerFor(a);
   } catch (error) {
-    log(`${a.accountId}: ${(error as Error).message}`);
+    log(`${a.accountId}: ${errorMessage(error)}`);
     starting.delete(a.accountId);
     return;
   }
   const { provider, transport, extractText: extract } = made;
-  const engine = new SyncEngine({
-    accountId: a.accountId, kind: a.kind, email: a.email, ...(a.kind !== 'fake' && a.identities ? { identities: a.identities } : {}),
-    provider, transport, data, extractText: extract, log,
-  });
+  const options: ConstructorParameters<typeof SyncEngine>[0] = { accountId: a.accountId, kind: a.kind, email: a.email, provider, transport, data, extractText: extract, log };
+  if (a.kind !== 'fake' && a.identities) {options.identities = a.identities;}
+  const engine = new SyncEngine(options);
   try {
     await engine.start();
     engines.set(a.accountId, engine);
@@ -90,7 +95,7 @@ async function startAccount(a: AccountConfig) {
     log(`${a.accountId}: first sync done; watching for changes`);
     if (engines.get(a.accountId) === engine) {engine.startLive();}
   } catch (error) {
-    log(`${a.accountId}: ${(error as Error).message}`);
+    log(`${a.accountId}: ${errorMessage(error)}`);
     engines.delete(a.accountId);
     await engine.stop().catch(() => {});
   } finally {
@@ -112,28 +117,32 @@ async function reconcile() {
       await data.setIdentities(id, w.identities?.length ? w.identities : [w.email]);
     }
   }
-  for (const a of wanted) {if (ids.has(a.accountId)) void startAccount(a);}
+  for (const a of wanted) {
+    if (ids.has(a.accountId)) {
+      void startAccount(a);
+    }
+  }
 }
 
 process.parentPort.on('message', (e) => {
-  const msg = e.data as Message;
+  const msg: unknown = e.data;
+  if (!isMessage(msg)) {return;}
   if (msg.type === 'poll') {return void engines.forEach((engine) => engine.pollNow());}
   if (msg.type === 'accounts') {wanted = msg.accounts;}
   else if (msg.type === 'data-port' && e.ports[0]) {
     dataClient = connect<SyncEvents>(mainPortChannel(e.ports[0]));
     data = proxy<DataPort>(dataClient, DATA_PORT_METHODS);
-    dataClient.on('fetch-body', (payload) => {
-      const loc = payload as { accountId: string; mailbox: string; uid: number };
-      engines.get(loc.accountId)?.fetchBodies(loc.mailbox, [loc.uid]).catch((error) => log(`body fetch failed: ${error.message}`));
+    const client = dataClient;
+    client.on('fetch-body', (loc) => {
+      engines.get(loc.accountId)?.fetchBodies(loc.mailbox, [loc.uid]).catch((error: unknown) => log(`body fetch failed: ${errorMessage(error)}`));
     });
-    dataClient.on('replay', (payload) => engines.get((payload as { accountId: string }).accountId)?.replaySoon());
-    dataClient.on('outbox', (payload) => engines.get((payload as { accountId: string }).accountId)?.outboxSoon());
-    dataClient.on('search-server', (payload) => {
-      const { id, query } = payload as { id: number; query: ServerQuery };
-      void Promise.all([...engines.values()].map((e) => e.searchServer(query).catch((error) => log(`server search failed: ${(error as Error).message}`))))
-        .then(() => dataClient!.call('serverSearchDone', id));
+    client.on('replay', (payload) => engines.get(payload.accountId)?.replaySoon());
+    client.on('outbox', (payload) => engines.get(payload.accountId)?.outboxSoon());
+    client.on('search-server', ({ id, query }) => {
+      void Promise.all([...engines.values()].map((e) => e.searchServer(query).catch((error: unknown) => log(`server search failed: ${errorMessage(error)}`))))
+        .then(() => client.call('serverSearchDone', id));
     });
-    dataClient.on('drafts', (payload) => engines.get((payload as { accountId: string }).accountId)?.draftsSoon());
+    client.on('drafts', (payload) => engines.get(payload.accountId)?.draftsSoon());
   } else if (msg.type === 'main-port' && e.ports[0]) {mainClient = connect(mainPortChannel(e.ports[0]));}
   void reconcile();
 });

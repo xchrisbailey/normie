@@ -31,7 +31,12 @@ export function onSample(fn: (s: Sample) => void): () => void {
 }
 
 // Read by the benchmark through executeJavaScript.
-(window as unknown as { __normiePerf: unknown }).__normiePerf = {
-  samples: () => samples.slice(),
-  clear: () => void (samples.length = 0),
-};
+Object.defineProperty(window, '__normiePerf', {
+  value: {
+    samples: () => samples.slice(),
+    clear: () => void (samples.length = 0),
+  },
+  writable: true,
+  configurable: true,
+  enumerable: true,
+});

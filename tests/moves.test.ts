@@ -15,7 +15,9 @@ afterEach(async () => {
 });
 
 function server(opts: { move?: boolean; mailboxes?: Array<Mailbox> } = {}) {
-  const p = new FakeProvider({ caps: { ...ICLOUD_CAPS, move: !!opts.move }, ...(opts.mailboxes ? { mailboxes: opts.mailboxes } : {}) });
+  const options: ConstructorParameters<typeof FakeProvider>[0] = { caps: { ...ICLOUD_CAPS, move: !!opts.move } };
+  if (opts.mailboxes) {options.mailboxes = opts.mailboxes;}
+  const p = new FakeProvider(options);
   const trip = p.deliver({ subject: 'Trip', messageId: '<a@x>', date: NOW - 3 * HOUR }, 'INBOX');
   const reply = p.deliver({ subject: 'Re: Trip', messageId: '<b@x>', inReplyTo: '<a@x>', date: NOW - 2 * HOUR }, 'Sent Messages');
   p.deliver({ subject: 'Lunch', messageId: '<c@x>', date: NOW - HOUR }, 'INBOX');

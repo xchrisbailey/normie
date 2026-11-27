@@ -1,5 +1,6 @@
 // Opened and prefetched Threads, held in renderer memory so opening a cached Thread needs no message
 // to another process. Entries refresh when the core says a Thread changed (for example, a body arrived).
+import { expected } from '../core/errors';
 import type { ThreadMessage } from '../core/types';
 import type { CoreClient } from './core-client';
 import { sanitized } from './sanitize-cache';
@@ -37,7 +38,7 @@ export class ThreadCache {
     const p = this.core.thread(key).then((messages) => {
       this.inflight.delete(key);
       this.entries.set(key, messages);
-      while (this.entries.size > MAX) {this.entries.delete(this.entries.keys().next().value!);}
+      while (this.entries.size > MAX) {this.entries.delete(expected(this.entries.keys().next().value, 'the oldest entry'));}
       for (const fn of this.listeners) {fn(key, messages);}
       return messages;
     });

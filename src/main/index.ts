@@ -4,6 +4,11 @@ import type { MenuItemConstructorOptions, UtilityProcess } from 'electron';
 import { existsSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { types } from 'node:util';
+import { errorMessage, expected } from '../core/errors';
+import { parseJson } from '../core/json';
+import { log, logError } from '../core/log';
+import { sleep } from '../core/sleep';
 import { mainPortChannel, serve } from '../core/rpc';
 import { isRisky, quarantine, safeFilename } from './attachments';
 import type { AccountConfig } from '../sync/index';
@@ -42,7 +47,7 @@ function dbPath() {
   if (process.env.NORMIE_DB) {return process.env.NORMIE_DB;}
   const name = useFake ? 'normie-fake.sqlite' : 'normie.sqlite';
   const p = path.join(app.getPath('userData'), name);
-  if (smoke) {for (const ext of ['', '-wal', '-shm']) rmSync(p + ext, { force: true });}
+  if (smoke) {for (const ext of ['', '-wal', '-shm']) {rmSync(p + ext, { force: true });}}
   return p;
 }
 
@@ -112,7 +117,7 @@ function startSync() {
 
 function watchExit(name: string, proc: UtilityProcess) {
   proc.on('exit', (code) => {
-    if (code !== 0 && !quitting) {console.error(`[main] ${name} process exited with ${code}`);}
+    if (code !== 0 && !quitting) {logError(`[main] ${name} process exited with ${code}`);}
   });
 }
 
@@ -123,7 +128,8 @@ let snapshot: Array<unknown> = [];
 
 function loadSnapshot() {
   try {
-    snapshot = JSON.parse(readFileSync(snapshotFile(), 'utf8')) as Array<unknown>;
+    const rows = parseJson(readFileSync(snapshotFile(), 'utf8'));
+    snapshot = Array.isArray(rows) ? rows : [];
   } catch {
     snapshot = [];
   }
@@ -133,7 +139,7 @@ function saveSnapshot() {
   try {
     writeFileSync(snapshotFile(), JSON.stringify(snapshot));
   } catch (error) {
-    console.error(`[main] could not save snapshot: ${(error as Error).message}`);
+    logError(`[main] could not save snapshot: ${errorMessage(error)}`);
   }
 }
 
@@ -145,7 +151,7 @@ ipcMain.on('snapshot:set', (_e, rows: Array<unknown>) => {
 /** Give the renderer a fresh port to the data process. Called on every load, so reloads work. */
 function connectRenderer(w: BrowserWindow) {
   const ch = new MessageChannelMain();
-  dataProc!.postMessage({ type: 'renderer-port' }, [ch.port1]);
+  dataProc?.postMessage({ type: 'renderer-port' }, [ch.port1]);
   w.webContents.postMessage('core-port', null, [ch.port2]);
 }
 
@@ -245,7 +251,8 @@ type Settings = { openAtLogin?: boolean };
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 function readSettings(): Settings {
   try {
-    return JSON.parse(readFileSync(settingsPath(), 'utf8')) as Settings;
+    const v = parseJson(readFileSync(settingsPath(), 'utf8'));
+    return typeof v === 'object' && v !== null && !Array.isArray(v) && typeof v.openAtLogin === 'boolean' ? { openAtLogin: v.openAtLogin } : {};
   } catch {
     return {};
   }
@@ -283,22 +290,25 @@ function showWindow(w: BrowserWindow) {
   else {w.show();}
 }
 
-ipcMain.on('renderer-first-paint', async (_e, info: { rows: number; fromSnapshot: boolean }) => {
+async function onFirstPaint(info: { rows: number; fromSnapshot: boolean }) {
   const msSinceProcessStart = Math.round(process.uptime() * 1000);
   if (win) {showWindow(win);}
   startSync();
   if (coldStartRun) {
     clearTimeout(readyTimeout);
-    console.log(`[coldstart] ${JSON.stringify({ ms: msSinceProcessStart, fromSnapshot: info.fromSnapshot, rows: info.rows, budget: BUDGETS.coldStartMs })}`);
+    log(`[coldstart] ${JSON.stringify({ ms: msSinceProcessStart, fromSnapshot: info.fromSnapshot, rows: info.rows, budget: BUDGETS.coldStartMs })}`);
     // Give the renderer a moment to hand over a fresh snapshot for the next launch.
-    await new Promise((r) => setTimeout(r, 1500));
+    await sleep(1500);
     saveSnapshot();
     quitting = true;
     return void app.exit(0);
   }
+}
+ipcMain.on('renderer-first-paint', (_e, info: { rows: number; fromSnapshot: boolean }) => {
+  onFirstPaint(info).catch(logError);
 });
 
-ipcMain.on('renderer-ready', async (_e, info: { rows: number; view: 'list' | 'empty' }) => {
+async function onRendererReady(info: { rows: number; view: 'list' | 'empty' }) {
   clearTimeout(readyTimeout);
   if (bench && win && dataProc) {
     const ok = await runBench(win, info, dataProc);
@@ -311,14 +321,17 @@ ipcMain.on('renderer-ready', async (_e, info: { rows: number; view: 'list' | 'em
     userFile: (name) => path.join(app.getPath('userData'), name),
     noRealAccounts,
   }, Math.round(performance.now() - launchedAt));
-  console.log(`[smoke] ${JSON.stringify(report)}`);
+  log(`[smoke] ${JSON.stringify(report)}`);
   quitting = true;
   app.exit(ok ? 0 : 1);
+}
+ipcMain.on('renderer-ready', (_e, info: { rows: number; view: 'list' | 'empty' }) => {
+  onRendererReady(info).catch(logError);
 });
 
 type AttachmentFile = { filename: string; content: Uint8Array };
 const validFile = (f: unknown): f is AttachmentFile =>
-  !!f && typeof (f as AttachmentFile).filename === 'string' && (f as AttachmentFile).content instanceof Uint8Array;
+  typeof f === 'object' && f !== null && 'filename' in f && typeof f.filename === 'string' && 'content' in f && types.isUint8Array(f.content);
 
 /** Open an attachment with the system's app for it. Anything that runs code is refused: save it instead. */
 ipcMain.handle('attachment:open', async (_e, file: unknown): Promise<{ ok: boolean; reason?: string }> => {
@@ -372,16 +385,20 @@ ipcMain.handle('accounts:set-identities', (_e, id: string, identities: Array<Ide
     accounts.setIdentities(id, identities);
     return { ok: true };
   } catch (error) {
-    return { ok: false, error: (error as Error).message };
+    return { ok: false, error: errorMessage(error) };
   }
 });
+
+type AddPasswordFailure = { ok: false; error: string; field?: string };
 
 /** Add an iCloud or IMAP Account. Errors come back as plain messages the form shows. */
 ipcMain.handle('accounts:add-password', async (_e, input: PasswordAccountInput): Promise<{ ok: true; account: AccountRecord } | { ok: false; error: string; field?: string }> => {
   try {
     return { ok: true, account: await accounts.addPassword(input, verifyPasswordAccount) };
   } catch (error) {
-    return { ok: false, error: (error as Error).message, ...(error instanceof AccountSetupError && error.field ? { field: error.field } : {}) };
+    const failure: AddPasswordFailure = { ok: false, error: errorMessage(error) };
+    if (error instanceof AccountSetupError && error.field) {failure.field = error.field;}
+    return failure;
   }
 });
 
@@ -399,9 +416,9 @@ let splitsFile: UserFile = {};
 function readUserFile(file: string): UserFile {
   if (!existsSync(file)) {return {};}
   try {
-    return { file: JSON.parse(readFileSync(file, 'utf8')) as unknown };
+    return { file: parseJson(readFileSync(file, 'utf8')) };
   } catch (error) {
-    return { error: `${path.basename(file)} isn't valid JSON: ${(error as Error).message}` };
+    return { error: `${path.basename(file)} isn't valid JSON: ${errorMessage(error)}` };
   }
 }
 
@@ -430,7 +447,7 @@ function watchUserFiles() {
       }, 100);
     });
   } catch (error) {
-    console.error(`[main] can't watch the data folder: ${(error as Error).message}`);
+    logError(`[main] can't watch the data folder: ${errorMessage(error)}`);
   }
 }
 ipcMain.handle('keymap:get', () => keymap);
@@ -441,11 +458,14 @@ ipcMain.handle('splits:get', () => splitsFile);
 function buildMenu() {
   const fromRegistry: Array<MenuItemConstructorOptions> = menuSections(mergeKeymap(ACTIONS, keymap.file).actions).map((s) => ({
     label: s.label,
-    submenu: s.entries.map((e) => ({
-      label: e.label,
-      ...(e.accelerator ? { accelerator: e.accelerator, registerAccelerator: e.registerAccelerator } : {}),
-      click: () => win?.webContents.send('menu:action', e.ids),
-    })),
+    submenu: s.entries.map((e) => {
+      const item: MenuItemConstructorOptions = { label: e.label, click: () => win?.webContents.send('menu:action', e.ids) };
+      if (e.accelerator) {
+        item.accelerator = e.accelerator;
+        item.registerAccelerator = e.registerAccelerator;
+      }
+      return item;
+    }),
   }));
   const template: Array<MenuItemConstructorOptions> = [
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : [{ role: 'fileMenu' as const }]),
@@ -465,13 +485,16 @@ function buildMenu() {
     ...fromRegistry,
     { role: 'windowMenu' },
   ];
-  if (!app.isPackaged) {(template.at(-2)!.submenu as MenuItemConstructorOptions[]).push({ type: 'separator' }, { role: 'reload' }, { role: 'toggleDevTools' });}
+  if (!app.isPackaged) {
+    const view = expected(template.at(-2), 'the View menu').submenu;
+    if (Array.isArray(view)) {view.push({ type: 'separator' }, { role: 'reload' }, { role: 'toggleDevTools' });}
+  }
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 app.on('activate', openWindow);
 
-app.whenReady().then(() => {
+app.once('ready', () => {
   app.setAboutPanelOptions({
     applicationName: 'Normie',
     applicationVersion: app.getVersion(),
@@ -489,7 +512,7 @@ app.whenReady().then(() => {
   // If the renderer never reports a first frame, still start sync.
   setTimeout(startSync, 5000);
   if (smoke || bench || coldStartRun) {readyTimeout = setTimeout(() => {
-    console.error('[smoke/bench] renderer never reported ready');
+    logError('[smoke/bench] renderer never reported ready');
     app.exit(1);
   }, 20_000);}
 });

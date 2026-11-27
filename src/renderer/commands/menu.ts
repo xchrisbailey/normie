@@ -1,4 +1,5 @@
 // The native menus as a view over the registry. Pure data, so main can build menus from it and tests can check it.
+import { expected } from '../../core/errors';
 import type { ActionDef } from './keys';
 
 export interface MenuEntry {
@@ -16,13 +17,13 @@ export interface MenuSection {
   entries: Array<MenuEntry>;
 }
 
-const ACCEL_KEYS: Record<string, string> = { ArrowDown: 'Down', ArrowUp: 'Up', ArrowLeft: 'Left', ArrowRight: 'Right', Cmd: 'CommandOrControl' };
+const ACCEL_KEYS = new Map([['ArrowDown', 'Down'], ['ArrowUp', 'Up'], ['ArrowLeft', 'Left'], ['ArrowRight', 'Right'], ['Cmd', 'CommandOrControl']]);
 
 /** A registry key as an Electron accelerator, or undefined for sequences such as "g i". */
 export function acceleratorOf(key: string): string | undefined {
   if (key.includes(' ')) {return undefined;}
   const parts = key === '-' ? ['-'] : key.split('-');
-  return parts.map((p) => ACCEL_KEYS[p] ?? (p.length === 1 ? p.toUpperCase() : p)).join('+');
+  return parts.map((p) => ACCEL_KEYS.get(p) ?? (p.length === 1 ? p.toUpperCase() : p)).join('+');
 }
 
 const SECTION_OF = (id: string) =>
@@ -37,7 +38,7 @@ export function menuSections(actions: ReadonlyArray<ActionDef>): Array<MenuSecti
   const sections = new Map<string, MenuSection>();
   for (const label of ['Go', 'Thread', 'Message', 'View']) {sections.set(label, { label, entries: [] });}
   for (const a of actions) {
-    const section = sections.get(SECTION_OF(a.id))!;
+    const section = expected(sections.get(SECTION_OF(a.id)), 'a section for the action');
     const same = section.entries.find((e) => e.label === a.name);
     if (same) {
       same.ids.push(a.id);
@@ -48,7 +49,9 @@ export function menuSections(actions: ReadonlyArray<ActionDef>): Array<MenuSecti
     // the key was typed into a field. Plain keys are listed by ? and the palette instead.
     const key = a.keys.find((k) => k.startsWith('Cmd-') && !EDIT_MENU_KEYS.has(k) && acceleratorOf(k));
     const accelerator = key ? acceleratorOf(key) : undefined;
-    section.entries.push({ label: a.name, ids: [a.id], ...(accelerator ? { accelerator } : {}), registerAccelerator: !!accelerator });
+    const entry: MenuEntry = { label: a.name, ids: [a.id], registerAccelerator: !!accelerator };
+    if (accelerator) {entry.accelerator = accelerator;}
+    section.entries.push(entry);
   }
   return [...sections.values()];
 }

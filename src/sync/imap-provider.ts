@@ -1,7 +1,8 @@
 // The IMAP provider over ImapFlow. Gmail, iCloud and generic servers all use it and differ in caps
 // (read from the server after login) and a few overrides. Facts it relies on are from spike #2.
 import { ImapFlow } from 'imapflow';
-import type { FetchMessageObject, ListResponse, MessageAddressObject } from 'imapflow';
+import type { FetchMessageObject, FetchOptions, ImapFlowOptions, ListResponse, MessageAddressObject, SearchObject } from 'imapflow';
+import { errorMessage } from '../core/errors';
 import type { ServerQuery } from '../core/search-query';
 import { ServerRejectedError } from '../core/types';
 import type {
@@ -26,10 +27,10 @@ export const gmailConfig = (user: string, accessToken: () => Promise<string>, lo
   host: 'imap.gmail.com', port: 993, user, accessToken, savesSent: true, log,
 });
 
-const SPECIAL_USE: Record<string, MailboxRole> = {
-  '\\Inbox': 'inbox', '\\Sent': 'sent', '\\Drafts': 'drafts', '\\All': 'all', '\\Trash': 'trash', '\\Junk': 'junk',
-  '\\Flagged': 'flagged', '\\Archive': 'archive',
-};
+const SPECIAL_USE = new Map<string, MailboxRole>([
+  [String.raw`\Inbox`, 'inbox'], [String.raw`\Sent`, 'sent'], [String.raw`\Drafts`, 'drafts'], [String.raw`\All`, 'all'], [String.raw`\Trash`, 'trash'], [String.raw`\Junk`, 'junk'],
+  [String.raw`\Flagged`, 'flagged'], [String.raw`\Archive`, 'archive'],
+]);
 
 /**
  * The role of a listed mailbox. When the server reports special-use flags, only those count: a folder merely
@@ -39,10 +40,15 @@ export function roleOf(entry: Pick<ListResponse, 'path' | 'specialUse' | 'specia
   if (entry.path.toUpperCase() === 'INBOX') {return 'inbox';}
   if (!entry.specialUse) {return undefined;}
   if (serverHasSpecialUse && entry.specialUseSource !== 'extension') {return undefined;}
-  return SPECIAL_USE[entry.specialUse];
+  return SPECIAL_USE.get(entry.specialUse);
 }
 
-const addr = (a?: MessageAddressObject): Address | undefined => (a?.address ? { address: a.address, ...(a.name ? { name: a.name } : {}) } : undefined);
+function addr(a?: MessageAddressObject): Address | undefined {
+  if (!a?.address) {return undefined;}
+  const out: Address = { address: a.address };
+  if (a.name) {out.name = a.name;}
+  return out;
+}
 
 /** Whether headers say the message was sent to a list: List-Unsubscribe, List-Id, or Precedence: bulk, list or junk. */
 export function isListMail(headers?: Buffer | string): boolean {
@@ -63,14 +69,12 @@ export function headerOf(m: FetchMessageObject, path: string, gmail: boolean): R
   const env = m.envelope ?? ({});
   const references = gmail ? [] : referencesOf(m.headers);
   const date = env.date ? new Date(env.date).getTime() : m.internalDate ? new Date(m.internalDate).getTime() : 0;
-  return {
+  const header: RemoteHeader = {
     uid: m.uid,
     remoteId: gmail && m.emailId ? m.emailId : `${path}:${m.uid}`,
     threadId: gmail ? m.threadId : undefined,
     messageId: env.messageId,
     inReplyTo: env.inReplyTo,
-    ...(references.length ? { references } : {}),
-    ...(m.headers ? { isList: isListMail(m.headers) } : {}),
     subject: env.subject ?? '',
     from: addr(env.from?.[0]),
     to: (env.to ?? []).map(addr).filter((a): a is Address => !!a),
@@ -79,17 +83,29 @@ export function headerOf(m: FetchMessageObject, path: string, gmail: boolean): R
     // Gmail leaves out the selected mailbox's own label, which is why the primary mailbox is All Mail (spike #2).
     labels: gmail ? [...(m.labels ?? [])] : [path],
   };
+  if (references.length) {header.references = references;}
+  if (m.headers) {header.isList = isListMail(m.headers);}
+  return header;
+}
+
+/** A flag change from a fetched message; Gmail's also carry its labels. */
+function flagChangeOf(m: FetchMessageObject, gmail: boolean): FlagChange {
+  const change: FlagChange = { uid: m.uid, flags: [...(m.flags ?? [])] };
+  if (gmail) {change.labels = [...(m.labels ?? [])];}
+  return change;
 }
 
 const HEADER_QUERY = { uid: true, envelope: true, flags: true, internalDate: true } as const;
 const CHUNK = 500;
 const LIST_HEADERS = ['list-unsubscribe', 'list-id', 'precedence'];
 
-function chunks<T>(xs: Array<T>, n: number): Array<T>[] {
-  const out: Array<T>[] = [];
+function chunks<T>(xs: Array<T>, n: number): Array<Array<T>> {
+  const out: Array<Array<T>> = [];
   for (let i = 0; i < xs.length; i += n) {out.push(xs.slice(i, i + n));}
   return out;
 }
+
+type MailboxInfo = { uidValidity: string; uidNext: number; highestModseq?: string };
 
 export class ImapProvider implements MailProvider {
   private client?: ImapFlow;
@@ -126,11 +142,10 @@ export class ImapProvider implements MailProvider {
       ? { user: this.cfg.user, accessToken: await this.cfg.accessToken() }
       : { user: this.cfg.user, pass: this.cfg.password ?? '' };
     const security = this.cfg.security ?? 'tls';
-    const client = new ImapFlow({
-      host: this.cfg.host, port: this.cfg.port, secure: security === 'tls', ...(security === 'starttls' ? { doSTARTTLS: true } : {}),
-      auth, qresync: true, logger: false,
-    });
-    client.on('error', (e: Error) => this.cfg.log?.(`imap error: ${e.message}`));
+    const options: ImapFlowOptions = { host: this.cfg.host, port: this.cfg.port, secure: security === 'tls', auth, qresync: true, logger: false };
+    if (security === 'starttls') {options.doSTARTTLS = true;}
+    const client = new ImapFlow(options);
+    client.on('error', (e: Error) => this.cfg.log?.(`imap error: ${errorMessage(e)}`));
     await client.connect();
     return client;
   }
@@ -161,24 +176,22 @@ export class ImapProvider implements MailProvider {
 
   private async withMailbox<T>(
     path: string,
-    fn: (info: { uidValidity: string; uidNext: number; highestModseq?: string }) => Promise<T>,
+    fn: (info: MailboxInfo) => Promise<T>,
     readOnly = true,
   ): Promise<T> {
     const lock = await this.c.getMailboxLock(path, { readOnly });
     try {
       const mb = this.c.mailbox;
       if (!mb) {throw new Error(`could not open ${path}`);}
-      return await fn({
-        uidValidity: String(mb.uidValidity),
-        uidNext: mb.uidNext,
-        ...(mb.highestModseq !== undefined ? { highestModseq: String(mb.highestModseq) } : {}),
-      });
+      const info: MailboxInfo = { uidValidity: String(mb.uidValidity), uidNext: mb.uidNext };
+      if (mb.highestModseq !== undefined) {info.highestModseq = String(mb.highestModseq);}
+      return await fn(info);
     } finally {
       lock.release();
     }
   }
 
-  private async searchWindow(windowStart: number, extra: Record<string, unknown> = {}): Promise<Array<number>> {
+  private async searchWindow(windowStart: number, extra: SearchObject = {}): Promise<Array<number>> {
     const r = await this.c.search({ since: new Date(windowStart), ...extra }, { uid: true });
     return r ? [...r].sort((a, b) => a - b) : [];
   }
@@ -216,16 +229,17 @@ export class ImapProvider implements MailProvider {
         const flagQuery = this.gmail ? { uid: true, flags: true, labels: true } : { uid: true, flags: true };
         if (this.caps.condstore && since.highestModseq) {
           if (since.highestModseq !== state.highestModseq && since.uidNext > 1) {
-            const fetchOpts = { uid: true, changedSince: BigInt(since.highestModseq), ...(this.caps.qresync ? { uidValidity: BigInt(since.uidValidity) } : {}) };
+            const fetchOpts: FetchOptions & { uidValidity?: bigint } = { uid: true, changedSince: BigInt(since.highestModseq) };
+            if (this.caps.qresync) {fetchOpts.uidValidity = BigInt(since.uidValidity);}
             for await (const m of this.c.fetch(`1:${since.uidNext - 1}`, flagQuery, fetchOpts)) {
-              flagChanges.push({ uid: m.uid, flags: [...(m.flags ?? [])], ...(this.gmail ? { labels: [...(m.labels ?? [])] } : {}) });
+              flagChanges.push(flagChangeOf(m, this.gmail));
             }
           }
         } else {
           const known = (await this.searchWindow(opts.windowStart)).filter((u) => u < since.uidNext);
           for (const part of chunks(known, CHUNK)) {
             for await (const m of this.c.fetch(part.join(','), flagQuery, { uid: true })) {
-              flagChanges.push({ uid: m.uid, flags: [...(m.flags ?? [])], ...(this.gmail ? { labels: [...(m.labels ?? [])] } : {}) });
+              flagChanges.push(flagChangeOf(m, this.gmail));
             }
           }
         }
@@ -268,7 +282,7 @@ export class ImapProvider implements MailProvider {
     if (!uids.length) {return;}
     await this.withMailbox(path, async () => {
       const range = uids.join(',');
-      const steps: Array<[string[] | undefined, 'add' | 'remove', boolean]> = [
+      const steps: Array<[Array<string> | undefined, 'add' | 'remove', boolean]> = [
         [edit.addFlags, 'add', false], [edit.removeFlags, 'remove', false],
         [this.gmail ? edit.addLabels : undefined, 'add', true], [this.gmail ? edit.removeLabels : undefined, 'remove', true],
       ];
@@ -299,7 +313,7 @@ export class ImapProvider implements MailProvider {
   /** Search the server: Gmail takes the query as typed (X-GM-RAW); elsewhere each term becomes a SEARCH key. */
   async search(path: string, query: ServerQuery) {
     return this.withMailbox(path, async () => {
-      let criteria: Record<string, string>;
+      let criteria: SearchObject;
       if (this.gmail) {criteria = { gmraw: query.raw };}
       else {
         criteria = {};
@@ -323,7 +337,9 @@ export class ImapProvider implements MailProvider {
     if (!uids.length) {return { uids: [] };}
     const ids = new Map<number, string>();
     const moved = await this.withMailbox(path, async () => {
-      for await (const m of this.c.fetch(uids.join(','), { uid: true, envelope: true }, { uid: true })) {if (m.envelope?.messageId) ids.set(m.uid, m.envelope.messageId);}
+      for await (const m of this.c.fetch(uids.join(','), { uid: true, envelope: true }, { uid: true })) {
+        if (m.envelope?.messageId) {ids.set(m.uid, m.envelope.messageId);}
+      }
       const r = await this.c.messageMove(uids.join(','), destination, { uid: true });
       if (!r) {
         if (this.client?.usable) {throw new ServerRejectedError(`server refused to move to ${destination}`);}
@@ -335,7 +351,8 @@ export class ImapProvider implements MailProvider {
     if (out.some((u) => !u) && ids.size) {
       await this.withMailbox(destination, async () => {
         for (let i = 0; i < uids.length; i++) {
-          const id = ids.get(uids[i]!);
+          const uid = uids[i];
+          const id = uid === undefined ? undefined : ids.get(uid);
           if (out[i] || !id) {continue;}
           const found = await this.c.search({ header: { 'message-id': id } }, { uid: true });
           if (found && found.length) {out[i] = Math.max(...found);}
@@ -375,7 +392,11 @@ export class ImapProvider implements MailProvider {
       wake?.();
     };
     client.on('exists', (d: { path: string }) => push({ type: 'exists', mailbox: d.path }));
-    client.on('expunge', (d: { path: string; uid?: number }) => push({ type: 'expunge', mailbox: d.path, ...(d.uid !== undefined ? { uid: d.uid } : {}) }));
+    client.on('expunge', (d: { path: string; uid?: number }) => {
+      const event: MailEvent = { type: 'expunge', mailbox: d.path };
+      if (d.uid !== undefined) {event.uid = d.uid;}
+      push(event);
+    });
     client.on('flags', (d: { path: string; uid?: number; flags: Set<string> }) => push({ type: 'flags', mailbox: d.path, uid: d.uid ?? 0, flags: [...d.flags] }));
     client.on('close', () => {
       failed ??= new Error('IDLE connection closed');
@@ -390,10 +411,12 @@ export class ImapProvider implements MailProvider {
     const lock = await client.getMailboxLock(path, { readOnly: true });
     try {
       while (!signal.aborted) {
-        if (!queue.length && !failed) {await new Promise<void>((r) => (wake = r));}
+        if (!queue.length && !failed) {await new Promise<void>((resolve) => {
+          wake = resolve;
+        });}
         wake = undefined;
         if (failed && !signal.aborted) {throw failed;}
-        while (queue.length) {yield queue.shift()!;}
+        for (let next = queue.shift(); next; next = queue.shift()) {yield next;}
       }
     } finally {
       signal.removeEventListener('abort', onAbort);

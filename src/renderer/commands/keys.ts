@@ -44,12 +44,16 @@ export type Resolution = { type: 'action'; id: string } | { type: 'pending' } | 
 
 /** Resolves tokens to actions, holding a partial sequence until it completes, fails or times out. */
 export class KeyResolver {
-  private bindings: Array<{ seq: string[]; id: string; contexts: readonly Context[] }> = [];
+  private bindings: Array<{ seq: Array<string>; id: string; contexts: ReadonlyArray<Context> }> = [];
   private pending: Array<string> = [];
   private pendingAt = 0;
 
   constructor(actions: ReadonlyArray<ActionDef>, private readonly timeoutMs = 1000, private readonly now = () => performance.now()) {
-    for (const a of actions) {for (const k of a.keys) this.bindings.push({ seq: k.split(' '), id: a.id, contexts: a.contexts });}
+    for (const a of actions) {
+      for (const k of a.keys) {
+        this.bindings.push({ seq: k.split(' '), id: a.id, contexts: a.contexts });
+      }
+    }
   }
 
   feed(token: string, context: Context): Resolution {

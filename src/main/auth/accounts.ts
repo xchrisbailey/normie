@@ -1,8 +1,26 @@
 // Accounts and their sign-in state. Pure: storage, sign-in and the clock are injected.
+import { expected } from '../../core/errors';
+import { parseJson } from '../../core/json';
 import { refreshGoogle, SignInRequiredError, signInWithGoogle, gmailAddress } from './google-oauth';
 import type { Fetch, GoogleClient, TokenSet } from './google-oauth';
 import { accountIdOf, settingsFrom } from './password-accounts';
 import type { PasswordAccountInput, PasswordAccountSettings } from './password-accounts';
+
+/** The stored sign-in, if what's in the secret store is one. */
+function tokenSetFrom(raw: string): TokenSet | undefined {
+  const v = parseJson(raw);
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) {return undefined;}
+  const { accessToken, refreshToken, expiresAt } = v;
+  if (typeof accessToken !== 'string' || typeof refreshToken !== 'string' || typeof expiresAt !== 'number') {return undefined;}
+  return { accessToken, refreshToken, expiresAt };
+}
+
+/** The stored password, if what's in the secret store holds one. */
+function passwordFrom(raw: string): string | undefined {
+  const v = parseJson(raw);
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) {return undefined;}
+  return typeof v.password === 'string' ? v.password : undefined;
+}
 
 export type AccountStatus = 'ok' | 'needs-sign-in';
 
@@ -96,7 +114,7 @@ export class Accounts {
     if (existing) {existing.status = 'ok';}
     else {this.accounts.push({ id, kind: 'gmail', email, status: 'ok' });}
     this.commit();
-    return { ...this.accounts.find((a) => a.id === id)! };
+    return { ...expected(this.accounts.find((a) => a.id === id), 'the Account just saved') };
   }
 
   /**
@@ -122,7 +140,9 @@ export class Accounts {
     if (!acct) {throw new Error(`No Account ${id}`);}
     const raw = await this.o.secrets.get(id);
     if (!raw) {return this.markNeedsSignIn(acct, 'no stored password');}
-    return (JSON.parse(raw) as { password: string }).password;
+    const password = passwordFrom(raw);
+    if (password === undefined) {return this.markNeedsSignIn(acct, 'no stored password');}
+    return password;
   }
 
   /**
@@ -162,7 +182,8 @@ export class Accounts {
     if (!t) {
       const raw = await this.o.secrets.get(id);
       if (!raw) {return this.markNeedsSignIn(acct, 'no stored sign-in');}
-      t = JSON.parse(raw) as TokenSet;
+      t = tokenSetFrom(raw);
+      if (!t) {return this.markNeedsSignIn(acct, 'no stored sign-in');}
       this.tokens.set(id, t);
     }
     if (t.expiresAt - this.now() > this.margin) {return t.accessToken;}
@@ -182,7 +203,7 @@ export class Accounts {
       await this.o.secrets.set(acct.id, JSON.stringify(fresh));
       return fresh.accessToken;
     } catch (error) {
-      if (error instanceof SignInRequiredError) return this.markNeedsSignIn(acct, error.message);
+      if (error instanceof SignInRequiredError) {return this.markNeedsSignIn(acct, error.message);}
       throw error;
     }
   }

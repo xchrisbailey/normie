@@ -3,6 +3,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { parseJson } from '../../core/json';
 
 export const GMAIL_SCOPE = 'https://mail.google.com/';
 
@@ -32,14 +33,14 @@ export class SignInRequiredError extends Error {
 
 /** Reads the Desktop client JSON downloaded from Google Cloud. It lives outside the repo. */
 export function loadGoogleClient(path: string): GoogleClient {
-  const json = JSON.parse(readFileSync(path, 'utf8')) as { installed?: Record<string, string> };
-  const c = json.installed;
-  if (!c?.client_id || !c.client_secret) {throw new Error(`${path} is not a Google Desktop OAuth client`);}
+  const json = parseJson(readFileSync(path, 'utf8'));
+  const c = typeof json === 'object' && json !== null && !Array.isArray(json) ? json.installed : undefined;
+  if (typeof c !== 'object' || c === null || Array.isArray(c) || typeof c.client_id !== 'string' || !c.client_id || typeof c.client_secret !== 'string' || !c.client_secret) {throw new Error(`${path} is not a Google Desktop OAuth client`);}
   return {
     clientId: c.client_id,
     clientSecret: c.client_secret,
-    authUri: c.auth_uri ?? 'https://accounts.google.com/o/oauth2/auth',
-    tokenUri: c.token_uri ?? 'https://oauth2.googleapis.com/token',
+    authUri: typeof c.auth_uri === 'string' ? c.auth_uri : 'https://accounts.google.com/o/oauth2/auth',
+    tokenUri: typeof c.token_uri === 'string' ? c.token_uri : 'https://oauth2.googleapis.com/token',
   };
 }
 
@@ -54,13 +55,25 @@ interface TokenResponse {
   error_description?: string;
 }
 
+/** The fields of Google's token reply that are there and the right type. */
+function tokenResponseOf(v: unknown): TokenResponse {
+  const tok: TokenResponse = {};
+  if (typeof v !== 'object' || v === null) {return tok;}
+  if ('access_token' in v && typeof v.access_token === 'string') {tok.access_token = v.access_token;}
+  if ('refresh_token' in v && typeof v.refresh_token === 'string') {tok.refresh_token = v.refresh_token;}
+  if ('expires_in' in v && typeof v.expires_in === 'number') {tok.expires_in = v.expires_in;}
+  if ('error' in v && typeof v.error === 'string') {tok.error = v.error;}
+  if ('error_description' in v && typeof v.error_description === 'string') {tok.error_description = v.error_description;}
+  return tok;
+}
+
 async function tokenRequest(client: GoogleClient, body: Record<string, string>, fetchFn: Fetch, now: number) {
   const res = await fetchFn(client.tokenUri, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ client_id: client.clientId, client_secret: client.clientSecret, ...body }),
   });
-  const tok = (await res.json()) as TokenResponse;
+  const tok = tokenResponseOf(await res.json());
   if (!res.ok || !tok.access_token) {
     if (tok.error === 'invalid_grant') {throw new SignInRequiredError(tok.error_description ?? 'refresh token no longer valid');}
     throw new Error(`Google token request failed: ${tok.error ?? res.status}`);
@@ -107,11 +120,11 @@ export async function signInWithGoogle(o: SignInOptions): Promise<TokenSet> {
       else {reject(new Error(err ? `Google sign-in failed: ${err}` : 'Google sign-in returned an unexpected response'));}
     });
     server.on('error', reject);
-    server.listen(0, '127.0.0.1', async () => {
+    server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
       redirectUri = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
       const auth = new URL(o.client.authUri);
-      auth.search = new URLSearchParams({
+      const params = new URLSearchParams({
         client_id: o.client.clientId,
         redirect_uri: redirectUri,
         response_type: 'code',
@@ -121,15 +134,19 @@ export async function signInWithGoogle(o: SignInOptions): Promise<TokenSet> {
         state,
         access_type: 'offline',
         prompt: 'consent',
-        ...(o.loginHint ? { login_hint: o.loginHint } : {}),
-      }).toString();
-      try {
-        await o.openUrl(auth.toString());
-      } catch (error) {
-        clearTimeout(timer);
-        server.close();
-        reject(error);
-      }
+      });
+      if (o.loginHint) {params.set('login_hint', o.loginHint);}
+      auth.search = params.toString();
+      const open = async () => {
+        try {
+          await o.openUrl(auth.toString());
+        } catch (error) {
+          clearTimeout(timer);
+          server.close();
+          reject(error);
+        }
+      };
+      void open();
     });
   });
 
@@ -148,5 +165,9 @@ export async function refreshGoogle(client: GoogleClient, refreshToken: string, 
 export async function gmailAddress(accessToken: string, fetchFn: Fetch = fetch): Promise<string> {
   const res = await fetchFn('https://gmail.googleapis.com/gmail/v1/users/me/profile', { headers: { authorization: `Bearer ${accessToken}` } });
   if (!res.ok) {throw new Error(`Could not read the Gmail address (${res.status})`);}
-  return ((await res.json()) as { emailAddress: string }).emailAddress;
+  const profile: unknown = await res.json();
+  if (typeof profile !== 'object' || profile === null || !('emailAddress' in profile) || typeof profile.emailAddress !== 'string') {
+    throw new Error('Could not read the Gmail address (no address in the reply)');
+  }
+  return profile.emailAddress;
 }

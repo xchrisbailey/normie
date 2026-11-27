@@ -66,7 +66,7 @@ describe('Gmail sign-in', () => {
   it('signs in through the browser with PKCE and records the Account', async () => {
     const { make, secrets, list, g } = setup();
     const accounts = make();
-    const changes: Array<AccountRecord>[] = [];
+    const changes: Array<Array<AccountRecord>> = [];
     accounts.onChange((a) => changes.push(a));
     const acct = await accounts.addGmail();
     expect(acct).toEqual({ id: 'gmail:chris@example.com', kind: 'gmail', email: 'Chris@Example.com', status: 'ok' });

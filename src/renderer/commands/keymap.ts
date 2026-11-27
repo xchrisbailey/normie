@@ -1,6 +1,7 @@
 // The user's keymap: a JSON file of overrides laid over the registry's default keys. Pure, so it's testable.
 //   { "thread.done": "e", "undo": ["z", "Cmd-Z"], "thread.star": [] }
 // Each entry replaces that action's keys; [] unbinds it. Problems are reported and skipped, never fatal.
+import { isRecord } from '../dom';
 import type { ActionDef } from './keys';
 
 export interface KeymapResult<A extends ActionDef> {
@@ -35,7 +36,7 @@ export function normalizeToken(raw: string): string | null {
 /** A key or sequence ("g i"): each press normalized. Null if any press is malformed. */
 export function normalizeKey(raw: string): string | null {
   const presses = raw.trim().split(/\s+/).map(normalizeToken);
-  return presses.length && presses.every((p) => p) ? presses.join(' ') : null;
+  return presses.length && presses.every(Boolean) ? presses.join(' ') : null;
 }
 
 const overlaps = (a: ActionDef, b: ActionDef) => a.contexts.some((c) => b.contexts.includes(c));
@@ -46,13 +47,13 @@ const collide = (a: string, b: string) => a === b || b.startsWith(`${a} `) || a.
 export function mergeKeymap<A extends ActionDef>(defaults: ReadonlyArray<A>, file: unknown): KeymapResult<A> {
   const problems: Array<string> = [];
   if (file === undefined || file === null) {return { actions: [...defaults], problems };}
-  if (typeof file !== 'object' || Array.isArray(file)) {
+  if (!isRecord(file)) {
     return { actions: [...defaults], problems: ['The keymap must be a JSON object of action ids to keys.'] };
   }
   const byId = new Map(defaults.map((a) => [a.id, a]));
   /** User keys per action, in file order. */
   const user = new Map<string, Array<string>>();
-  for (const [id, value] of Object.entries(file as Record<string, unknown>)) {
+  for (const [id, value] of Object.entries(file)) {
     if (!byId.has(id)) {
       problems.push(`Unknown action "${id}".`);
       continue;
@@ -70,8 +71,9 @@ export function mergeKeymap<A extends ActionDef>(defaults: ReadonlyArray<A>, fil
     }
     // Two of the user's own bindings clash: the earlier one keeps the key.
     for (const [otherId, otherKeys] of user) {
-      const other = byId.get(otherId)!;
-      if (!overlaps(other, byId.get(id)!)) {continue;}
+      const other = byId.get(otherId);
+      const mine = byId.get(id);
+      if (!other || !mine || !overlaps(other, mine)) {continue;}
       // A copy: the loop takes clashing keys out of `keys` as it goes.
       // oxlint-disable-next-line unicorn/no-useless-spread
       for (const k of [...keys]) {
@@ -86,9 +88,13 @@ export function mergeKeymap<A extends ActionDef>(defaults: ReadonlyArray<A>, fil
   }
   // The user's keys win over defaults: a default that clashes with one is dropped, and said so.
   const actions = defaults.map((a) => {
-    if (user.has(a.id)) {return { ...a, keys: user.get(a.id)! };}
+    const own = user.get(a.id);
+    if (own) {return { ...a, keys: own };}
     const keys = a.keys.filter((k) => {
-      const by = [...user].find(([uid, uks]) => overlaps(byId.get(uid)!, a) && uks.some((u) => collide(u, k)));
+      const by = [...user].find(([uid, uks]) => {
+        const other = byId.get(uid);
+        return !!other && overlaps(other, a) && uks.some((u) => collide(u, k));
+      });
       if (by) {problems.push(`"${a.id}" lost its default key "${k}" to "${by[0]}".`);}
       return !by;
     });

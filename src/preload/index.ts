@@ -11,7 +11,10 @@ contextBridge.exposeInMainWorld('normie', {
   firstPaint: (info: { rows: number; fromSnapshot: boolean }) => ipcRenderer.send('renderer-first-paint', info),
   ready: (info: { rows: number; view: 'list' | 'empty'; fromSnapshot: boolean }) => ipcRenderer.send('renderer-ready', info),
   /** The top rows of the last Split, saved at the end of the previous run. Read once, synchronously, at launch. */
-  snapshot: (): Array<unknown> => ipcRenderer.sendSync('snapshot:get'),
+  snapshot: (): Array<unknown> => {
+    const rows: unknown = ipcRenderer.sendSync('snapshot:get');
+    return Array.isArray(rows) ? rows : [];
+  },
   saveSnapshot: (rows: Array<unknown>) => ipcRenderer.send('snapshot:set', rows),
   platform: process.platform,
   /** Running against the fake provider: there are no real Accounts to add. */

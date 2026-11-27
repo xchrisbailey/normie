@@ -4,15 +4,27 @@ import { CORE_API_METHODS, coreApiOf } from '../core/core';
 import type { CoreEvents } from '../core/api';
 import { DATA_PORT_METHODS, DataService } from '../core/data-service';
 import type { SyncEvents } from '../core/data-service';
+import { log } from '../core/log';
 import { mainPortChannel, serve } from '../core/rpc';
 import type { Emitter } from '../core/rpc';
 import { attachmentContent, readMessage, readOriginal } from '../core/mime';
 import { Store } from '../core/store';
 
-type InitMessage =
+type Message =
   | { type: 'init'; dbPath: string; keepAccounts?: Array<string> }
   | { type: 'renderer-port' }
-  | { type: 'sync-port' };
+  | { type: 'sync-port' }
+  | { type: 'debug-search'; queries: Array<string> }
+  | { type: 'debug-memory' };
+
+const isMessage = (v: unknown): v is Message => {
+  if (typeof v !== 'object' || v === null || !('type' in v)) {return false;}
+  if (v.type === 'init') {return 'dbPath' in v && typeof v.dbPath === 'string';}
+  if (v.type === 'debug-search') {return 'queries' in v && Array.isArray(v.queries);}
+  return v.type === 'renderer-port' || v.type === 'sync-port' || v.type === 'debug-memory';
+};
+
+const mb = (n: number) => Math.round(n / 1_048_576);
 
 let data: DataService | undefined;
 const pendingPorts: Array<{ kind: 'renderer-port' | 'sync-port'; port: MessagePortMain }> = [];
@@ -39,37 +51,42 @@ function attach(kind: 'renderer-port' | 'sync-port', port: MessagePortMain) {
     const off = ds.onNotice((n) => emit('notice', n));
     port.on('close', () => off());
   } else {
-    const handlers = Object.fromEntries(DATA_PORT_METHODS.map((m) => [m, (...a: Array<unknown>) => (ds[m] as (...x: Array<unknown>) => unknown)(...a)]));
+    const handlers: Parameters<typeof serve>[1] = {};
+    for (const m of DATA_PORT_METHODS) {
+      handlers[m] = ds[m].bind(ds);
+    }
     // Sync answers a server search by calling back with its id once the hits are stored.
     emitToSync = serve<SyncEvents>(ch, { ...handlers, serverSearchDone: (id: number) => void pendingSearches.get(id)?.() });
   }
 }
 
 process.parentPort.on('message', (e) => {
-  if ((e.data as { type: string }).type === 'debug-search' && data) {
+  const msg: unknown = e.data;
+  if (!isMessage(msg)) {return;}
+  if (msg.type === 'debug-search') {
+    if (!data) {return;}
     // The benchmark: time each query, as the renderer would ask it.
     const ds = data;
     while (ds.indexSearchBatch(5000)){;}
-    const times = (e.data as { queries: Array<string> }).queries.map((q) => {
+    const times = msg.queries.map((q) => {
       const t = performance.now();
       const n = ds.search(q).length;
       return { q, n, ms: performance.now() - t };
     });
     return void process.parentPort.postMessage({ type: 'debug-search', times });
   }
-  if ((e.data as { type: string }).type === 'debug-memory') {
+  if (msg.type === 'debug-memory') {
     const m = process.memoryUsage();
-    const mb = (n: number) => Math.round(n / 1_048_576);
-    const sqlite = data ? (data.store.db.pragma('cache_size', { simple: true }) as number) : 0;
+    const cache: unknown = data?.store.db.pragma('cache_size', { simple: true });
+    const sqlite = typeof cache === 'number' ? cache : 0;
     return void process.parentPort.postMessage({ type: 'debug-memory', rss: mb(m.rss), heapUsed: mb(m.heapUsed), heapTotal: mb(m.heapTotal), external: mb(m.external), arrayBuffers: mb(m.arrayBuffers), sqliteCache: sqlite });
   }
-  const msg = e.data as InitMessage;
   if (msg.type === 'init') {
     data = new DataService(new Store(msg.dbPath), { mime: { readMessage, attachmentContent, readOriginal } });
     // Main sends the Account list when it's the source of truth (not in fake or benchmark runs).
     if (msg.keepAccounts) {
       const removed = data.pruneAccounts(msg.keepAccounts);
-      if (removed.length) {console.log(`[data] removed ${removed.length} Account(s) that are no longer signed in`);}
+      if (removed.length) {log(`[data] removed ${removed.length} Account(s) that are no longer signed in`);}
     }
     data.bodyRequester = (loc) => emitToSync?.('fetch-body', loc);
     data.serverSearcher = (query) => new Promise<void>((resolve) => {

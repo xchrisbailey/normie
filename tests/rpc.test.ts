@@ -1,6 +1,7 @@
 // The MessagePort protocol the processes use to talk to each other.
 import { describe, expect, it } from 'vitest';
 import { connect, domPortChannel, serve } from '../src/core/rpc';
+import { sleep } from '../src/core/sleep';
 
 function pair() {
   const { port1, port2 } = new MessageChannel();
@@ -22,7 +23,7 @@ describe('rpc over a MessagePort', () => {
     await expect(c.call('boom')).rejects.toThrow('nope');
     await expect(c.call('missing')).rejects.toThrow('unknown method missing');
     emit('notice', { type: 'rows-changed' });
-    await new Promise((r) => setTimeout(r, 10));
+    await sleep(10);
     expect(events).toEqual([{ type: 'rows-changed' }]);
     close();
   });

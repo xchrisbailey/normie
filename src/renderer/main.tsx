@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import { expected } from '../core/errors';
 import { App } from './App';
 import { waitForCore } from './core-client';
 import './styles.css';
@@ -19,4 +20,4 @@ const quiet = () => {
 for (const type of ['keydown', 'pointerdown', 'wheel'] as const) {window.addEventListener(type, quiet, { passive: true, capture: true });}
 
 // Render at once, from the snapshot; the core's port arrives a moment later.
-createRoot(document.getElementById('root')!).render(<App corePromise={waitForCore()} />);
+createRoot(expected(document.getElementById('root'), 'the #root element')).render(<App corePromise={waitForCore()} />);

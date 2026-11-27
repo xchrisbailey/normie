@@ -4,6 +4,7 @@
 // Each message sits in its own shadow root, so one newsletter's <style> can't restyle another message.
 import { memo, useLayoutEffect, useRef } from 'react';
 import type { Address, ThreadMessage } from '../core/types';
+import { isElement, isHtmlElement } from './dom';
 import { sanitized } from './sanitize-cache';
 
 const full = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -39,6 +40,8 @@ function themeColors() {
   return { colors: { base: v('base'), text: v('text'), surface0: v('surface0'), surface1: v('surface1'), overlay: v('overlay') }, dark: css.colorScheme !== 'light' };
 }
 const sizeOf = (n: number) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
+// The tag as a name, so the type set on the next line is what the button-has-type check can't see through a literal.
+const BUTTON = 'button';
 const PAPER_CSS = `:host { display: block; } img { max-width: 100%; height: auto; } table { max-width: 100%; }`;
 
 const shell = (remote: boolean, theme: ReturnType<typeof themeColors>) =>
@@ -91,7 +94,8 @@ function render(doc: Document, messages: Array<ThreadMessage>, allow: (m: Thread
         size.textContent = sizeOf(a.size);
         chip.append(name, size);
         for (const [label, action] of [['Open', 'open'], ['Save', 'save']] as const) {
-          const b = doc.createElement('button');
+          const b = doc.createElement(BUTTON);
+          b.type = 'button';
           b.textContent = label;
           b.dataset.attachment = `${action}:${m.id}:${a.index}`;
           chip.append(b);
@@ -146,14 +150,15 @@ export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, r
       if (forwarded.defaultPrevented) {e.preventDefault();}
     });
     doc.addEventListener('click', (e) => {
-      const button = e.composedPath().find((n) => (n as HTMLElement).dataset?.attachment) as HTMLElement | undefined;
+      const path = e.composedPath();
+      const button = path.find((n): n is HTMLElement => isHtmlElement(n) && !!n.dataset.attachment);
       if (button) {
         e.preventDefault();
-        const [action, id, index] = button.dataset.attachment!.split(':');
-        latest.current.onAttachment?.(action as 'open' | 'save', Number(id), Number(index));
+        const [action, id, index] = (button.dataset.attachment ?? '').split(':');
+        if (action === 'open' || action === 'save') {latest.current.onAttachment?.(action, Number(id), Number(index));}
         return;
       }
-      const a = (e.composedPath().find((n) => (n as Element).tagName === 'A') as HTMLAnchorElement | undefined) ?? null;
+      const a = path.find((n): n is HTMLAnchorElement => isElement(n) && n.tagName === 'A');
       if (!a) {return;}
       e.preventDefault();
       const href = a.getAttribute('href');

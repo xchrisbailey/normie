@@ -5,7 +5,12 @@ import { formatAddresses } from '../core/addresses';
 import type { Address } from '../core/types';
 
 /** The entry being typed: everything after the last separator outside quotes and angle brackets. */
-export function currentEntry(value: string): { head: string; entry: string } {
+export interface CurrentEntry {
+  head: string;
+  entry: string;
+}
+
+export function currentEntry(value: string): CurrentEntry {
   let quoted = false;
   let angle = 0;
   let cut = 0;
@@ -35,7 +40,7 @@ export const AddressField = forwardRef<HTMLInputElement, {
     void suggest(entry).then((list) => {
       if (n !== asked.current) {return;}
       // Nothing to suggest once the entry is exactly a suggestion.
-      setOptions(list.length === 1 && list[0]!.address === entry.toLowerCase() ? [] : list);
+      setOptions(list.length === 1 && list[0]?.address === entry.toLowerCase() ? [] : list);
       setIndex(0);
     });
   }, [value, suggest]);
@@ -49,7 +54,11 @@ export const AddressField = forwardRef<HTMLInputElement, {
     if (!options.length) {return;}
     if (e.key === 'ArrowDown') {setIndex((i) => Math.min(options.length - 1, i + 1));}
     else if (e.key === 'ArrowUp') {setIndex((i) => Math.max(0, i - 1));}
-    else if ((e.key === 'Tab' || e.key === 'Enter') && !e.metaKey && !e.ctrlKey) {pick(options[index]!);}
+    else if ((e.key === 'Tab' || e.key === 'Enter') && !e.metaKey && !e.ctrlKey) {
+      const chosen = options[index];
+      if (!chosen) {return;}
+      pick(chosen);
+    }
     else if (e.key === 'Escape') {setOptions([]);}
     else {return;}
     e.preventDefault();

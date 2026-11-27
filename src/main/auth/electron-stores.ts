@@ -3,6 +3,7 @@
 import { safeStorage } from 'electron';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { parseJson } from '../../core/json';
 import type { AccountList, AccountRecord, SecretStore } from './accounts';
 
 export class SafeStorageSecrets implements SecretStore {
@@ -46,12 +47,28 @@ export class SafeStorageSecrets implements SecretStore {
   }
 }
 
+/** The shape of a saved Account: what the rest of the code reads from it. */
+function isAccountRecord(r: unknown): r is AccountRecord {
+  if (typeof r !== 'object' || r === null) {return false;}
+  if (!('id' in r) || typeof r.id !== 'string' || !('email' in r) || typeof r.email !== 'string') {return false;}
+  if (!('status' in r) || (r.status !== 'ok' && r.status !== 'needs-sign-in')) {return false;}
+  if (!('kind' in r)) {return false;}
+  return r.kind === 'gmail' || (r.kind === 'imap' && 'settings' in r && typeof r.settings === 'object' && r.settings !== null);
+}
+
 export class JsonAccountList implements AccountList {
   constructor(private readonly file: string) {}
 
   load(): Array<AccountRecord> {
     try {
-      return JSON.parse(readFileSync(this.file, 'utf8')) as Array<AccountRecord>;
+      const v = parseJson(readFileSync(this.file, 'utf8'));
+      if (!Array.isArray(v)) {return [];}
+      const accounts: Array<AccountRecord> = [];
+      for (const r of v) {
+        if (!isAccountRecord(r)) {return [];}
+        accounts.push(r);
+      }
+      return accounts;
     } catch {
       return [];
     }

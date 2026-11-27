@@ -5,7 +5,7 @@ import { DataService, localDataPort } from './data-service';
 import type { MimeReader } from './data-service';
 import { Store } from './store';
 import { SyncEngine } from './sync-engine';
-import type { TextExtractor } from './sync-engine';
+import type { SyncEngineOptions, TextExtractor } from './sync-engine';
 import type { CoreApi } from './api';
 import type { AccountId, CoreNotice, MailProvider, MailTransport } from './types';
 
@@ -69,11 +69,10 @@ export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
   const data = new DataService(new Store(o.dbPath ?? ':memory:'), { now: o.now, deleteHoldMs: o.deleteHoldMs, mime: o.mime, undoSendMs: o.undoSendMs });
   const notices: Array<CoreNotice> = [];
   data.onNotice((n) => notices.push(n));
-  const engine = new SyncEngine({
+  const engineOptions: SyncEngineOptions = {
     accountId: o.accountId ?? 'gmail:me@example.com',
     kind: o.kind ?? 'fake',
     email: o.email ?? 'me@example.com',
-    ...(o.identities ? { identities: o.identities } : {}),
     provider: o.provider,
     data: localDataPort(data),
     extractText: o.extractText,
@@ -84,7 +83,9 @@ export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
     backoffMs: o.backoffMs,
     transport: o.transport,
     draftDebounceMs: o.draftDebounceMs,
-  });
+  };
+  if (o.identities) {engineOptions.identities = o.identities;}
+  const engine = new SyncEngine(engineOptions);
   data.bodyRequester = (loc) => void engine.fetchBodies(loc.mailbox, [loc.uid]).catch(() => {});
   data.replayRequester = () => engine.replaySoon();
   data.outboxRequester = () => engine.outboxSoon();

@@ -1,11 +1,12 @@
 // The ? sheet: every action that has a key, grouped as the menus are, plus the composer's own keys. Pure.
+import { expected } from '../../core/errors';
 import type { ActionDef } from './keys';
 import { menuSections } from './menu';
 import { keyLabel } from './palette';
 
 export interface HelpSection {
   title: string;
-  rows: Array<{ name: string; keys: string[] }>;
+  rows: Array<{ name: string; keys: Array<string> }>;
 }
 
 /** Keys that live in the composer itself, not in the registry. */
@@ -36,9 +37,9 @@ export function helpSections(actions: ReadonlyArray<ActionDef>): Array<HelpSecti
   for (const s of sections) {
     const accountRows = s.rows.filter((r) => /^Show Account \d$/.test(r.name));
     if (accountRows.length > 1) {
-      const at = s.rows.indexOf(accountRows[0]!);
+      const at = s.rows.indexOf(expected(accountRows[0], 'an account row'));
       s.rows = s.rows.filter((r) => !accountRows.includes(r));
-      s.rows.splice(at, 0, { name: "Show an Account's Tab", keys: [`${accountRows[0]!.keys[0]}–${accountRows.at(-1)!.keys[0]}`] });
+      s.rows.splice(at, 0, { name: "Show an Account's Tab", keys: [`${accountRows[0]?.keys[0]}–${accountRows.at(-1)?.keys[0]}`] });
     }
   }
   return [...sections.filter((s) => s.rows.length), COMPOSER];

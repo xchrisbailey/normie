@@ -13,6 +13,7 @@ import { buildMime } from '../../src/core/compose';
 import { newMessageId } from '../../src/core/ids';
 import { gmailConfig, ImapProvider } from '../../src/sync/imap-provider';
 import { gmailTransport } from '../../src/sync/smtp';
+import { sleep } from '../../src/core/sleep';
 
 const user = process.env.GMAIL_USER;
 const DAY = 86_400_000;
@@ -92,7 +93,7 @@ describe.skipIf(!user)('Gmail provider against the real server', () => {
     // Gmail files SMTP mail in Sent itself (savesSent), so it shows up in All Mail with the \Sent label.
     let found = false;
     for (let i = 0; i < 10 && !found; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
+      await sleep(2000);
       const recent = await p.changes(allMail, null, { windowStart: Date.now() - DAY });
       found = recent.headers.some((h) => h.messageId === messageId && h.labels.includes(String.raw`\Sent`));
     }
@@ -110,7 +111,7 @@ describe.skipIf(!user)('Gmail provider against the real server', () => {
     const ac = new AbortController();
     const it = p.watch('INBOX', ac.signal)[Symbol.asyncIterator]();
     const nextEvent = it.next();
-    await new Promise((r) => setTimeout(r, 3000));
+    await sleep(3000);
     ac.abort();
     const res = await nextEvent;
     expect(res.done).toBe(true);

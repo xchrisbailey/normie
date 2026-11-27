@@ -7,6 +7,7 @@ import { createCore } from '../src/core/core';
 import type { TestCore } from '../src/core/core';
 import { FakeProvider, FakeTransport, fakeExtractText, ICLOUD_CAPS } from '../src/core/fake-provider';
 import type { OutgoingMessage } from '../src/core/types';
+import { sleep } from '../src/core/sleep';
 
 const cores: Array<TestCore> = [];
 const dirs: Array<string> = [];
@@ -37,7 +38,7 @@ const waitFor = async (cond: () => boolean, ms = 2000) => {
   const end = Date.now() + ms;
   while (!cond()) {
     if (Date.now() > end) {throw new Error('timed out');}
-    await new Promise((r) => setTimeout(r, 5));
+    await sleep(5);
   }
 };
 

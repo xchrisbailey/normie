@@ -1,6 +1,7 @@
 // An in-memory MailProvider that plays a scripted mailbox. Used by core tests,
 // the performance fixture and `npm run start:fake`.
 import type { ServerQuery } from './search-query';
+import { expected } from './errors';
 import { ServerRejectedError } from './types';
 import type {
   Address, Caps, ChangeSet, ChangesOptions, FlagChange, Mailbox, MailEvent, MailProvider, MailTransport, MessageEdit, RawMessage, RemoteHeader, SyncState,
@@ -46,6 +47,18 @@ export const GMAIL_CAPS: Caps = { condstore: true, qresync: false, move: true, l
 /** iCloud-like: folders, CONDSTORE and QRESYNC, no MOVE. */
 export const ICLOUD_CAPS: Caps = { condstore: true, qresync: true, move: false, labels: false, serverThreads: false, savesSent: false };
 
+const copyHeader = (h: RemoteHeader): RemoteHeader => ({ ...h, flags: [...h.flags], labels: [...h.labels] });
+
+const applyEdit = (xs: Array<string>, add?: Array<string>, remove?: Array<string>) => {
+  const set = new Set(xs);
+  remove?.forEach((x) => set.delete(x));
+  add?.forEach((x) => set.add(x));
+  return [...set];
+};
+
+const has = (hay: string, needle: string) => hay.toLowerCase().includes(needle.toLowerCase());
+const addr = (a?: Address) => (a ? `${a.name ?? ''} ${a.address}` : '');
+
 export class FakeProvider implements MailProvider {
   readonly caps: Caps;
   private boxes = new Map<string, FakeBox>();
@@ -57,9 +70,9 @@ export class FakeProvider implements MailProvider {
   /** Set to make the server refuse the next edits (the connection stays up). */
   rejectEdits = 0;
   /** Messages appended (such as sent copies), in order. */
-  appends: Array<{ mailbox: string; raw: string; flags: string[] }> = [];
+  appends: Array<{ mailbox: string; raw: string; flags: Array<string> }> = [];
   /** Every edit the core sent, in order. */
-  edits: Array<{ mailbox: string; uids: number[]; edit: MessageEdit }> = [];
+  edits: Array<{ mailbox: string; uids: Array<number>; edit: MessageEdit }> = [];
 
   constructor(opts: { caps?: Partial<Caps>; mailboxes?: Array<Mailbox> } = {}) {
     this.caps = { ...GMAIL_CAPS, ...opts.caps };
@@ -75,7 +88,7 @@ export class FakeProvider implements MailProvider {
   /** The mailbox new messages go to: All Mail with Labels, Inbox without. */
   get primaryPath() {
     const want = this.caps.labels ? 'all' : 'inbox';
-    return [...this.boxes.values()].find((b) => b.mailbox.role === want)!.mailbox.path;
+    return expected([...this.boxes.values()].find((b) => b.mailbox.role === want), 'a mailbox for new messages').mailbox.path;
   }
 
   addMailbox(m: Mailbox) {
@@ -101,7 +114,9 @@ export class FakeProvider implements MailProvider {
     // Like Gmail: a change to a message carrying the Inbox label is also an event on INBOX.
     if (e !== 'drop' && this.caps.labels && labels?.includes(String.raw`\Inbox`)) {
       const inbox = [...this.boxes.values()].find((b) => b.mailbox.role === 'inbox')?.mailbox.path;
-      if (inbox && inbox !== e.mailbox) {for (const w of this.watchers) w({ ...e, mailbox: inbox });}
+      if (inbox && inbox !== e.mailbox) {
+        for (const w of this.watchers) {w({ ...e, mailbox: inbox });}
+      }
     }
   }
 
@@ -110,7 +125,11 @@ export class FakeProvider implements MailProvider {
   /** Like Gmail: a reply joins the Thread of the message it answers. */
   private threadOfMessage(messageId?: string): string | undefined {
     if (!messageId) {return undefined;}
-    for (const b of this.boxes.values()) {for (const m of b.messages.values()) if (m.header.messageId === messageId) return m.header.threadId;}
+    for (const b of this.boxes.values()) {
+      for (const m of b.messages.values()) {
+        if (m.header.messageId === messageId) {return m.header.threadId;}
+      }
+    }
     return undefined;
   }
 
@@ -120,10 +139,9 @@ export class FakeProvider implements MailProvider {
     const uid = b.uidNext++;
     b.modseq++;
     const messageId = input.messageId ?? (input.raw && /^Message-ID: (.*)$/im.exec(input.raw)?.[1]?.trim()) ?? `<fake-${path}-${uid}@normie.test>`;
-    b.messages.set(uid, {
+    const stored: Stored = {
       modseq: b.modseq,
       text: input.text ?? `Body of ${input.subject}`,
-      ...(input.raw ? { raw: input.raw } : {}),
       header: {
         uid, remoteId: this.caps.labels ? `gm-${uid}` : `${path}:${uid}`,
         threadId: this.caps.serverThreads ? (input.threadId ?? this.threadOfMessage(input.inReplyTo ?? (input.raw && /^In-Reply-To: (.*)$/im.exec(input.raw)?.[1]?.trim())) ?? `t-${uid}`) : undefined,
@@ -132,8 +150,10 @@ export class FakeProvider implements MailProvider {
         date: input.date ?? Date.now(), flags: input.flags ?? [], labels: input.labels ?? (this.caps.labels ? [String.raw`\Inbox`] : [path]),
         isList: input.list ?? (input.raw ? /^(list-unsubscribe|list-id):/im.test(input.raw.split(/\r?\n\r?\n/)[0] ?? '') : false),
       },
-    });
-    this.emit({ type: 'exists', mailbox: path }, b.messages.get(uid)!.header.labels);
+    };
+    if (input.raw) {stored.raw = input.raw;}
+    b.messages.set(uid, stored);
+    this.emit({ type: 'exists', mailbox: path }, stored.header.labels);
     return uid;
   }
 
@@ -190,7 +210,9 @@ export class FakeProvider implements MailProvider {
   }
 
   private stateOf(b: FakeBox): SyncState {
-    return { uidValidity: b.uidValidity, uidNext: b.uidNext, ...(this.caps.condstore ? { highestModseq: String(b.modseq) } : {}) };
+    const state: SyncState = { uidValidity: b.uidValidity, uidNext: b.uidNext };
+    if (this.caps.condstore) {state.highestModseq = String(b.modseq);}
+    return state;
   }
 
   async changes(path: string, since: SyncState | null, opts: ChangesOptions): Promise<ChangeSet> {
@@ -198,37 +220,37 @@ export class FakeProvider implements MailProvider {
     const b = this.box(path);
     const state = this.stateOf(b);
     const inWindow = (m: Stored) => m.header.date >= opts.windowStart;
-    const copy = (h: RemoteHeader): RemoteHeader => ({ ...h, flags: [...h.flags], labels: [...h.labels] });
     if (!since || since.uidValidity !== b.uidValidity) {
-      const headers = [...b.messages.values()].filter(inWindow).map((m) => copy(m.header));
+      const headers = [...b.messages.values()].flatMap((m) => (inWindow(m) ? [copyHeader(m.header)] : []));
       return { state, reset: true, headers, flagChanges: [], vanished: [] };
     }
-    const headers = [...b.messages.values()].filter((m) => m.header.uid >= since.uidNext && inWindow(m)).map((m) => copy(m.header));
-    let flagChanges: Array<FlagChange> = [];
+    const headers = [...b.messages.values()].flatMap((m) => (m.header.uid >= since.uidNext && inWindow(m) ? [copyHeader(m.header)] : []));
+    let flagChanges: Array<FlagChange>;
     let vanished: Array<number> = [];
     if (this.caps.condstore && since.highestModseq) {
       const base = BigInt(since.highestModseq);
-      flagChanges = [...b.messages.values()]
-        .filter((m) => m.header.uid < since.uidNext && m.modseq > base)
-        .map((m) => ({ uid: m.header.uid, flags: [...m.header.flags], ...(this.caps.labels ? { labels: [...m.header.labels] } : {}) }));
-      if (this.caps.qresync) {vanished = [...b.vanished].filter(([, s]) => s > base).map(([uid]) => uid);}
+      flagChanges = [...b.messages.values()].flatMap((m) => {
+        if (m.header.uid >= since.uidNext || m.modseq <= base) {return [];}
+        const change: FlagChange = { uid: m.header.uid, flags: [...m.header.flags] };
+        if (this.caps.labels) {change.labels = [...m.header.labels];}
+        return [change];
+      });
+      if (this.caps.qresync) {vanished = [...b.vanished].flatMap(([uid, s]) => (s > base ? [uid] : []));}
     } else {
       // No CONDSTORE: report the flags of every known message in the window.
-      flagChanges = [...b.messages.values()]
-        .filter((m) => m.header.uid < since.uidNext && inWindow(m))
-        .map((m) => ({ uid: m.header.uid, flags: [...m.header.flags] }));
+      flagChanges = [...b.messages.values()].flatMap((m) => (m.header.uid < since.uidNext && inWindow(m) ? [{ uid: m.header.uid, flags: [...m.header.flags] }] : []));
     }
     return { state, reset: false, headers, flagChanges, vanished };
   }
 
   async uids(path: string, opts: ChangesOptions) {
     this.check('uids');
-    return [...this.box(path).messages.values()].filter((m) => m.header.date >= opts.windowStart).map((m) => m.header.uid);
+    return [...this.box(path).messages.values()].flatMap((m) => (m.header.date >= opts.windowStart ? [m.header.uid] : []));
   }
 
   async uidsBefore(path: string, before: number) {
     this.check('uidsBefore');
-    return [...this.box(path).messages.values()].filter((m) => m.header.date < before).map((m) => m.header.uid);
+    return [...this.box(path).messages.values()].flatMap((m) => (m.header.date < before ? [m.header.uid] : []));
   }
 
   async headers(path: string, uids: Array<number>): Promise<Array<RemoteHeader>> {
@@ -260,20 +282,13 @@ export class FakeProvider implements MailProvider {
     }
     const b = this.box(path);
     this.edits.push({ mailbox: path, uids: [...uids], edit });
-    const apply = (xs: Array<string>, add?: Array<string>, remove?: Array<string>) => {
-      const set = new Set(xs);
-      remove?.forEach((x) => set.delete(x));
-      add?.forEach((x) => set.add(x));
-      return [...set];
-    };
     for (const uid of uids) {
       const m = b.messages.get(uid);
       if (!m) {continue;}
       const before = m.header.labels;
-      this.setFlags(uid, {
-        flags: apply(m.header.flags, edit.addFlags, edit.removeFlags),
-        ...(this.caps.labels ? { labels: apply(m.header.labels, edit.addLabels, edit.removeLabels) } : {}),
-      }, path);
+      const change: Parameters<FakeProvider['setFlags']>[1] = { flags: applyEdit(m.header.flags, edit.addFlags, edit.removeFlags) };
+      if (this.caps.labels) {change.labels = applyEdit(m.header.labels, edit.addLabels, edit.removeLabels);}
+      this.setFlags(uid, change, path);
       // Removing the Inbox label is also an event on INBOX, as on Gmail.
       if (before.includes(String.raw`\Inbox`) && !m.header.labels.includes(String.raw`\Inbox`)) {this.emit({ type: 'flags', mailbox: path, uid, flags: m.header.flags }, before);}
     }
@@ -286,7 +301,9 @@ export class FakeProvider implements MailProvider {
     this.appends.push({ mailbox: path, raw: text, flags });
     const subject = /^Subject: (.*)$/m.exec(text)?.[1]?.trim() ?? '';
     const messageId = /^Message-ID: (.*)$/im.exec(text)?.[1]?.trim();
-    const uid = this.deliver({ subject, flags, ...(messageId ? { messageId } : {}), raw: text, labels: this.caps.labels ? [flags.includes(String.raw`\Draft`) ? String.raw`\Draft` : String.raw`\Sent`] : [path] }, path);
+    const input: FakeMessageInput = { subject, flags, raw: text, labels: this.caps.labels ? [flags.includes(String.raw`\Draft`) ? String.raw`\Draft` : String.raw`\Sent`] : [path] };
+    if (messageId) {input.messageId = messageId;}
+    const uid = this.deliver(input, path);
     return { uid };
   }
 
@@ -294,19 +311,20 @@ export class FakeProvider implements MailProvider {
   async search(path: string, query: ServerQuery) {
     this.check('search');
     const b = this.box(path);
-    const has = (hay: string, needle: string) => hay.toLowerCase().includes(needle.toLowerCase());
-    const addr = (a?: Address) => (a ? `${a.name ?? ''} ${a.address}` : '');
-    return [...b.messages.values()].filter((m) => query.terms.every((t) => {
-      const h = m.header;
-      if (t.field === 'from') {return has(addr(h.from), t.text);}
-      if (t.field === 'to') {return has(h.to.map(addr).join(' '), t.text);}
-      if (t.field === 'subject') {return has(h.subject, t.text);}
-      return has(`${h.subject} ${addr(h.from)} ${h.to.map(addr).join(' ')} ${m.text}`, t.text);
-    })).map((m) => m.header.uid);
+    return [...b.messages.values()].flatMap((m) => {
+      const matches = query.terms.every((t) => {
+        const h = m.header;
+        if (t.field === 'from') {return has(addr(h.from), t.text);}
+        if (t.field === 'to') {return has(h.to.map(addr).join(' '), t.text);}
+        if (t.field === 'subject') {return has(h.subject, t.text);}
+        return has(`${h.subject} ${addr(h.from)} ${h.to.map(addr).join(' ')} ${m.text}`, t.text);
+      });
+      return matches ? [m.header.uid] : [];
+    });
   }
 
   /** Moves the core made, in order, and how (MOVE, or copy + delete + expunge without it). */
-  moves: Array<{ from: string; to: string; uids: number[]; method: 'move' | 'copy+delete' }> = [];
+  moves: Array<{ from: string; to: string; uids: Array<number>; method: 'move' | 'copy+delete' }> = [];
 
   async move(path: string, uids: Array<number>, destination: string) {
     this.check('move');
@@ -322,12 +340,17 @@ export class FakeProvider implements MailProvider {
         continue;
       }
       const h = m.header;
-      out.push(this.deliver({
-        subject: h.subject, ...(h.from ? { from: h.from } : {}), to: h.to, date: h.date, flags: h.flags, ...(h.messageId ? { messageId: h.messageId } : {}),
-        ...(h.inReplyTo ? { inReplyTo: h.inReplyTo } : {}), ...(h.references ? { references: h.references } : {}),
-        ...(h.threadId ? { threadId: h.threadId } : {}), text: m.text, ...(m.raw ? { raw: m.raw } : {}),
+      const input: FakeMessageInput = {
+        subject: h.subject, to: h.to, date: h.date, flags: h.flags, text: m.text,
         labels: this.caps.labels ? h.labels : [destination],
-      }, destination));
+      };
+      if (h.from) {input.from = h.from;}
+      if (h.messageId) {input.messageId = h.messageId;}
+      if (h.inReplyTo) {input.inReplyTo = h.inReplyTo;}
+      if (h.references) {input.references = h.references;}
+      if (h.threadId) {input.threadId = h.threadId;}
+      if (m.raw) {input.raw = m.raw;}
+      out.push(this.deliver(input, destination));
       this.expunge(uid, path);
     }
     return { uids: out };
@@ -342,7 +365,7 @@ export class FakeProvider implements MailProvider {
   }
 
   /** Messages deleted for good by the core, in order. */
-  removed: Array<{ mailbox: string; uids: number[] }> = [];
+  removed: Array<{ mailbox: string; uids: Array<number> }> = [];
 
   async remove(path: string, uids: Array<number>) {
     this.check('remove');
@@ -352,7 +375,7 @@ export class FakeProvider implements MailProvider {
   }
 
   /** What's in a mailbox now, for tests. */
-  contents(path: string): Array<{ uid: number; subject: string; flags: string[] }> {
+  contents(path: string): Array<{ uid: number; subject: string; flags: Array<string> }> {
     return [...this.box(path).messages.values()].map((m) => ({ uid: m.header.uid, subject: m.header.subject, flags: m.header.flags }));
   }
 
@@ -372,10 +395,16 @@ export class FakeProvider implements MailProvider {
     signal.addEventListener('abort', onAbort);
     try {
       while (!signal.aborted) {
-        if (!queue.length && !dropped) {await new Promise<void>((r) => (wake = r));}
+        if (!queue.length && !dropped) {await new Promise<void>((r) => {
+          wake = r;
+        });}
         wake = undefined;
         if (dropped) {throw new Error('fake connection dropped');}
-        while (queue.length) {yield queue.shift()!;}
+        let next = queue.shift();
+        while (next) {
+          yield next;
+          next = queue.shift();
+        }
       }
     } finally {
       this.watchers.delete(fn);
@@ -395,14 +424,14 @@ export async function fakeExtractText(raw: Uint8Array): Promise<string> {
 export function seedDemo(p: FakeProvider, count = 40, now = Date.now()) {
   const people = ['Ada Lovelace', 'Grace Hopper', 'Alan Turing', 'Katherine Johnson', 'Linus Torvalds', 'Margaret Hamilton'];
   // A few Labels to file into (Gmail-like mailboxes only).
-  if (p.caps.labels) {for (const path of ['Receipts', 'Travel', 'Work/Projects']) p.addMailbox({ path });}
+  if (p.caps.labels) {for (const path of ['Receipts', 'Travel', 'Work/Projects']) {p.addMailbox({ path });}}
   const topics = ['Quarterly budget', 'Flight to Lisbon', 'Release notes', 'Lunch on Friday', 'Invoice #4821', 'Design review', 'Hotel booking', 'CI is red again'];
   for (let i = 0; i < count; i++) {
-    const name = people[i % people.length]!;
-    const subject = `${topics[Math.floor(i / 3) % topics.length]!}${i >= 3 * topics.length ? ` (${Math.floor(i / 3)})` : ''}`;
+    const name = people[i % people.length] ?? '';
+    const subject = `${topics[Math.floor(i / 3) % topics.length] ?? ''}${i >= 3 * topics.length ? ` (${Math.floor(i / 3)})` : ''}`;
     p.deliver({
       subject,
-      from: { name, address: `${name.split(' ')[0]!.toLowerCase()}@example.com` },
+      from: { name, address: `${(name.split(' ')[0] ?? '').toLowerCase()}@example.com` },
       // Messages 20 minutes apart, three to a Thread, so thousands of them fit inside the 90-day window.
       date: now - i * 1_200_000,
       threadId: `t-${Math.floor(i / 3)}`,
@@ -437,7 +466,7 @@ export function seedNewsletter(p: FakeProvider, now = Date.now()) {
 
 /** An SMTP stand-in: records what was sent, and fails or refuses on cue. */
 export class FakeTransport implements MailTransport {
-  sent: Array<{ raw: string; envelope: { from: string; to: string[] } }> = [];
+  sent: Array<{ raw: string; envelope: { from: string; to: Array<string> } }> = [];
   /** The next sends fail as a dropped connection would. */
   failNext = 0;
   /** The next sends are refused by the server. */

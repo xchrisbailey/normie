@@ -4,49 +4,65 @@ import { app } from 'electron';
 import type { BrowserWindow, UtilityProcess } from 'electron';
 import { execFileSync } from 'node:child_process';
 import { BUDGETS } from '../core/budgets';
+import { log } from '../core/log';
+import { sleep } from '../core/sleep';
+import { drive } from './drive';
+
+type Sample = { action: string; ms: number };
+type SearchTime = { q: string; n: number; ms: number };
+type Memory = { mb: number; detail: string };
+
+const sorted = (xs: Array<{ ms: number }>) => xs.map((s) => s.ms).sort((a, b) => a - b);
+const pctOf = (xs: Array<number>) => (p: number) => xs[Math.min(xs.length - 1, Math.floor((p / 100) * xs.length))] ?? Infinity;
+
+function isSearchTimes(v: unknown): v is Array<SearchTime> {
+  return (
+    Array.isArray(v) &&
+    v.every((t: unknown) => typeof t === 'object' && t !== null && 'q' in t && 'n' in t && 'ms' in t && typeof t.ms === 'number')
+  );
+}
 
 /** The benchmark: real key presses against the 100,000-message fixture, checked against the budgets. */
 export async function runBench(w: BrowserWindow, info: { rows: number }, dataProc: UtilityProcess): Promise<boolean> {
+  const d = drive(w);
   const budgets = { ...BUDGETS, keyMoveMs: Number(process.env.NORMIE_BUDGET_KEY_MS) || BUDGETS.keyMoveMs };
   const press = async (keyCode: string, modifiers: Array<'meta'> = []) => {
     w.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
     if (!modifiers.length) {w.webContents.sendInputEvent({ type: 'char', keyCode });}
     w.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
-    await new Promise((r) => setTimeout(r, 25));
+    await sleep(25);
   };
-  await new Promise((r) => setTimeout(r, 500)); // let the first frames settle
-  await w.webContents.executeJavaScript('window.__normiePerf.clear()');
+  await sleep(500); // let the first frames settle
+  await d.js<void>('window.__normiePerf.clear()');
   for (let i = 0; i < 200; i++) {await press('j');}
   for (let i = 0; i < 100; i++) {await press('k');}
-  await new Promise((r) => setTimeout(r, 200));
+  await sleep(200);
   // Opening: Enter on the selected Thread, then j through the next 30 in the reader. Each step's Thread
   // was prefetched while the one before it was open.
   await press('Enter');
   for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 150));
+    await sleep(150);
     await press('j');
   }
-  await new Promise((r) => setTimeout(r, 200));
+  await sleep(200);
   await press('Escape');
   // Triage: Done on 50 Threads in a row (the main run works on a copy of the fixture).
-  await new Promise((r) => setTimeout(r, 200));
+  await sleep(200);
   for (let i = 0; i < 50; i++) {await press('e');}
-  await new Promise((r) => setTimeout(r, 200));
+  await sleep(200);
   // Switching Splits (Tab through all five and back) redraws the list from memory.
   for (let i = 0; i < 8; i++) {
     for (let j = 0; j < 5; j++) {await press('Tab');}
   }
-  await new Promise((r) => setTimeout(r, 200));
+  await sleep(200);
   // The palette: open with Cmd-K, close with Escape.
   for (let i = 0; i < 40; i++) {
     await press('K', ['meta']);
-    await new Promise((r) => setTimeout(r, 50));
+    await sleep(50);
     await press('Escape');
   }
-  await new Promise((r) => setTimeout(r, 200));
-  const samples = (await w.webContents.executeJavaScript('window.__normiePerf.samples()')) as Array<{ action: string; ms: number }>;
-  const sorted = (xs: Array<{ ms: number }>) => xs.map((s) => s.ms).sort((a, b) => a - b);
-  const pctOf = (xs: Array<number>) => (p: number) => xs[Math.min(xs.length - 1, Math.floor((p / 100) * xs.length))] ?? Infinity;
+  await sleep(200);
+  const samples = await d.js<Array<Sample>>('window.__normiePerf.samples()');
   const ms = sorted(samples.filter((s) => s.action === 'list.down' || s.action === 'list.up'));
   const pct = pctOf(ms);
   const opens = sorted(samples.filter((s) => s.action === 'list.open' || s.action === 'reader.next'));
@@ -60,28 +76,30 @@ export async function runBench(w: BrowserWindow, info: { rows: number }, dataPro
   // Memory is a steady-state budget: Chromium caches raster tiles while scrolling and frees them once idle
   // (measured: 444 MB right after 300 rapid presses, 271 MB about 7 s later). Report the peak, judge the settled value.
   const peak = measureMemory();
-  await new Promise((r) => setTimeout(r, Number(process.env.NORMIE_BENCH_SETTLE_MS) || 8000));
+  await sleep(Number(process.env.NORMIE_BENCH_SETTLE_MS) || 8000);
   const memory = measureMemory();
   // Search: words common and rare, operators and phrases, each run a few times.
   const queries = ['review', 'the', 'budget 1234', 'from:ada', 'subject:"design review"', 'schedule numbers', 'thanks', 'offsite agenda', 'zzzz', 'to:me'];
-  const searchTimes = (await new Promise<unknown>((resolve) => {
-    const onMessage = (m: { type?: string; times?: unknown }) => {
-      if (m?.type !== 'debug-search') {return;}
+  const searchTimes = await new Promise<Array<SearchTime>>((resolve) => {
+    const onMessage = (m: unknown) => {
+      if (typeof m !== 'object' || m === null || !('type' in m) || m.type !== 'debug-search') {return;}
       dataProc.off('message', onMessage);
-      resolve(m.times);
+      resolve('times' in m && isSearchTimes(m.times) ? m.times : []);
     };
     dataProc.on('message', onMessage);
     dataProc.postMessage({ type: 'debug-search', queries: [...queries, ...queries, ...queries] });
-  })) as Array<{ q: string; n: number; ms: number }>;
+  });
   const searchMs = searchTimes.map((t) => t.ms).sort((a, b) => a - b);
   const searchPct = pctOf(searchMs);
   // Where the memory is, inside the data process and the renderer (for #75).
-  const dataMem = await new Promise((resolve) => {
-    dataProc.once('message', (m) => resolve(m));
+  const dataMem = await new Promise<unknown>((resolve) => {
+    dataProc.once('message', (m: unknown) => {
+      resolve(m);
+    });
     dataProc.postMessage({ type: 'debug-memory' });
   });
-  const tabMem = await w.webContents.executeJavaScript(`(() => { const m = performance.memory; return { used: Math.round(m.usedJSHeapSize / 1048576), total: Math.round(m.totalJSHeapSize / 1048576) }; })()`);
-  console.log(`[bench] inside: data ${JSON.stringify(dataMem)} renderer heap ${JSON.stringify(tabMem)}`);
+  const tabMem = await d.js<{ used: number; total: number }>(`(() => { const m = performance.memory; return { used: Math.round(m.usedJSHeapSize / 1048576), total: Math.round(m.totalJSHeapSize / 1048576) }; })()`);
+  log(`[bench] inside: data ${JSON.stringify(dataMem)} renderer heap ${JSON.stringify(tabMem)}`);
   const results = [
     { budget: 'keyMoveMs', value: pct(95), limit: budgets.keyMoveMs, detail: `p50 ${pct(50).toFixed(1)}, p95 ${pct(95).toFixed(1)}, max ${(ms.at(-1) ?? 0).toFixed(1)} ms over ${ms.length} presses` },
     { budget: 'openCachedMs', value: openPct(95), limit: budgets.openCachedMs, detail: `p50 ${openPct(50).toFixed(1)}, p95 ${openPct(95).toFixed(1)}, max ${(opens.at(-1) ?? 0).toFixed(1)} ms over ${opens.length} opens` },
@@ -92,14 +110,14 @@ export async function runBench(w: BrowserWindow, info: { rows: number }, dataPro
     { budget: 'memoryMb', value: memory.mb, limit: budgets.memoryMb, detail: `settled; ${memory.detail}; peak while scrolling ${peak.mb.toFixed(0)}` },
   ];
   const pressesOk = ms.length === 300 && opens.length === 31 && dones.length === 50 && palettes.length === 40 && switches.length === 40;
-  console.log(`\n[bench] fixture: ${info.rows} Inbox rows in the renderer`);
-  for (const r of results) {console.log(`[bench] ${r.value <= r.limit ? 'ok  ' : 'FAIL'} ${r.budget.padEnd(12)} ${r.value.toFixed(1).padStart(7)} / ${r.limit}   ${r.detail}`);}
-  if (!pressesOk) {console.log(`[bench] FAIL expected 300 moves, 31 opens, 50 Dones and 40 palettes, got ${ms.length}, ${opens.length}, ${dones.length} and ${palettes.length}`);}
+  log(`\n[bench] fixture: ${info.rows} Inbox rows in the renderer`);
+  for (const r of results) {log(`[bench] ${r.value <= r.limit ? 'ok  ' : 'FAIL'} ${r.budget.padEnd(12)} ${r.value.toFixed(1).padStart(7)} / ${r.limit}   ${r.detail}`);}
+  if (!pressesOk) {log(`[bench] FAIL expected 300 moves, 31 opens, 50 Dones and 40 palettes, got ${ms.length}, ${opens.length}, ${dones.length} and ${palettes.length}`);}
   return pressesOk && results.every((r) => r.value <= r.limit);
 }
 
 /** Total memory across the app's processes: physical footprint on macOS (as Activity Monitor shows), else working set. */
-export function measureMemory(): { mb: number; detail: string } {
+export function measureMemory(): Memory {
   const metrics = app.getAppMetrics();
   if (process.platform === 'darwin') {
     try {

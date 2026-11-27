@@ -31,8 +31,8 @@ export const Reader = memo(function Reader({ threadKey, subject, messages, allow
       {blocked.length > 0 && (
         <div className="images-bar" role="note">
           <span>Remote images are hidden. Loading them tells the sender you opened this.</span>
-          <button onClick={onLoadImages}>Load images <kbd>I</kbd></button>
-          <button onClick={onAlwaysLoadImages}>Always from {blocked.length === 1 ? 'this sender' : 'these senders'} <kbd>⇧I</kbd></button>
+          <button type="button" onClick={onLoadImages}>Load images <kbd>I</kbd></button>
+          <button type="button" onClick={onAlwaysLoadImages}>Always from {blocked.length === 1 ? 'this sender' : 'these senders'} <kbd>⇧I</kbd></button>
         </div>
       )}
       {messages ? <MailFrame threadKey={threadKey} messages={messages} allow={allow} remote={remote} handle={frame} onAttachment={onAttachment} theme={theme} /> : <p className="pending">Loading…</p>}

@@ -20,7 +20,7 @@ function png(size, draw, rgba) {
   }
   const crcTable = Array.from({ length: 256 }, (_, n) => {
     let c = n;
-    for (let k = 0; k < 8; k++) {c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;}
+    for (let k = 0; k < 8; k++) {c = c & 1 ? 0xed_b8_83_20 ^ (c >>> 1) : c >>> 1;}
     return c >>> 0;
   });
   const crc = (buf) => {
@@ -54,7 +54,11 @@ function envelope(set, size) {
     for (let i = 0; i <= steps; i++) {
       const x = x0 + ((x1 - x0) * i) / steps;
       const y = y0 + ((y1 - y0) * i) / steps;
-      for (let dx = -w / 2; dx <= w / 2; dx += 0.25) {for (let dy = -w / 2; dy <= w / 2; dy += 0.25) set(x + dx, y + dy, 1);}
+      for (let dx = -w / 2; dx <= w / 2; dx += 0.25) {
+        for (let dy = -w / 2; dy <= w / 2; dy += 0.25) {
+          set(x + dx, y + dy, 1);
+        }
+      }
     }
   };
   line(l, t, r, t);

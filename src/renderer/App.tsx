@@ -1,14 +1,18 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DraftSummary, LabelSet, OutgoingMessage, ScheduledSummary, ThreadAction, ThreadMessage, ThreadRow } from '../core/types';
 import type { ComposerHandle, ComposeStart, Identity } from './Composer';
+import { expected } from '../core/errors';
+import { logError, warn } from '../core/log';
 import { planReply } from '../core/reply';
 import type { ReplyKind } from '../core/reply';
 import { AccountBar, EmptyState, useAccounts } from './AccountBar';
 import type { CoreClient } from './core-client';
 import { DevOverlay } from './DevOverlay';
+import { isHtmlElement } from './dom';
+import { RowOverrides } from './row-overrides';
 import { actionItems } from './commands/palette';
 import type { PaletteItem } from './commands/palette';
-import { ACTIONS } from './commands/registry';
+import { ACTIONS, isActionId } from './commands/registry';
 import { Palette } from './Palette';
 import type { FrameHandle } from './MailFrame';
 import { blockedMessages, Reader } from './Reader';
@@ -27,6 +31,17 @@ import type { Handlers } from './useKeys';
 
 const PREFETCH = 3;
 
+/** A triage action that z can take back. */
+interface UndoEntry {
+  key: string;
+  prev: ThreadRow;
+  ids: Promise<Array<number>>;
+  after?: ThreadAction;
+}
+
+/** Opening a Thread marks it read: an override of its row. */
+const markedRead = (r: ThreadRow): ThreadRow => ({ ...r, unread: false });
+
 export function App({ corePromise }: { corePromise: Promise<CoreClient> }) {
   const [core, setCore] = useState<CoreClient | null>(null);
   useEffect(() => void corePromise.then(setCore), [corePromise]);
@@ -37,9 +52,9 @@ const SNAPSHOT_ROWS = 60;
 /** Loaded on first use, so the composer costs nothing at launch. */
 const Composer = lazy(() => import('./Composer'));
 /** Each composer start gets its own key, so opening a draft while composing starts fresh. */
-const composeKeys = new WeakMap<object, number>();
+const composeKeys = new WeakMap<ComposeStart, number>();
 let nextComposeKey = 0;
-const composeKey = (s: object) => composeKeys.get(s) ?? (composeKeys.set(s, ++nextComposeKey), nextComposeKey);
+const composeKey = (s: ComposeStart) => composeKeys.get(s) ?? (composeKeys.set(s, ++nextComposeKey), nextComposeKey);
 
 /** How long Cmd-Z can take a sent message back (the Outbox waits 5 s; a little slack for the round trip). */
 const UNDO_SEND_WINDOW_MS = 4500;
@@ -82,20 +97,26 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const { splits, problems: splitProblems } = useMemo(() => {
     const parsed = splitsFrom(splitsFile.file, accountOrder.map((id) => ({ id, name: accountName(id) })));
     const problems = splitsFile.error ? [splitsFile.error] : parsed.problems;
-    for (const p of problems) {console.warn(`[splits] ${p}`);}
+    for (const p of problems) {warn(`[splits] ${p}`);}
     return { splits: parsed.splits, problems };
   }, [splitsFile, accountOrder, accountName]);
   const [splitId, setSplitId] = useState('inbox');
-  const split = splits.find((s) => s.id === splitId) ?? splits[0]!;
+  const split = splits.find((s) => s.id === splitId) ?? expected(splits[0], 'a Split');
   const filterOf = useCallback((list: Array<ThreadRow>) => list.filter(split.match), [split]);
-  const withOverridesRef = useRef<(r: Array<ThreadRow>) => Array<ThreadRow>>((r) => r);
+  /**
+   * Triage changes the rows in memory first; these overrides stay laid over the core's rows until the core
+   * has recorded the action, so a reload in between can't bring a Thread back.
+   */
+  const [overrides] = useState(() => new RowOverrides());
   /** Search: the query and its results; while it's open, the list shows the results instead of a Split. */
   const [search, setSearch] = useState<{ query: string; results: Array<ThreadRow>; server?: 'searching' | 'done' } | null>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const searchRef = useRef(search);
-  searchRef.current = search;
+  useLayoutEffect(() => {
+    searchRef.current = search;
+  });
   // Overrides (triage) lay over search results too; recomputed whenever the rows change.
-  const rows = useMemo(() => (search ? withOverridesRef.current(search.results) : filterOf(allRows)), [allRows, filterOf, search]);
+  const rows = useMemo(() => (search ? overrides.apply(search.results) : filterOf(allRows)), [allRows, filterOf, search, overrides]);
   const counts = useMemo(() => splitCounts(splits, allRows), [splits, allRows]);
   // The menu bar shows the Inbox count.
   useEffect(() => window.normie.setInboxCount(counts.get('inbox') ?? 0), [counts]);
@@ -109,11 +130,6 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const [overlay, setOverlay] = useState(false);
   const [keyHelp, setKeyHelp] = useState(false);
   const [theme, setThemeState] = useState<Theme>(currentTheme);
-  const setTheme = (t: Theme) => {
-    applyTheme(t);
-    setThemeState(t);
-    setNote(t === 'system' ? 'Theme follows the system' : `Theme: ${t === 'latte' ? 'Latte' : 'Mocha'}`);
-  };
   /** The open palette: every action, or Labels for the selected Thread. */
   const [palette, setPalette] = useState<null | 'actions' | 'label'>(null);
   /** The time picker, and what it's for. */
@@ -130,6 +146,11 @@ function Inbox({ core }: { core: CoreClient | null }) {
     clearTimeout(noteTimer.current);
     noteTimer.current = setTimeout(() => setNoteState(null), 8000);
   }, []);
+  const setTheme = (t: Theme) => {
+    applyTheme(t);
+    setThemeState(t);
+    setNote(t === 'system' ? 'Theme follows the system' : `Theme: ${t === 'latte' ? 'Latte' : 'Mocha'}`);
+  };
   /** Messages whose remote images the user loaded this session. */
   const [imagesAllowed, setImagesAllowed] = useState<ReadonlySet<number>>(new Set());
   const frame = useRef<FrameHandle | null>(null);
@@ -140,33 +161,13 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const lastSent = useRef<{ id: number; at: number } | null>(null);
   const labels = useLabels(core);
   const cache = useMemo(() => (core ? new ThreadCache(core) : null), [core]);
-  /**
-   * Triage changes the rows in memory first; these overrides stay laid over the core's rows until the core
-   * has recorded the action, so a reload in between can't bring a Thread back.
-   */
-  const overrides = useRef(new Map<string, (r: ThreadRow) => ThreadRow | null>());
-  /** Rows to show even when the core's rows don't have them yet: a Thread brought back by undo. */
-  const inserts = useRef(new Map<string, ThreadRow>());
-  const withOverrides = (r: Array<ThreadRow>) => {
-    if (!overrides.current.size && !inserts.current.size) {return r;}
-    const out = r.flatMap((row) => {
-      const f = overrides.current.get(row.key);
-      const o = f ? f(row) : row;
-      return o ? [o] : [];
-    });
-    for (const [key, row] of inserts.current) {
-      if (out.some((x) => x.key === key)) {continue;}
-      const at = out.findIndex((x) => x.date < row.date);
-      out.splice(at < 0 ? out.length : at, 0, row);
-    }
-    return out;
-  };
-  withOverridesRef.current = withOverrides;
   /** Recent triage actions, newest last, for z. */
-  const undoStack = useRef<Array<{ key: string; prev: ThreadRow; ids: Promise<number[]>; after?: ThreadAction }>>([]);
+  const undoStack = useRef<Array<UndoEntry>>([]);
   const loadRows = useRef<() => void>(() => {});
   const filterRef = useRef<(r: Array<ThreadRow>) => Array<ThreadRow>>((r) => r);
-  filterRef.current = filterOf;
+  useLayoutEffect(() => {
+    filterRef.current = filterOf;
+  });
 
   // Rows for the visible Split live here, in renderer memory. Refreshed when the core says they changed.
   useEffect(() => {
@@ -177,7 +178,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
         if (!alive) {return;}
         fromSnapshot.current = false;
         setCoreAnswered(true);
-        r = withOverrides(r);
+        r = overrides.apply(r);
         setAllRows(r);
         // Keep the selection on the same Thread when rows above it change.
         const shown = filterRef.current(r);
@@ -193,7 +194,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
       alive = false;
       off();
     };
-  }, [core]);
+  }, [core, overrides]);
 
   // A body that arrives for the open Thread shows up without reopening it.
   useEffect(() => cache?.onLoaded((key, messages) => setOpen((o) => (o && o.key === key ? { ...o, messages } : o))), [cache]);
@@ -231,20 +232,21 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const move = (to: (s: number) => number) => setSelected((s) => clamp(to(s)));
 
   /** Open the Thread at index i. Instant from the cache; otherwise resolves once its messages are shown. */
-  const openAt = (i: number): Promise<unknown> | void => {
+  const openAt = (i: number): Promise<void> | undefined => {
     const row = rows[clamp(i)];
-    if (!row) {return;}
+    if (!row) {return undefined;}
     return openRow(row, clamp(i), rows);
   };
 
-  function openRow(row: ThreadRow, i: number, list: Array<ThreadRow>): Promise<unknown> | void {
-    if (!cache) {return;}
+  function openRow(row: ThreadRow, i: number, list: Array<ThreadRow>): Promise<void> | undefined {
+    if (!cache) {return undefined;}
     setSelected(i);
     if (row.unread) {markRead(row);}
     cache.prefetch(list.slice(i + 1, i + 1 + PREFETCH).map((r) => r.key));
     const hit = cache.get(row.key);
     setOpen({ key: row.key, subject: row.subject, messages: hit });
     if (!hit) {return cache.load(row.key).then((messages) => setOpen((o) => (o?.key === row.key ? { ...o, messages } : o)));}
+    return undefined;
   }
 
   // Keep the next Threads warm while moving through the list, too.
@@ -266,26 +268,28 @@ function Inbox({ core }: { core: CoreClient | null }) {
     const row = rows[i];
     if (!row || !core) {return;}
     if (typeof action === 'function') {action = action(row);}
-    overrides.current.set(row.key, change);
-    const nextAll = withOverrides(allRows);
+    overrides.setChange(row.key, change);
+    const nextAll = overrides.apply(allRows);
     setAllRows(nextAll);
-    const next = searchRef.current ? withOverrides(searchRef.current.results) : filterOf(nextAll);
+    const next = searchRef.current ? overrides.apply(searchRef.current.results) : filterOf(nextAll);
     const removed = next.length < rows.length;
     if (removed) {
       const to = Math.min(i, next.length - 1);
       setSelected(Math.max(0, to));
       selectedKey.current = next[to]?.key;
       if (open) {
-        if (next[to]) {openRow(next[to], to, next);}
+        if (next[to]) {openRow(next[to], to, next)?.catch(logError);}
         else {setOpen(null);}
       }
     }
     const ids = core.act(row.key, action);
-    undoStack.current.push({ key: row.key, prev: row, ids: ids.catch(() => []), ...(undoAfter ? { after: undoAfter } : {}) });
+    const entry: UndoEntry = { key: row.key, prev: row, ids: ids.catch(() => []) };
+    if (undoAfter) {entry.after = undoAfter;}
+    undoStack.current.push(entry);
     if (undoStack.current.length > 50) {undoStack.current.shift();}
     // Drop the override once the core has the action, unless something newer (an undo) replaced it.
     const settle = (reload: boolean) => {
-      if (overrides.current.get(row.key) === change) {overrides.current.delete(row.key);}
+      overrides.dropChange(row.key, change);
       if (reload) {loadRows.current();}
     };
     // When nothing changed in the store, no notice will come: reload to drop the override.
@@ -295,11 +299,10 @@ function Inbox({ core }: { core: CoreClient | null }) {
   /** Opening a Thread marks it read. Not an undoable action: u marks it unread again. */
   function markRead(row: ThreadRow) {
     if (!core) {return;}
-    const change = (r: ThreadRow) => ({ ...r, unread: false });
-    overrides.current.set(row.key, change);
-    setAllRows((rs) => rs.map((r) => (r.key === row.key ? change(r) : r)));
+    overrides.setChange(row.key, markedRead);
+    setAllRows((rs) => rs.map((r) => (r.key === row.key ? markedRead(r) : r)));
     void core.act(row.key, { type: 'read', on: true }).finally(() => {
-      if (overrides.current.get(row.key) === change) {overrides.current.delete(row.key);}
+      overrides.dropChange(row.key, markedRead);
     });
   }
 
@@ -308,23 +311,24 @@ function Inbox({ core }: { core: CoreClient | null }) {
     const entry = undoStack.current.pop();
     if (!entry || !core) {return;}
     const restore = () => entry.prev;
-    overrides.current.set(entry.key, restore);
-    inserts.current.set(entry.key, entry.prev);
-    const nextAll = withOverrides(allRows);
+    overrides.setChange(entry.key, restore);
+    overrides.setInsert(entry.key, entry.prev);
+    const nextAll = overrides.apply(allRows);
     setAllRows(nextAll);
-    const next = searchRef.current ? withOverrides(searchRef.current.results) : filterOf(nextAll);
+    const next = searchRef.current ? overrides.apply(searchRef.current.results) : filterOf(nextAll);
     const i = next.findIndex((r) => r.key === entry.key);
     if (i >= 0) {
       setSelected(i);
       selectedKey.current = entry.key;
-      if (open) {openRow(next[i]!, i, next);}
+      const restored = next[i];
+      if (open && restored) {openRow(restored, i, next)?.catch(logError);}
     }
     void entry.ids
       .then((ids) => core.undo(ids))
       .then(() => entry.after && core.act(entry.key, entry.after))
       .finally(() => {
-        if (overrides.current.get(entry.key) === restore) {overrides.current.delete(entry.key);}
-        if (inserts.current.get(entry.key) === entry.prev) {inserts.current.delete(entry.key);}
+        overrides.dropChange(entry.key, restore);
+        overrides.dropInsert(entry.key, entry.prev);
         loadRows.current();
       });
   };
@@ -332,7 +336,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const context = compose ? 'composer' : open ? 'reader' : 'list';
 
   const markers = useMemo(
-    () => (accountOrder.length > 1 ? new Map(accountOrder.map((id, i) => [id, ACCOUNT_COLORS[i % ACCOUNT_COLORS.length]!])) : undefined),
+    () => (accountOrder.length > 1 ? new Map(accountOrder.map((id, i) => [id, expected(ACCOUNT_COLORS[i % ACCOUNT_COLORS.length], 'an Account color')])) : undefined),
     [accountOrder],
   );
   /** Open a Split: the list starts at its top. */
@@ -343,7 +347,10 @@ function Inbox({ core }: { core: CoreClient | null }) {
     selectedKey.current = undefined;
     setOpen(null);
   };
-  const stepSplit = (d: 1 | -1) => openSplit(splits[(splits.indexOf(split) + d + splits.length) % splits.length]!.id);
+  const stepSplit = (d: 1 | -1) => {
+    const target = splits[(splits.indexOf(split) + d + splits.length) % splits.length];
+    if (target) {openSplit(target.id);}
+  };
   /** 1–9: one Account's Split (or, with one Account, the whole Inbox). 0: the whole Inbox. */
   const filterAccount = (n: number) => {
     if (n === 0 || accountOrder.length < 2) {return openSplit('inbox');}
@@ -356,7 +363,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
     if (!sender || !core) {return;}
     void core.setVip(sender, on).then(() => setNote(on ? `${sender} is a VIP` : `${sender} is no longer a VIP`));
   };
-  const handlers: Handlers = {
+  // Every action in the registry has a handler (Required makes the compiler say so), so the palette lists them all.
+  const handlers: Required<Handlers> = {
     'list.down': () => move((s) => s + 1),
     'list.up': () => move((s) => s - 1),
     'list.top': () => move(() => 0),
@@ -401,10 +409,18 @@ function Inbox({ core }: { core: CoreClient | null }) {
     'thread.snooze': () => {
       if (rows[clamp(selected)]) {setPicker('snooze');}
     },
-    'thread.unsnooze': () => triage({ type: 'unsnooze' }, (r) => ({ ...r, date: Date.now(), tags: { ...r.tags!, snoozedUntil: undefined } })),
+    'thread.unsnooze': () => triage({ type: 'unsnooze' }, (r) => (r.tags ? { ...r, date: Date.now(), tags: { ...r.tags, snoozedUntil: undefined } } : { ...r, date: Date.now() })),
     'vip.add': () => setVip(true),
     'vip.remove': () => setVip(false),
-    ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [`filter.${n}`, () => filterAccount(n)])),
+    'filter.1': () => filterAccount(1),
+    'filter.2': () => filterAccount(2),
+    'filter.3': () => filterAccount(3),
+    'filter.4': () => filterAccount(4),
+    'filter.5': () => filterAccount(5),
+    'filter.6': () => filterAccount(6),
+    'filter.7': () => filterAccount(7),
+    'filter.8': () => filterAccount(8),
+    'filter.9': () => filterAccount(9),
     'compose.new': () => setCompose({ accountId: rows[clamp(selected)]?.accountId }),
     'send.undo': undoSend,
     'compose.reply': () => replyTo('reply'),
@@ -419,11 +435,15 @@ function Inbox({ core }: { core: CoreClient | null }) {
 
   /** Run a registry action by id, as the palette and the native menus do. Of several ids, the one that applies here. */
   const latest = useRef({ handlers, context });
-  latest.current = { handlers, context };
+  // After every commit, before any menu or palette choice can run.
+  useLayoutEffect(() => {
+    latest.current = { handlers, context };
+  });
   const runAction = useCallback((ids: Array<string>, fromMenu = false) => {
     const { handlers: h, context: ctx } = latest.current;
     // The Edit menu's Undo: typing in a field, or else Undo Send.
-    const el = document.activeElement as HTMLElement | null;
+    const active = document.activeElement;
+    const el = isHtmlElement(active) ? active : null;
     const typing = !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
     if (ids[0] === 'edit.undo') {
       if (typing) {return void document.execCommand('undo');}
@@ -432,8 +452,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
     // From the menus while typing in a field, or with a form or the palette open: only Cmd commands run. (A plain key
     // can reach the menu as a key equivalent when the page answers slowly.) The palette's own choices always run.
     if (fromMenu && (typing || document.querySelector('.palette-backdrop')) && !ids.some((x) => ACTIONS.find((a) => a.id === x)?.keys.some((k) => k.startsWith('Cmd-')))) {return;}
-    const id = ids.find((x) => ACTIONS.some((a) => a.id === x && (a.contexts as ReadonlyArray<string>).includes(ctx)) && h[x as keyof Handlers]);
-    if (id) {void h[id as keyof Handlers]!();}
+    const id = ids.find((x) => isActionId(x) && ACTIONS.some((a) => a.id === x && (a.contexts as ReadonlyArray<string>).includes(ctx)) && h[x]);
+    if (id && isActionId(id)) {void h[id]?.();}
   }, []);
   useEffect(() => window.normie.onMenuAction((ids) => runAction(ids, true)), [runAction]);
 
@@ -510,7 +530,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
   // New mail in a notifying Split: a notification (unless Normie is in front), one per Thread per burst.
   const notified = useRef(new Map<string, number>());
   const splitsRef = useRef(splits);
-  splitsRef.current = splits;
+  useLayoutEffect(() => {
+    splitsRef.current = splits;
+  });
   useEffect(() => core?.onNotice((n) => {
     if (n.type !== 'arrived') {return;}
     void core.rows('inbox').then((r) => {
@@ -522,13 +544,16 @@ function Inbox({ core }: { core: CoreClient | null }) {
 
   // A clicked notification opens its Thread, in the whole Inbox.
   const openThreadRef = useRef<(key: string) => void>(() => {});
-  openThreadRef.current = (key) => {
-    const i = allRows.findIndex((r) => r.key === key);
-    if (i < 0) {return;}
-    setSplitId('inbox');
-    setCompose(null);
-    openRow(allRows[i]!, i, allRows);
-  };
+  useLayoutEffect(() => {
+    openThreadRef.current = (key) => {
+      const i = allRows.findIndex((r) => r.key === key);
+      const row = allRows[i];
+      if (!row) {return;}
+      setSplitId('inbox');
+      setCompose(null);
+      openRow(row, i, allRows)?.catch(logError);
+    };
+  });
   useEffect(() => window.normie.onOpenThread((key) => openThreadRef.current(key)), []);
 
   // A message the server kept refusing comes back to the composer, with the reason.
@@ -585,8 +610,12 @@ function Inbox({ core }: { core: CoreClient | null }) {
     // While writing: snippets, by name, with their trigger.
     if (compose) {return snippets.map((s) => ({ id: SNIPPET_ITEM + s.trigger, name: `Snippet: ${s.name}`, hint: `;${s.trigger}`, keywords: `${s.trigger} ${s.text.slice(0, 60)}` }));}
     const scheduledItems = scheduled.map((s) => ({ id: SCHEDULED_ITEM + s.id, name: `Scheduled: ${s.subject || '(no subject)'}`, keywords: `scheduled later ${s.to}`, hint: describeWhen(new Date(s.sendAt), new Date()) }));
-    const draftItems = drafts.map((d) => ({ id: DRAFT_ITEM + d.id, name: `Draft: ${d.subject || '(no subject)'}`, keywords: `draft ${d.to}`, ...(d.to ? { hint: d.to.slice(0, 30) } : {}) }));
-    return [...actionItems(keymap.actions, context, (id) => id !== 'palette.open' && !!handlers[id as keyof Handlers]), ...scheduledItems, ...draftItems, ...(rows.length ? labelItems : [])];
+    const draftItems = drafts.map((d) => {
+      const item: PaletteItem = { id: DRAFT_ITEM + d.id, name: `Draft: ${d.subject || '(no subject)'}`, keywords: `draft ${d.to}` };
+      if (d.to) {item.hint = d.to.slice(0, 30);}
+      return item;
+    });
+    return [...actionItems(keymap.actions, context, (id) => id !== 'palette.open'), ...scheduledItems, ...draftItems, ...(rows.length ? labelItems : [])];
   };
 
   useEffect(() => {
@@ -609,10 +638,12 @@ function Inbox({ core }: { core: CoreClient | null }) {
   function openDraft(id: number) {
     void core?.draft(id).then((d) => {
       if (!d) {return setNote('That draft is gone.');}
-      setCompose({
-        accountId: d.accountId, ...(d.from ? { from: d.from } : {}), draftId: id, toText: d.to, ccText: d.cc, bccText: d.bcc, subject: d.subject, body: d.body,
-        ...(d.inReplyTo ? { inReplyTo: d.inReplyTo } : {}), ...(d.references ? { references: d.references } : {}), ...(d.attachments ? { attachments: d.attachments } : {}),
-      });
+      const start: ComposeStart = { accountId: d.accountId, draftId: id, toText: d.to, ccText: d.cc, bccText: d.bcc, subject: d.subject, body: d.body };
+      if (d.from) {start.from = d.from;}
+      if (d.inReplyTo) {start.inReplyTo = d.inReplyTo;}
+      if (d.references) {start.references = d.references;}
+      if (d.attachments) {start.attachments = d.attachments;}
+      setCompose(start);
     });
   }
 
@@ -646,13 +677,13 @@ function Inbox({ core }: { core: CoreClient | null }) {
             ) : search.server === 'done' ? (
               <span className="sync-note">Server searched</span>
             ) : search.query.trim() ? (
-              <button className="quiet search-server" onClick={() => searchServer()} tabIndex={-1} title="Also search mail that isn't stored on this Mac (⌘↩)">Search the server</button>
+              <button type="button" className="quiet search-server" onClick={() => searchServer()} tabIndex={-1} title="Also search mail that isn't stored on this Mac (⌘↩)">Search the server</button>
             ) : null}
           </span>
         ) : (
         <nav className="splits" aria-label="Splits">
           {splits.map((s) => (
-            <button key={s.id} className={s.id === split.id ? 'split active' : 'split'} onClick={() => openSplit(s.id)} tabIndex={-1}>
+            <button type="button" key={s.id} className={s.id === split.id ? 'split active' : 'split'} onClick={() => openSplit(s.id)} tabIndex={-1}>
               {s.name} <span className="count">{s.id === split.id ? rows.length : counts.get(s.id)}</span>
             </button>
           ))}
@@ -690,7 +721,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
                 identities={identities}
                 onSend={sendMessage}
                 onClose={() => setCompose(null)}
-                onSaveDraft={(id, content) => core!.saveDraft(id, content)}
+                onSaveDraft={(id, content) => expected(core, 'the core').saveDraft(id, content)}
                 suggest={suggestContacts}
                 snippets={snippets}
                 handle={composer}

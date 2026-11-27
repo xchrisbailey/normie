@@ -59,10 +59,8 @@ export async function readOriginal(raw: Uint8Array, withAttachments: boolean): P
   const parsed = await simpleParser(Buffer.from(raw), { skipTextToHtml: true, skipImageLinks: true });
   const refs = parsed.references ? (Array.isArray(parsed.references) ? parsed.references : parsed.references.split(/\s+/)) : [];
   const from = addressesOf(parsed.from)[0];
-  return {
-    ...(parsed.messageId ? { messageId: parsed.messageId } : {}),
+  const original: Original = {
     references: refs.filter(Boolean),
-    ...(from ? { from } : {}),
     replyTo: addressesOf(parsed.replyTo),
     to: addressesOf(parsed.to),
     cc: addressesOf(parsed.cc),
@@ -73,4 +71,7 @@ export async function readOriginal(raw: Uint8Array, withAttachments: boolean): P
       ? parsed.attachments.filter((a) => !isInline(a)).map((a) => ({ filename: a.filename || 'attachment', contentType: a.contentType, content: new Uint8Array(a.content) }))
       : [],
   };
+  if (parsed.messageId) {original.messageId = parsed.messageId;}
+  if (from) {original.from = from;}
+  return original;
 }

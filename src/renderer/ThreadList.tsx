@@ -54,9 +54,10 @@ export const ThreadList = memo(function ThreadList({ rows, selected, markers }: 
   return (
     <div ref={scroller} className="thread-list" role="listbox" aria-label="Threads">
       <div style={{ height: v.getTotalSize(), position: 'relative' }}>
-        {v.getVirtualItems().map((item) => (
-          <Row key={rows[item.index]!.key} row={rows[item.index]!} selected={item.index === selected} top={item.start} marker={markers?.get(rows[item.index]!.accountId)} />
-        ))}
+        {v.getVirtualItems().map((item) => {
+          const row = rows[item.index];
+          return row ? <Row key={row.key} row={row} selected={item.index === selected} top={item.start} marker={markers?.get(row.accountId)} /> : null;
+        })}
       </div>
     </div>
   );

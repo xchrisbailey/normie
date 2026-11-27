@@ -57,10 +57,14 @@ describe('KeyResolver over the registry', () => {
 
   it('has no key bound twice in the same context', () => {
     const seen = new Map<string, string>();
-    for (const a of ACTIONS) {for (const k of a.keys) for (const c of a.contexts) {
-      const id = `${c}:${k}`;
-      expect(seen.get(id), `${k} in ${c}`).toBeUndefined();
-      seen.set(id, a.id);
-    }}
+    for (const a of ACTIONS) {
+      for (const k of a.keys) {
+        for (const c of a.contexts) {
+          const id = `${c}:${k}`;
+          expect(seen.get(id), `${k} in ${c}`).toBeUndefined();
+          seen.set(id, a.id);
+        }
+      }
+    }
   });
 });

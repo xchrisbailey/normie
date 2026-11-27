@@ -43,17 +43,18 @@ const addDays = (base: Date, n: number) => {
 };
 
 /** Split "tomorrow at 9am" into the day part and the time part. */
-function splitTime(s: string): { day: string; time: [number, number] | null; bad: boolean } {
+function splitTime(s: string) {
   const m = /^(.*?)(?:\s+(?:at\s+)?)(\d{1,2}(?::\d{2})?\s*(?:am|pm|a|p)?|noon|midnight)$/.exec(s);
-  const words = m?.[1]!.split(/\s+/) ?? [];
+  const [, dayText = '', timeText = ''] = m ?? [];
+  const words = m ? dayText.split(/\s+/) : [];
   const lastWord = words.at(-1) ?? '';
   // "dec 3 8am": the number before the time is a day of a month, so the split is fine.
   const dayOfMonth = /^\d{1,2}(st|nd|rd|th)?$/.test(lastWord) && monthIndex(words.at(-2) ?? '') >= 0;
   // "dec 3" is a date, not December at 3: a bare number after a month is the day.
-  const dateNumber = !!m && /^\d{1,2}$/.test(m[2]!) && monthIndex(lastWord) >= 0 && !/\bat\s+\d/.test(s);
+  const dateNumber = !!m && /^\d{1,2}$/.test(timeText) && monthIndex(lastWord) >= 0 && !/\bat\s+\d/.test(s);
   if (m && !dateNumber && (!/^\d+$/.test(lastWord) || dayOfMonth)) {
-    const time = parseTime(m[2]!);
-    return { day: m[1]!.trim(), time, bad: !time };
+    const time = parseTime(timeText);
+    return { day: dayText.trim(), time, bad: !time };
   }
   return { day: s, time: null, bad: false };
 }
@@ -67,8 +68,9 @@ export function parseWhen(text: string, now: Date): Date | null {
   // "in 20 minutes", "in 2h", "3 days", "a week"
   const rel = /^(?:in\s+)?(an?|\d+(?:\.\d+)?)\s*(m|min|mins|minutes?|h|hrs?|hours?|d|days?|w|wks?|weeks?)$/.exec(s);
   if (rel) {
-    const n = rel[1]!.startsWith('a') ? 1 : Number(rel[1]);
-    const unit = rel[2]![0];
+    const [, amount = '', unitText = ''] = rel;
+    const n = amount.startsWith('a') ? 1 : Number(amount);
+    const unit = unitText[0];
     const ms = unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : unit === 'd' ? 86_400_000 : 7 * 86_400_000;
     return result(new Date(now.getTime() + n * ms));
   }
@@ -97,27 +99,29 @@ export function parseWhen(text: string, now: Date): Date | null {
     return day === 'today' ? result(d) : d > now ? d : at(addDays(now, 1), t[0], t[1]);
   }
 
-  const named: Record<string, () => Date> = {
-    tomorrow: () => at(addDays(now, 1), ...(time ?? [MORNING, 0])),
-    tonight: () => at(now, ...(time ?? [20, 0])),
-    'this evening': () => at(now, ...(time ?? [18, 0])),
-    'this afternoon': () => at(now, ...(time ?? [14, 0])),
-    'later today': () => new Date(now.getTime() + 3 * 3_600_000),
-    later: () => new Date(now.getTime() + 3 * 3_600_000),
-    'next week': () => at(addDays(now, ((8 - now.getDay()) % 7) || 7), ...(time ?? [MORNING, 0])),
-    weekend: () => at(addDays(now, ((6 - now.getDay() + 7) % 7) || 7), ...(time ?? [9, 0])),
-    'this weekend': () => at(addDays(now, ((6 - now.getDay() + 7) % 7) || 7), ...(time ?? [9, 0])),
-    'next month': () => {
+  const named = new Map<string, () => Date>([
+    ['tomorrow', () => at(addDays(now, 1), ...(time ?? [MORNING, 0]))],
+    ['tonight', () => at(now, ...(time ?? [20, 0]))],
+    ['this evening', () => at(now, ...(time ?? [18, 0]))],
+    ['this afternoon', () => at(now, ...(time ?? [14, 0]))],
+    ['later today', () => new Date(now.getTime() + 3 * 3_600_000)],
+    ['later', () => new Date(now.getTime() + 3 * 3_600_000)],
+    ['next week', () => at(addDays(now, ((8 - now.getDay()) % 7) || 7), ...(time ?? [MORNING, 0]))],
+    ['weekend', () => at(addDays(now, ((6 - now.getDay() + 7) % 7) || 7), ...(time ?? [9, 0]))],
+    ['this weekend', () => at(addDays(now, ((6 - now.getDay() + 7) % 7) || 7), ...(time ?? [9, 0]))],
+    ['next month', () => {
       const d = new Date(now.getFullYear(), now.getMonth() + 1, 1);
       return at(d, ...(time ?? [MORNING, 0]));
-    },
-  };
-  if (named[day]) {return result(named[day]());}
+    }],
+  ]);
+  const makeNamed = named.get(day);
+  if (makeNamed) {return result(makeNamed());}
 
   // Weekdays: "monday", "next fri" → the next one after today.
   const wd = /^(?:next\s+|on\s+)?([a-z]+)$/.exec(day);
-  if (wd && dayIndex(wd[1]!) >= 0) {
-    const ahead = ((dayIndex(wd[1]!) - now.getDay() + 7) % 7) || 7;
+  const weekday = dayIndex(wd?.[1] ?? '');
+  if (wd && weekday >= 0) {
+    const ahead = ((weekday - now.getDay() + 7) % 7) || 7;
     return result(at(addDays(now, ahead), ...(time ?? [MORNING, 0])));
   }
 
@@ -127,8 +131,8 @@ export function parseWhen(text: string, now: Date): Date | null {
   const md = /^([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?$/.exec(day) ?? null;
   const dm = /^(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)$/.exec(day) ?? null;
   const slash = /^(\d{1,2})\/(\d{1,2})$/.exec(day) ?? null;
-  if (md && monthIndex(md[1]!) >= 0) {[month, date] = [monthIndex(md[1]!), Number(md[2])];}
-  else if (dm && monthIndex(dm[2]!) >= 0) {[month, date] = [monthIndex(dm[2]!), Number(dm[1])];}
+  if (md && monthIndex(md[1] ?? '') >= 0) {[month, date] = [monthIndex(md[1] ?? ''), Number(md[2])];}
+  else if (dm && monthIndex(dm[2] ?? '') >= 0) {[month, date] = [monthIndex(dm[2] ?? ''), Number(dm[1])];}
   else if (slash) {[month, date] = [Number(slash[1]) - 1, Number(slash[2])];}
   if (month >= 0 && month < 12 && date >= 1) {
     const t = time ?? [MORNING, 0];
@@ -161,6 +165,7 @@ export function describeWhen(d: Date, now: Date): string {
   const days = Math.round((at(d, 0, 0).getTime() - at(now, 0, 0).getTime()) / 86_400_000);
   if (days === 0) {return `Today, ${time}`;}
   if (days === 1) {return `Tomorrow, ${time}`;}
-  const opts: Intl.DateTimeFormatOptions = days < 7 ? { weekday: 'long' } : { weekday: 'short', month: 'short', day: 'numeric', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) };
+  const opts: Intl.DateTimeFormatOptions = days < 7 ? { weekday: 'long' } : { weekday: 'short', month: 'short', day: 'numeric' };
+  if (days >= 7 && d.getFullYear() !== now.getFullYear()) {opts.year = 'numeric';}
   return `${d.toLocaleDateString(undefined, opts)}, ${time}`;
 }

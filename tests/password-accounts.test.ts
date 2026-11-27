@@ -2,8 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { Accounts } from '../src/main/auth/accounts';
 import type { AccountList, AccountRecord, SecretStore } from '../src/main/auth/accounts';
-import type { AccountSetupError} from '../src/main/auth/password-accounts';
 import { explainFailure, settingsFrom } from '../src/main/auth/password-accounts';
+import { errorMessage } from '../src/core/errors';
 
 class MemSecrets implements SecretStore {
   m = new Map<string, string>();
@@ -14,7 +14,7 @@ class MemSecrets implements SecretStore {
 class MemList implements AccountList {
   saved: Array<AccountRecord> = [];
   load() { return this.saved; }
-  save(a: Array<AccountRecord>) { this.saved = JSON.parse(JSON.stringify(a)); }
+  save(a: Array<AccountRecord>) { this.saved = structuredClone(a); }
 }
 const setup = () => {
   const secrets = new MemSecrets();
@@ -22,11 +22,12 @@ const setup = () => {
   const accounts = new Accounts({ secrets, list, googleClient: () => { throw new Error('no Google here'); }, openUrl: () => {} });
   return { secrets, list, accounts };
 };
-const fieldOf = (f: () => unknown) => {
+const fieldOf = (f: () => void): [string | undefined, string] | undefined => {
   try {
     f();
   } catch (error) {
-    return [(error as AccountSetupError).field, (error as Error).message];
+    const field = typeof error === 'object' && error !== null && 'field' in error && typeof error.field === 'string' ? error.field : undefined;
+    return [field, errorMessage(error)];
   }
   return undefined;
 };

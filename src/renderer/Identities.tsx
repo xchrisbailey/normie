@@ -24,7 +24,10 @@ export function IdentitiesEditor({ account, onDone }: { account: AccountRecord; 
         <p className="help">The names and addresses this Account sends from. A reply goes out from the one the message was sent to; new mail uses the default. The server must allow sending as each address (an iCloud custom domain, a Gmail “Send mail as” address).</p>
         {rows.map((r, i) => (
           <label key={i}>
-            <input type="radio" name="default" checked={i === 0} onChange={() => setRows((all) => [all[i]!, ...all.filter((_, n) => n !== i)])} title="Default" />
+            <input type="radio" name="default" checked={i === 0} onChange={() => setRows((all) => {
+              const first = all[i];
+              return first ? [first, ...all.filter((_, n) => n !== i)] : all;
+            })} title="Default" />
             <input value={r.name} onChange={(e) => update(i, { name: e.target.value })} placeholder="Name" />
             <input value={r.address} onChange={(e) => update(i, { address: e.target.value })} placeholder="address@example.com" spellCheck={false} />
             <button type="button" className="quiet" onClick={() => setRows((all) => all.filter((_, n) => n !== i))} disabled={rows.length === 1} aria-label="Remove">×</button>

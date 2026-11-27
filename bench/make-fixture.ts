@@ -1,6 +1,7 @@
 // Generates the seeded 100,000-message fixture: a store file the app can open with sync off.
 //   node out/bench/make-fixture.js <path> [count]
 import { existsSync, rmSync } from 'node:fs';
+import { expected } from '../src/core/errors';
 import { Store } from '../src/core/store';
 import type { RemoteHeader } from '../src/core/types';
 
@@ -16,7 +17,7 @@ const words = 'the and for with about this that please thanks review attached up
 function text(i: number) {
   const n = 40 + (i % 80);
   const out: Array<string> = [];
-  for (let k = 0; k < n; k++) {out.push(words[(i * 7 + k * 13) % words.length]!);}
+  for (let k = 0; k < n; k++) {out.push(expected(words[(i * 7 + k * 13) % words.length], 'a word'));}
   return `Hi,\n\n${out.join(' ')}.\n\nThanks`;
 }
 
@@ -34,7 +35,9 @@ function htmlRaw(body: string, i: number) {
 }
 
 const t0 = performance.now();
-for (const ext of ['', '-wal', '-shm']) {if (existsSync(path + ext)) rmSync(path + ext);}
+for (const ext of ['', '-wal', '-shm']) {
+  if (existsSync(path + ext)) {rmSync(path + ext);}
+}
 const store = new Store(path);
 const account = 'fixture-1';
 const mailbox = '[Gmail]/All Mail';
@@ -47,13 +50,13 @@ for (let start = 0; start < count; start += BATCH) {
   const bodies: Array<{ uid: number; raw: Uint8Array; text: string }> = [];
   for (let i = start; i < Math.min(count, start + BATCH); i++) {
     const uid = i + 1;
-    const name = people[i % people.length]!;
+    const name = expected(people[i % people.length], 'a person');
     const thread = Math.floor(i / 3);
     // A third of Threads are in the Inbox; the rest are Done.
     const labels = thread % 3 === 0 ? [String.raw`\Inbox`] : ['Archive'];
     headers.push({
       uid, remoteId: `gm-${uid}`, threadId: `t-${thread}`, messageId: `<m${uid}@fixture>`,
-      subject: `${topics[thread % topics.length]} ${thread}`, from: { name, address: `${name.split(' ')[0]!.toLowerCase()}@example.com` },
+      subject: `${topics[thread % topics.length]} ${thread}`, from: { name, address: `${expected(name.split(' ')[0], 'a first name').toLowerCase()}@example.com` },
       to: [{ address: 'me@example.com' }], date: NOW - i * 60_000, flags: i % 4 === 0 ? [] : [String.raw`\Seen`], labels, isList: i % 2 === 0,
     });
     const body = text(i);

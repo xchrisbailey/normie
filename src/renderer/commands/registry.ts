@@ -56,3 +56,8 @@ export const ACTIONS = [
 ] as const satisfies ReadonlyArray<ActionDef>;
 
 export type ActionId = (typeof ACTIONS)[number]['id'];
+
+const ACTION_IDS: ReadonlySet<string> = new Set(ACTIONS.map((a) => a.id));
+
+/** Whether an id from a key resolution or a menu is one of the registry's actions. */
+export const isActionId = (id: string): id is ActionId => ACTION_IDS.has(id);

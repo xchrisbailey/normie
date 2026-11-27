@@ -31,5 +31,9 @@ export function isRisky(filename: string): boolean {
 export function quarantine(file: string): Promise<void> {
   if (process.platform !== 'darwin') {return Promise.resolve();}
   const value = `0081;${Math.floor(Date.now() / 1000).toString(16)};Normie;`;
-  return new Promise((resolve) => execFile('xattr', ['-w', 'com.apple.quarantine', value, file], () => resolve()));
+  return new Promise((resolve) => {
+    execFile('xattr', ['-w', 'com.apple.quarantine', value, file], () => {
+      resolve();
+    });
+  });
 }

@@ -5,7 +5,8 @@ import { parseAddresses } from './addresses';
 import { buildMime } from './compose';
 import type { ServerQuery } from './search-query';
 import { ServerRejectedError, SNOOZED } from './types';
-import type { AccountId, Mailbox, MailProvider, MailTransport } from './types';
+import { errorMessage, expected } from './errors';
+import type { AccountId, ChangeSet, Mailbox, MailProvider, MailTransport, OutgoingMessage } from './types';
 
 export type TextExtractor = (raw: Uint8Array) => Promise<string>;
 
@@ -42,9 +43,15 @@ const defaultBackoff = (attempt: number) => Math.min(60_000, 1000 * 2 ** attempt
 
 function sleep(ms: number, signal?: AbortSignal) {
   return new Promise<void>((resolve) => {
-    if (signal?.aborted) {return resolve();}
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
     const t = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => (clearTimeout(t), resolve()), { once: true });
+    signal?.addEventListener('abort', () => {
+      clearTimeout(t);
+      resolve();
+    }, { once: true });
   });
 }
 
@@ -96,7 +103,8 @@ export class SyncEngine {
     if (this.o.provider.caps.labels) {return [this.primary.path];}
     const byRole = (role: string) => this.mailboxes.find((m) => m.role === role)?.path;
     const snoozed = this.mailboxes.find((m) => m.path === SNOOZED)?.path;
-    return [this.primary.path, ...[...(['sent', 'archive', 'trash'] as const).map(byRole), snoozed].filter((p): p is string => !!p && p !== this.primary!.path)];
+    const primaryPath = this.primary.path;
+    return [primaryPath, ...[...(['sent', 'archive', 'trash'] as const).map(byRole), snoozed].filter((p): p is string => !!p && p !== primaryPath)];
   }
 
   /** Headers then bodies for every synced mailbox. */
@@ -106,6 +114,11 @@ export class SyncEngine {
   }
 
   /** The mailbox that holds the Account's mail: All Mail on servers with Labels, Inbox elsewhere. */
+  /** The primary mailbox's path; only after connect has picked one. */
+  private get primaryPath(): string {
+    return expected(this.primary, 'a primary mailbox (connect first)').path;
+  }
+
   get primaryMailbox(): string | undefined {
     return this.primary?.path;
   }
@@ -148,11 +161,13 @@ export class SyncEngine {
 
   /** Resolves once the next live sync pass finishes. */
   nextPass(): Promise<void> {
-    return new Promise((r) => this.passWaiters.push(r));
+    return new Promise<void>((r) => {
+      this.passWaiters.push(r);
+    });
   }
 
   private async watchLoop(signal: AbortSignal) {
-    const path = this.inbox?.path ?? this.primary!.path;
+    const path = this.inbox?.path ?? this.primaryPath;
     let attempt = 0;
     while (!signal.aborted) {
       try {
@@ -161,8 +176,8 @@ export class SyncEngine {
           this.syncSoon(this.o.debounceMs ?? 250);
         }
       } catch (error) {
-        if (signal.aborted) break;
-        this.log(`IDLE on ${path} failed: ${(error as Error).message}`);
+        if (signal.aborted) {break;}
+        this.log(`IDLE on ${path} failed: ${errorMessage(error)}`);
       }
       if (signal.aborted) {break;}
       await sleep((this.o.backoffMs ?? defaultBackoff)(attempt++), signal);
@@ -191,7 +206,7 @@ export class SyncEngine {
           await this.replay();
           await this.syncAll();
         } catch (error) {
-          this.log(`sync failed, reconnecting: ${(error as Error).message}`);
+          this.log(`sync failed, reconnecting: ${errorMessage(error)}`);
           await this.reconnect();
         }
       } while (this.again && !this.live?.signal.aborted);
@@ -214,7 +229,7 @@ export class SyncEngine {
         await this.syncAll();
         return;
       } catch (error) {
-        this.log(`reconnect failed: ${(error as Error).message}`);
+        this.log(`reconnect failed: ${errorMessage(error)}`);
         await sleep((this.o.backoffMs ?? defaultBackoff)(attempt), this.live?.signal);
       }
     }
@@ -256,7 +271,7 @@ export class SyncEngine {
   draftsSoon() {
     if (this.stopped) {return;}
     clearTimeout(this.draftTimer);
-    this.draftTimer = setTimeout(() => void this.syncDrafts().catch((error) => this.log(`drafts failed: ${(error as Error).message}`)), this.o.draftDebounceMs ?? 3000);
+    this.draftTimer = setTimeout(() => void this.syncDrafts().catch((error: unknown) => this.log(`drafts failed: ${errorMessage(error)}`)), this.o.draftDebounceMs ?? 3000);
   }
 
   /**
@@ -272,11 +287,13 @@ export class SyncEngine {
       const { addresses: to } = parseAddresses(c.to);
       const { addresses: cc } = parseAddresses(c.cc);
       const { addresses: bcc } = parseAddresses(c.bcc);
-      const built = await buildMime({
+      const message: OutgoingMessage = {
         accountId, from: c.from ?? { address: this.o.email }, to, cc, bcc, subject: c.subject, body: c.body,
-        ...(c.inReplyTo ? { inReplyTo: c.inReplyTo } : {}), ...(c.references ? { references: c.references } : {}),
-        ...(c.attachments ? { attachments: c.attachments } : {}),
-      }, d.messageId, new Date(this.now()));
+      };
+      if (c.inReplyTo) {message.inReplyTo = c.inReplyTo;}
+      if (c.references) {message.references = c.references;}
+      if (c.attachments) {message.attachments = c.attachments;}
+      const built = await buildMime(message, d.messageId, new Date(this.now()));
       const { uid } = await this.serial(() => provider.append(box.path, built.raw, [String.raw`\Draft`, String.raw`\Seen`]));
       await data.draftSynced(d.id, accountId, d.updatedAt, box.path, uid);
     }
@@ -290,7 +307,7 @@ export class SyncEngine {
 
   /** Send what's due soon, such as right after the user sends. */
   outboxSoon() {
-    void this.sendOutbox().catch((error) => this.log(`outbox failed: ${(error as Error).message}`));
+    void this.sendOutbox().catch((error: unknown) => this.log(`outbox failed: ${errorMessage(error)}`));
   }
 
   /**
@@ -324,8 +341,8 @@ export class SyncEngine {
       } catch (error) {
         failed = true;
         const rejected = error instanceof ServerRejectedError;
-        const gaveUp = await data.outboxFailed(item.id, (error as Error).message, rejected);
-        this.log(gaveUp ? `message ${item.id} refused, given back to the user: ${(error as Error).message}` : `message ${item.id} not sent yet: ${(error as Error).message}`);
+        const gaveUp = await data.outboxFailed(item.id, errorMessage(error), rejected);
+        this.log(gaveUp ? `message ${item.id} refused, given back to the user: ${errorMessage(error)}` : `message ${item.id} not sent yet: ${errorMessage(error)}`);
         if (!rejected) {break;}
         continue;
       }
@@ -333,7 +350,7 @@ export class SyncEngine {
       await data.outboxSent(item.id);
       if (!provider.caps.savesSent) {
         const sent = this.mailboxes.find((m) => m.role === 'sent');
-        if (sent) {await this.serial(() => provider.append(sent.path, built.raw, ['\\Seen'])).catch((e) => this.log(`couldn't file a copy in Sent: ${(e as Error).message}`));}
+        if (sent) {await this.serial(() => provider.append(sent.path, built.raw, [String.raw`\Seen`])).catch((error: unknown) => this.log(`couldn't file a copy in Sent: ${errorMessage(error)}`));}
       }
     }
     if (this.stopped) {return;}
@@ -365,7 +382,7 @@ export class SyncEngine {
 
   /** Send pending changes soon, such as right after the user acts. */
   replaySoon() {
-    void this.replay().catch((error) => this.log(`replay failed: ${(error as Error).message}`));
+    void this.replay().catch((error: unknown) => this.log(`replay failed: ${errorMessage(error)}`));
   }
 
   /**
@@ -392,7 +409,7 @@ export class SyncEngine {
         } catch (error) {
           failed = true;
           const rejected = error instanceof ServerRejectedError;
-          const msg = (error as Error).message;
+          const msg = errorMessage(error);
           const gaveUp = await data.changeFailed(c.id, msg, rejected);
           this.log(gaveUp ? `change ${c.id} refused by the server, rolled back: ${msg}` : `change ${c.id} not sent yet: ${msg}`);
           // A refusal is about this change only; anything else is most likely the connection, so stop here and keep order.
@@ -415,7 +432,7 @@ export class SyncEngine {
   }
 
   /** Headers for mail older than the window, newest first, in batches. Resumes where it left off. */
-  async backfillHeaders(mailbox = this.primary!.path, batch = 500) {
+  async backfillHeaders(mailbox = this.primaryPath, batch = 500) {
     const { provider, data, accountId } = this.o;
     const before = this.windowStart;
     const old = await this.serial(() => provider.uidsBefore(mailbox, before));
@@ -429,7 +446,7 @@ export class SyncEngine {
   }
 
   /** Pull header and flag changes for the primary mailbox. */
-  syncHeaders(mailbox = this.primary!.path) {
+  syncHeaders(mailbox = this.primaryPath) {
     return this.serial(async () => {
       const { provider, data, accountId } = this.o;
       const since = await data.mailboxState(accountId, mailbox);
@@ -448,11 +465,13 @@ export class SyncEngine {
       const CHUNK = 500;
       for (let i = 0; i < cs.headers.length; i += CHUNK) {
         const last = i + CHUNK >= cs.headers.length;
-        await data.applyChanges(accountId, mailbox, {
-          reset: i === 0 && cs.reset,
-          headers: cs.headers.slice(i, i + CHUNK),
-          ...(last ? { flagChanges: cs.flagChanges, vanished, state: cs.state } : {}),
-        });
+        const chunk: Partial<ChangeSet> = { reset: i === 0 && cs.reset, headers: cs.headers.slice(i, i + CHUNK) };
+        if (last) {
+          chunk.flagChanges = cs.flagChanges;
+          chunk.vanished = vanished;
+          chunk.state = cs.state;
+        }
+        await data.applyChanges(accountId, mailbox, chunk);
       }
       if (!cs.headers.length) {
         await data.applyChanges(accountId, mailbox, { reset: cs.reset, flagChanges: cs.flagChanges, vanished, state: cs.state });
@@ -462,7 +481,7 @@ export class SyncEngine {
   }
 
   /** Download bodies for messages in the window that lack one, newest first. */
-  async syncBodies(mailbox = this.primary!.path) {
+  async syncBodies(mailbox = this.primaryPath) {
     const { data, accountId } = this.o;
     for (;;) {
       const uids = await data.uidsNeedingBodies(accountId, mailbox, this.windowStart, this.bodyBatch);
@@ -479,7 +498,9 @@ export class SyncEngine {
       const bodies = await Promise.all(raws.map(async (r) => ({ uid: r.uid, raw: r.raw, text: await this.o.extractText(r.raw) })));
       // A message that vanished between listing and fetching comes back without a body; store an empty one so we don't loop.
       const got = new Set(bodies.map((b) => b.uid));
-      for (const uid of uids) {if (!got.has(uid)) bodies.push({ uid, raw: new Uint8Array(), text: '' });}
+      for (const uid of uids) {
+        if (!got.has(uid)) {bodies.push({ uid, raw: new Uint8Array(), text: '' });}
+      }
       await data.putBodies(accountId, mailbox, bodies);
     });
   }

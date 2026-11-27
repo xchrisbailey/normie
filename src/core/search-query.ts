@@ -1,7 +1,7 @@
 // What the search box means: words (each must appear, as a prefix), "quoted phrases", and from:, to:, subject:.
 // Turned into an FTS5 MATCH expression with every term quoted, so nothing typed is read as FTS syntax. Pure.
 
-const FIELDS: Record<string, string> = { from: 'sender', to: 'recipients', subject: 'subject', cc: 'recipients' };
+const FIELDS = new Map([['from', 'sender'], ['to', 'recipients'], ['subject', 'subject'], ['cc', 'recipients']]);
 
 const quote = (s: string) => `"${s.replaceAll('"', '""')}"`;
 
@@ -11,7 +11,7 @@ export function ftsQuery(input: string): string | null {
   const re = /(\w+):(?:"([^"]*)"|(\S+))|"([^"]*)"|(\S+)/g;
   for (const m of input.matchAll(re)) {
     const [, field, fieldPhrase, fieldWord, phrase, word] = m;
-    const col = field ? FIELDS[field.toLowerCase()] : undefined;
+    const col = field ? FIELDS.get(field.toLowerCase()) : undefined;
     if (field && !col) {
       // Not an operator we know (a time, a URL): search for it as typed.
       const t = m[0].replaceAll(/[^\p{L}\p{N}@._:-]+/gu, ' ').trim();

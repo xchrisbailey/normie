@@ -86,12 +86,13 @@ describe('Splits', () => {
   });
 });
 
+const row = (over: Omit<Partial<ThreadRow>, 'tags'> & { tags?: Partial<NonNullable<ThreadRow['tags']>> } = {}): ThreadRow => ({
+  key: 'k', accountId: 'gmail:work@acme.com', subject: 's', from: 'f', date: 0, snippet: '', unread: false, starred: false, count: 1,
+  ...over, tags: { newsletter: false, vip: false, known: false, ...over.tags },
+});
+
 describe('splits.json', () => {
   const accounts = [{ id: 'gmail:work@acme.com', name: 'work@acme.com' }, { id: 'icloud:me', name: 'me@icloud.com' }];
-  const row = (over: Omit<Partial<ThreadRow>, 'tags'> & { tags?: Partial<NonNullable<ThreadRow['tags']>> } = {}): ThreadRow => ({
-    key: 'k', accountId: 'gmail:work@acme.com', subject: 's', from: 'f', date: 0, snippet: '', unread: false, starred: false, count: 1,
-    ...over, tags: { newsletter: false, vip: false, known: false, ...over.tags },
-  });
 
   it('keeps the built-ins when there is no file', () => {
     const { splits, problems } = splitsFrom(undefined, accounts);
@@ -140,12 +141,18 @@ describe('splits.json', () => {
   });
 });
 
+const snoozableRow = (key: string, snoozedUntil?: number): ThreadRow => {
+  const row: ThreadRow = {
+    key, accountId: 'a', subject: key, from: 'f', date: 0, snippet: '', unread: false, starred: false, count: 1,
+    tags: { newsletter: false, vip: false, known: true },
+  };
+  if (snoozedUntil && row.tags) {row.tags.snoozedUntil = snoozedUntil;}
+  return row;
+};
+
 describe('the Snoozed tab', () => {
   it('holds snoozed Threads, always last, and every other tab leaves them out', () => {
-    const r = (key: string, snoozedUntil?: number): ThreadRow => ({
-      key, accountId: 'a', subject: key, from: 'f', date: 0, snippet: '', unread: false, starred: false, count: 1,
-      tags: { newsletter: false, vip: false, known: true, ...(snoozedUntil ? { snoozedUntil } : {}) },
-    });
+    const r = snoozableRow;
     const rows = [r('awake'), r('asleep', 123)];
     const { splits } = splitsFrom([{ id: 'important' }], []);
     expect(splits.at(-1)!.id).toBe('snoozed');

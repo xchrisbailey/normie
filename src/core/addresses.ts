@@ -19,17 +19,20 @@ function split(input: string): Array<string> {
     } else {cur += ch;}
   }
   out.push(cur);
-  return out.map((s) => s.trim()).filter(Boolean);
+  return out.flatMap((s) => {
+    const t = s.trim();
+    return t ? [t] : [];
+  });
 }
 
 /** Parse a typed list. Entries that aren't addresses come back in `invalid`. */
-export function parseAddresses(input: string): { addresses: Array<Address>; invalid: Array<string> } {
+export function parseAddresses(input: string) {
   const addresses: Array<Address> = [];
   const invalid: Array<string> = [];
   for (const part of split(input)) {
     const m = /^(.*)<([^>]+)>$/.exec(part);
-    const address = (m ? m[2]! : part).trim();
-    const name = m ? m[1]!.trim().replace(/^"(.*)"$/, '$1').trim() : '';
+    const address = (m?.[2] ?? part).trim();
+    const name = m ? (m[1] ?? '').trim().replace(/^"(.*)"$/, '$1').trim() : '';
     if (!ADDRESS.test(address)) {invalid.push(part);}
     else {addresses.push(name ? { name, address } : { address });}
   }

@@ -47,7 +47,7 @@ describe('Gmail headers', () => {
     const m = {
       seq: 1, uid: 42, emailId: '188295', threadId: '188290', labels: new Set([String.raw`\Inbox`, String.raw`\Important`]), flags: new Set([String.raw`\Seen`]),
       envelope: { date: new Date(NOW), subject: 'Hi', messageId: '<a@b>', from: [{ name: 'Ada', address: 'ada@example.com' }], to: [{ address: 'me@example.com' }] },
-    } as unknown as FetchMessageObject;
+    } satisfies Partial<FetchMessageObject>;
     expect(headerOf(m, '[Gmail]/All Mail', true)).toMatchObject({
       uid: 42, remoteId: '188295', threadId: '188290', labels: [String.raw`\Inbox`, String.raw`\Important`], flags: [String.raw`\Seen`],
       subject: 'Hi', from: { name: 'Ada', address: 'ada@example.com' }, to: [{ address: 'me@example.com' }], date: NOW,

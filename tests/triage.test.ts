@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createCore } from '../src/core/core';
 import type { TestCore } from '../src/core/core';
 import { FakeProvider, fakeExtractText } from '../src/core/fake-provider';
+import { sleep } from '../src/core/sleep';
 
 const NOW = Date.UTC(2026, 10, 26, 12);
 const HOUR = 3_600_000;
@@ -123,20 +124,22 @@ describe('Done', () => {
   });
 });
 
+const waitFor = async (cond: () => boolean | Promise<boolean>, ms = 2000) => {
+  const end = Date.now() + ms;
+  while (!(await cond())) {
+    if (Date.now() > end) {throw new Error('timed out');}
+    await sleep(5);
+  }
+};
+
+const fastCore = async (p: FakeProvider) => {
+  const c = await createCore({ provider: p, extractText: fakeExtractText, now: () => NOW, backoffMs: () => 10 });
+  cores.push(c);
+  await c.engine.syncOnce();
+  return c;
+};
+
 describe('failed changes', () => {
-  const waitFor = async (cond: () => boolean | Promise<boolean>, ms = 2000) => {
-    const end = Date.now() + ms;
-    while (!(await cond())) {
-      if (Date.now() > end) {throw new Error('timed out');}
-      await new Promise((r) => setTimeout(r, 5));
-    }
-  };
-  const fastCore = async (p: FakeProvider) => {
-    const c = await createCore({ provider: p, extractText: fakeExtractText, now: () => NOW, backoffMs: () => 10 });
-    cores.push(c);
-    await c.engine.syncOnce();
-    return c;
-  };
 
   it('retries with backoff by itself until the server takes the change', async () => {
     const { p } = mailbox();
@@ -275,8 +278,9 @@ describe('undo', () => {
   });
 });
 
+const rowOf = async (c: TestCore, subject: string) => (await c.rows('inbox')).find((r) => r.subject === subject);
+
 describe('star, read and delete', () => {
-  const rowOf = async (c: TestCore, subject: string) => (await c.rows('inbox')).find((r) => r.subject === subject);
 
   it('stars the latest message, and unstarring clears every star in the Thread', async () => {
     const { p, lunch } = mailbox();
@@ -416,12 +420,13 @@ describe('mute', () => {
   });
 });
 
+const labelled = () => {
+  const m = mailbox();
+  for (const path of ['Receipts', 'Work/Projects', '[Gmail]/Important', '[Gmail]/Starred', 'Sent Messages']) {m.p.addMailbox({ path });}
+  return m;
+};
+
 describe('Labels', () => {
-  const labelled = () => {
-    const m = mailbox();
-    for (const path of ['Receipts', 'Work/Projects', '[Gmail]/Important', '[Gmail]/Starred', 'Sent Messages']) {m.p.addMailbox({ path });}
-    return m;
-  };
 
   it("lists the Account's own Labels, not system mailboxes", async () => {
     const { p } = labelled();

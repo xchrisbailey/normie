@@ -23,3 +23,17 @@ export function stringList(text: string | null | undefined): Array<string> {
   const v = parseJson(text);
   return isStringArray(v) ? v : [];
 }
+
+/** A JSON object. */
+export type JsonObject = { [key: string]: JsonValue };
+
+export const isJsonObject = (v: JsonValue | undefined): v is JsonObject => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** A JSON column holding a list of numbers (UIDs, change ids): the list, or empty when it's anything else. */
+export function numberList(text: string | null | undefined): Array<number> {
+  if (!text) {
+    return [];
+  }
+  const v = parseJson(text);
+  return isNumberArray(v) ? v : [];
+}

@@ -2,7 +2,12 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+interface FormError {
+  message: string;
+  field?: string;
+}
 type Security = 'tls' | 'starttls' | 'none';
+const isSecurity = (v: string): v is Security => v === 'tls' || v === 'starttls' || v === 'none';
 export type PasswordProvider = 'icloud' | 'imap';
 
 export function AddPasswordAccount({ provider, onDone, existing }: {
@@ -24,7 +29,7 @@ export function AddPasswordAccount({ provider, onDone, existing }: {
   const [savesSent, setSavesSent] = useState(s?.savesSent ?? false);
   const passwordField = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<{ message: string; field?: string } | null>(null);
+  const [error, setError] = useState<FormError | null>(null);
   const first = useRef<HTMLInputElement>(null);
   // Signing in again: straight to the password.
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- focus once, when the form opens
@@ -44,12 +49,19 @@ export function AddPasswordAccount({ provider, onDone, existing }: {
     const r = await window.normie.accounts.addPassword(input);
     setBusy(false);
     if (r.ok) {onDone();}
-    else {setError({ message: r.error, ...(r.field ? { field: r.field } : {}) });}
+    else {
+      const problem: FormError = { message: r.error };
+      if (r.field) {problem.field = r.field;}
+      setError(problem);
+    }
   };
 
   const bad = (field: string) => (error?.field === field ? 'bad' : undefined);
   const security = (value: Security, set: (s: Security) => void) => (
-    <select value={value} onChange={(e) => set(e.target.value as Security)}>
+    <select value={value} onChange={(e) => {
+      const next = e.target.value;
+      if (isSecurity(next)) {set(next);}
+    }}>
       <option value="tls">TLS</option>
       <option value="starttls">STARTTLS</option>
     </select>

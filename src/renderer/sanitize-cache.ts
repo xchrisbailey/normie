@@ -1,4 +1,5 @@
 // Sanitized HTML per message, kept so opening a prefetched Thread doesn't sanitize on the key path.
+import { expected } from '../core/errors';
 import type { ThreadMessage } from '../core/types';
 import { createSanitizer } from './sanitize';
 import type { SanitizedMail } from './sanitize';
@@ -16,7 +17,7 @@ export function sanitized(m: ThreadMessage, allowRemote: boolean): SanitizedMail
     clean ??= createSanitizer();
     hit = clean(m.html, { allowRemote });
     cache.set(key, hit);
-    while (cache.size > MAX) {cache.delete(cache.keys().next().value!);}
+    while (cache.size > MAX) {cache.delete(expected(cache.keys().next().value, 'the oldest entry'));}
   }
   return hit;
 }

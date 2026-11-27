@@ -4,15 +4,16 @@
 import type { BrowserWindow } from 'electron';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { sleep } from '../core/sleep';
 
 type Modifier = 'meta' | 'shift';
 
 /** Electron names a few keys differently from the characters they type. */
-const KEY_CODE: Record<string, string> = { ' ': 'Space' };
+const KEY_CODE = new Map([[' ', 'Space']]);
 
 export function drive(w: BrowserWindow) {
   const wc = w.webContents;
-  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const pause = sleep;
   /**
    * Run code in the page and get its result. `T` is what that code returns: the checks read it and assert on it,
    * so a wrong guess fails the check rather than hiding.
@@ -28,7 +29,7 @@ export function drive(w: BrowserWindow) {
     js,
 
     /** Press a key (n times): key-down, the character it types (not with Cmd), key-up. Then let the frame settle. */
-    async press(keyCode: string, n = 1, modifiers: Array<Modifier> = []) {
+    press: async (keyCode: string, n = 1, modifiers: Array<Modifier> = []) => {
       for (let i = 0; i < n; i++) {
         wc.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
         if (!modifiers.includes('meta')) {wc.sendInputEvent({ type: 'char', keyCode, modifiers });}
@@ -38,9 +39,9 @@ export function drive(w: BrowserWindow) {
     },
 
     /** Type text with real key presses, as fast as the events go (fast typing is when keys get lost or misrouted). */
-    async type(text: string) {
+    type: async (text: string) => {
       for (const ch of text) {
-        const keyCode = KEY_CODE[ch] ?? ch;
+        const keyCode = KEY_CODE.get(ch) ?? ch;
         wc.sendInputEvent({ type: 'keyDown', keyCode });
         wc.sendInputEvent({ type: 'char', keyCode: ch });
         wc.sendInputEvent({ type: 'keyUp', keyCode });
@@ -52,7 +53,7 @@ export function drive(w: BrowserWindow) {
      * Click the middle of an element, as the mouse would. `hit` says whether the element (or something inside it) was
      * really what's under the pointer: false when something covers it.
      */
-    async clickAt(selector: string, offset = { x: 0.5, y: 0.5 }) {
+    clickAt: async (selector: string, offset = { x: 0.5, y: 0.5 }) => {
       const at = await js<{ x: number; y: number; hit: boolean } | null>(`(() => {
         const el = document.querySelector(${JSON.stringify(selector)});
         if (!el) return null;
@@ -70,13 +71,13 @@ export function drive(w: BrowserWindow) {
     },
 
     /** A command from the menu bar, as a menu item (or a key equivalent the menu caught) sends it. */
-    async menuAction(...ids: Array<string>) {
+    menuAction: async (...ids: Array<string>) => {
       wc.send('menu:action', ids);
       await pause(100);
     },
 
     /** With NORMIE_SMOKE_SHOTS=<folder>, save a screenshot to look at (a hidden window still renders). */
-    async shot(name: string) {
+    shot: async (name: string) => {
       const dir = process.env.NORMIE_SMOKE_SHOTS;
       if (dir) {writeFileSync(path.join(dir, `${name}.png`), (await wc.capturePage()).toPNG());}
     },

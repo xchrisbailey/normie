@@ -4,7 +4,7 @@ import { KeyResolver } from '../src/renderer/commands/keys';
 import { mergeKeymap, normalizeKey } from '../src/renderer/commands/keymap';
 import { ACTIONS } from '../src/renderer/commands/registry';
 
-const keysOf = (actions: Array<{ id: string; keys: readonly string[] }>, id: string) => actions.find((a) => a.id === id)!.keys;
+const keysOf = (actions: Array<{ id: string; keys: ReadonlyArray<string> }>, id: string) => actions.find((a) => a.id === id)!.keys;
 
 describe('keymap file', () => {
   it('keeps the defaults when there is no file', () => {
