@@ -416,7 +416,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   /** Run a registry action by id, as the palette and the native menus do. Of several ids, the one that applies here. */
   const latest = useRef({ handlers, context });
   latest.current = { handlers, context };
-  const runAction = useCallback((ids: string[]) => {
+  const runAction = useCallback((ids: string[], fromMenu = false) => {
     const { handlers: h, context: ctx } = latest.current;
     // The Edit menu's Undo: typing in a field, or else Undo Send.
     const el = document.activeElement as HTMLElement | null;
@@ -425,12 +425,13 @@ function Inbox({ core }: { core: CoreClient | null }) {
       if (typing) return void document.execCommand('undo');
       return void h['send.undo']?.();
     }
-    // While typing in a field, or with a form or the palette open, only Cmd commands run from the menus.
-    if ((typing || document.querySelector('.palette-backdrop')) && !ids.some((x) => ACTIONS.find((a) => a.id === x)?.keys.some((k) => k.startsWith('Cmd-')))) return;
+    // From the menus while typing in a field, or with a form or the palette open: only Cmd commands run. (A plain key
+    // can reach the menu as a key equivalent when the page answers slowly.) The palette's own choices always run.
+    if (fromMenu && (typing || document.querySelector('.palette-backdrop')) && !ids.some((x) => ACTIONS.find((a) => a.id === x)?.keys.some((k) => k.startsWith('Cmd-')))) return;
     const id = ids.find((x) => ACTIONS.some((a) => a.id === x && (a.contexts as readonly string[]).includes(ctx)) && h[x as keyof Handlers]);
     if (id) void h[id as keyof Handlers]!();
   }, []);
-  useEffect(() => window.normie.onMenuAction(runAction), [runAction]);
+  useEffect(() => window.normie.onMenuAction((ids) => runAction(ids, true)), [runAction]);
 
   /** Show the open Thread's hidden images; `always` also remembers each sender. */
   function loadImages(always: boolean) {
