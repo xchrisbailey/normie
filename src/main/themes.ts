@@ -4,7 +4,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { errorMessage } from '../core/errors';
-import { DEFAULT_DARK, DEFAULT_LIGHT, resolveTheme } from '../core/vscode-theme';
+import { DEFAULT_DARK, DEFAULT_LIGHT, previewColors, resolveTheme } from '../core/vscode-theme';
 import type { ResolvedTheme, ThemeChoice, ThemeList, ThemeSummary } from '../core/vscode-theme';
 
 export class ThemeStore {
@@ -20,7 +20,7 @@ export class ThemeStore {
     for (const [id, source] of this.ids()) {
       try {
         const t = this.resolve(id);
-        themes.push({ id, name: t.name, type: t.type, source });
+        themes.push({ id, name: t.name, type: t.type, source, colors: previewColors(t.colors) });
       } catch (error) {
         problems.push(`themes/${id}.json ${errorMessage(error)}`);
       }

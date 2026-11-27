@@ -1342,14 +1342,52 @@ button.primary:disabled {
   }
 }
 
-/* Settings: tabs over one scrolling body. */
-.settings-panel {
-  height: min(480px, calc(100vh - 120px));
+/* Settings: the whole window, with tabs over one scrolling column. */
+.panel.settings-panel {
+  inset: 0;
+  translate: none;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  box-sizing: border-box;
+  padding: 16px 24px 0;
+  background: var(--ground);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.panel.settings-panel[data-starting-style] {
+  transform: none;
+}
+:root[data-platform='darwin'] .panel.settings-panel {
+  top: 0;
+  padding-top: 40px;
+}
+.settings-panel > *,
+.settings-panel [data-slot='tabs'] > * {
+  width: 100%;
+  max-width: 720px;
+  margin-inline: auto;
+}
+.settings-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  margin-bottom: 4px;
+  -webkit-app-region: drag;
+}
+.settings-head > * {
+  -webkit-app-region: no-drag;
+}
+.settings-title {
+  font-size: 15px;
+  font-weight: 600;
 }
 .settings-tabs {
   display: flex;
   gap: 4px;
-  padding: 10px 12px 0;
   border-bottom: 1px solid var(--line);
 }
 .settings-tabs [data-slot='tabs-tab'] {
@@ -1386,8 +1424,8 @@ button.primary:disabled {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 18px 20px;
+  gap: 16px;
+  padding: 20px 0 32px;
   outline: none;
 }
 .settings-body[hidden] {
@@ -1510,43 +1548,147 @@ button.primary:disabled {
 [data-slot='switch-thumb'][data-checked] {
   translate: 14px 0;
 }
-.theme-list {
-  display: flex;
-  flex-direction: column;
-  max-height: 300px;
-  overflow-y: auto;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+  gap: 14px;
   outline: none;
-}
-.theme-list:focus-visible {
-  border-color: var(--accent);
 }
 .theme-item {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 7px 10px;
-  border-radius: 6px;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px;
+  border-radius: 10px;
   color: var(--fg2);
   cursor: default;
+  outline: none;
 }
 .theme-item[data-highlighted] {
   background: var(--well);
 }
+.theme-item:focus-visible .theme-preview {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.theme-item[data-selected] .theme-preview,
+.theme-item[data-paired] .theme-preview {
+  box-shadow:
+    0 0 0 2px var(--ground),
+    0 0 0 4px var(--accent);
+}
 .theme-item[data-selected],
 .theme-item[data-paired] {
   color: var(--fg);
-  background: var(--sel);
+}
+.theme-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 2px;
+  font-size: 13px;
+}
+.theme-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .theme-meta {
+  flex: none;
   font-size: 12px;
   color: var(--fg3);
 }
 .theme-item[data-paired] .theme-meta::before {
   content: '✓ ';
   color: var(--accent);
+}
+/* The tile: the app's header and three rows, drawn in the theme's own variables (set on it from its colors). */
+.theme-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  aspect-ratio: 16 / 10;
+  max-width: 100%;
+  padding: 10px 10px 0;
+  overflow: hidden;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  transition: box-shadow 0.15s;
+}
+.tp-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 12px;
+  margin-bottom: 4px;
+}
+.tp-tab {
+  width: 16%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fg3);
+}
+.tp-tab.tp-on {
+  background: var(--fg);
+  box-shadow: 0 4px 0 -1px var(--accent);
+}
+.tp-dots {
+  display: flex;
+  gap: 3px;
+  margin-left: auto;
+}
+.tp-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+.tp-dots i:nth-child(1) {
+  background: var(--ansi-magenta);
+}
+.tp-dots i:nth-child(2) {
+  background: var(--ansi-yellow);
+}
+.tp-dots i:nth-child(3) {
+  background: var(--ansi-cyan);
+}
+.tp-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 14px;
+  padding: 0 5px;
+  border-radius: 4px;
+}
+.tp-row.tp-sel {
+  background: var(--sel);
+}
+.tp-dot {
+  flex: none;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.tp-row:not(.tp-sel) .tp-dot {
+  background: transparent;
+}
+.tp-from {
+  width: 26%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fg);
+}
+.tp-subject {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fg3);
+}
+.tp-row:last-child .tp-subject {
+  flex: 0 0 38%;
 }
 /* Forms that drop over Settings or the list. */
 .panel.sheet-panel {

@@ -27,9 +27,9 @@ beforeAll(() => {
 });
 
 const themes: Array<ThemeSummary> = [
-  { id: 'normie-light', name: 'Normie Light', type: 'light', source: 'bundled' },
-  { id: 'normie-dark', name: 'Normie Dark', type: 'dark', source: 'bundled' },
-  { id: 'solarized-light', name: 'Solarized Light', type: 'light', source: 'bundled' },
+  { id: 'normie-light', name: 'Normie Light', type: 'light', source: 'bundled', colors: {} },
+  { id: 'normie-dark', name: 'Normie Dark', type: 'dark', source: 'bundled', colors: {} },
+  { id: 'solarized-light', name: 'Solarized Light', type: 'light', source: 'bundled', colors: {} },
 ];
 const active: ActiveTheme = {
   theme: { id: 'normie-light', name: 'Normie Light', type: 'light', colors: {} },
@@ -65,7 +65,7 @@ test('an agent can find and change every setting', async () => {
     expect(entry.label, `${entry.component} ${entry.ref} has no name`).toBeTruthy();
   }
   const labels = named().map((e) => e.label);
-  for (const label of ['Settings', 'Identities for ada@example.com…', 'Remove ada@example.com…', 'Gmail…', 'iCloud…', 'Other IMAP…']) {
+  for (const label of ['Settings', 'Close Settings', 'Identities for ada@example.com…', 'Remove ada@example.com…', 'Gmail…', 'iCloud…', 'Other IMAP…']) {
     expect(labels, `${label} is missing from the snapshot`).toContain(label);
   }
 
