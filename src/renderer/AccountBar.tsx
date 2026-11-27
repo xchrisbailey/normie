@@ -70,7 +70,7 @@ export function AccountBar({ accounts }: { accounts: AccountRecord[] }) {
           </button>
         ),
       )}
-      {!window.normie.fake && (
+      {(
         <span className="account-wrap">
           <button className="account add" disabled={busy} onClick={() => setMenu((m) => !m)} title="Add an Account">
             {busy ? 'Waiting for Google…' : '+ Add Account'}

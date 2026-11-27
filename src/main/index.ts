@@ -204,11 +204,12 @@ ipcMain.on('renderer-ready', async (_e, info: { rows: number; view: 'list' | 'em
   if (bench && win) return void runBench(win, info);
   if (!smoke || !win) return;
   const msSinceLaunch = Math.round(performance.now() - launchedAt);
+  const form = info.view === 'list' ? await smokeAddAccountForm(win) : undefined;
   const keys = info.view === 'list' ? await smokeKeys(win) : undefined;
   const empty = info.view === 'empty' ? await smokeEmpty(win) : undefined;
-  console.log(`[smoke] ${JSON.stringify({ ...info, msSinceLaunch, packaged: app.isPackaged, keys, empty })}`);
+  console.log(`[smoke] ${JSON.stringify({ ...info, msSinceLaunch, packaged: app.isPackaged, form, keys, empty })}`);
   quitting = true;
-  const ok = info.view === 'list' ? info.rows > 0 && keys!.ok : !noRealAccounts && info.view === 'empty' && empty!.ok;
+  const ok = info.view === 'list' ? info.rows > 0 && keys!.ok && form!.ok : !noRealAccounts && info.view === 'empty' && empty!.ok;
   app.exit(ok ? 0 : 1);
 });
 
@@ -302,6 +303,31 @@ function measureMemory(): { mb: number; detail: string } {
     }
   }
   return { mb: metrics.reduce((a, m) => a + m.memory.workingSetSize, 0) / 1024, detail: `working set over ${metrics.length} processes` };
+}
+
+/** Smoke check with no Accounts: the iCloud form explains that the login must be the @icloud.com address. */
+/** The Add Account form, opened from the top bar as a person would: on top of everything, and it gets the keys. */
+async function smokeAddAccountForm(w: BrowserWindow) {
+  await w.webContents.executeJavaScript(`document.querySelector('.accounts .account.add').click()`);
+  await new Promise((r) => setTimeout(r, 100));
+  await w.webContents.executeJavaScript(`[...document.querySelectorAll('.popover .quiet')].find((b) => b.textContent.startsWith('iCloud')).click()`);
+  await new Promise((r) => setTimeout(r, 200));
+  const onTop = (await w.webContents.executeJavaScript(`(() => {
+    const s = document.querySelector('.sheet').getBoundingClientRect();
+    const hit = document.elementFromPoint(s.left + s.width / 2, s.top + s.height / 2);
+    return !!hit && !!hit.closest('.sheet') && document.activeElement?.tagName === 'INPUT' && !!document.activeElement.closest('.sheet');
+  })()`)) as boolean;
+  // Click into the field (as a person would), then type keys the list would take: they must land in the field.
+  const field = (await w.webContents.executeJavaScript(`(() => { const r = document.querySelector('.sheet input').getBoundingClientRect(); return { x: r.left + 20, y: r.top + r.height / 2 }; })()`)) as { x: number; y: number };
+  for (const type of ['mouseDown', 'mouseUp'] as const) w.webContents.sendInputEvent({ type, x: Math.round(field.x), y: Math.round(field.y), button: 'left', clickCount: 1 });
+  const selectedBefore = (await w.webContents.executeJavaScript(`document.querySelector('.row.selected')?.dataset.key ?? ''`)) as string;
+  for (const ch of 'jje') w.webContents.sendInputEvent({ type: 'char', keyCode: ch });
+  await new Promise((r) => setTimeout(r, 150));
+  const typed = (await w.webContents.executeJavaScript(`document.querySelector('.sheet input').value`)) as string;
+  const selectedAfter = (await w.webContents.executeJavaScript(`document.querySelector('.row.selected')?.dataset.key ?? ''`)) as string;
+  await w.webContents.executeJavaScript(`document.querySelector('.sheet .quiet').click()`);
+  await new Promise((r) => setTimeout(r, 100));
+  return { ok: onTop && typed === 'jje' && selectedBefore === selectedAfter, onTop, typed };
 }
 
 /** Smoke check with no Accounts: the iCloud form explains that the login must be the @icloud.com address. */

@@ -1,5 +1,6 @@
 // Adding an iCloud or IMAP/SMTP Account: a short form, checked against the real servers before it's saved.
 import { useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 type Security = 'tls' | 'starttls' | 'none';
 export type PasswordProvider = 'icloud' | 'imap';
@@ -46,7 +47,7 @@ export function AddPasswordAccount({ provider, onDone }: { provider: PasswordPro
   );
 
   return (
-    <div className="palette-backdrop" onMouseDown={() => !busy && onDone()}>
+    createPortal(<div className="palette-backdrop" onMouseDown={() => !busy && onDone()}>
       <form className="sheet" onSubmit={(e) => void submit(e)} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && !busy && onDone()}>
         <h2>{provider === 'icloud' ? 'Add iCloud Account' : 'Add IMAP Account'}</h2>
         {provider === 'icloud' && (
@@ -70,6 +71,6 @@ export function AddPasswordAccount({ provider, onDone }: { provider: PasswordPro
           <button type="submit" className="primary" disabled={busy}>{busy ? 'Checking…' : 'Add Account'}</button>
         </footer>
       </form>
-    </div>
+    </div>, document.body)
   );
 }
