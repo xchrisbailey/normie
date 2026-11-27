@@ -4,7 +4,7 @@ import { newMessageId } from './ids';
 import type { Original } from './reply';
 import { Store, type BodyInput } from './store';
 import type {
-  AccountId, AttachmentInfo, ChangeSet, OutboxItem, OutgoingMessage, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
+  AccountId, AttachmentInfo, ChangeSet, DraftContent, DraftSummary, DraftToSync, OutboxItem, OutgoingMessage, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
 } from './types';
 
 /** Reads stored messages (mailparser in the app). Injected, so the core can run without it. */
@@ -35,6 +35,8 @@ export class DataService {
   private readonly undoSendMs: number;
   /** Called when an Account has mail to send. Set by whoever wires up sync. */
   outboxRequester?: (accountId: AccountId) => void;
+  /** Called when an Account's drafts changed and the server should catch up. */
+  draftsRequester?: (accountId: AccountId) => void;
 
   constructor(readonly store: Store, opts: { now?: () => number; deleteHoldMs?: number; mime?: MimeReader; undoSendMs?: number } = {}) {
     this.now = opts.now ?? Date.now;
@@ -45,12 +47,52 @@ export class DataService {
 
   // --- Sending
 
-  /** Put a message in the Outbox. It goes out after the undo window. Returns its Outbox id. */
-  send(message: OutgoingMessage): number {
+  /** Put a message in the Outbox. It goes out after the undo window. Returns its Outbox id. Its draft, if any, goes. */
+  send(message: OutgoingMessage, draftId?: number): number {
+    if (draftId !== undefined) this.deleteDraft(draftId);
     const id = this.store.queueSend(message, newMessageId(message.from), this.now() + this.undoSendMs, this.now());
     this.emitPending();
     this.outboxRequester?.(message.accountId);
     return id;
+  }
+
+  // --- Drafts
+
+  /** Save a draft as the user types (new when `id` is null). Returns its id. */
+  saveDraft(id: number | null, content: DraftContent): number {
+    const saved = this.store.saveDraft(id, content, this.now());
+    this.draftsRequester?.(content.accountId);
+    return saved;
+  }
+
+  /** Discard a draft, here and on the server. */
+  deleteDraft(id: number) {
+    const account = this.store.deleteDraft(id);
+    if (account) this.draftsRequester?.(account);
+  }
+
+  drafts(): DraftSummary[] {
+    return this.store.drafts();
+  }
+
+  draft(id: number): DraftContent | null {
+    return this.store.draft(id);
+  }
+
+  draftsToSync(accountId: AccountId): DraftToSync[] {
+    return this.store.draftsToSync(accountId).map((d) => ({ ...d, messageId: newMessageId(d.content.from ?? { address: 'draft@normie.local' }) }));
+  }
+
+  draftSynced(id: number, accountId: AccountId, updatedAt: number, mailbox: string, uid: number | undefined) {
+    this.store.draftSynced(id, accountId, updatedAt, mailbox, uid);
+  }
+
+  draftDeletions(accountId: AccountId) {
+    return this.store.draftDeletions(accountId);
+  }
+
+  draftDeleted(id: number) {
+    this.store.draftDeleted(id);
   }
 
   /** Take a message back before it's sent (undo send), or after it failed. Null once it's on its way. */
@@ -290,11 +332,16 @@ export interface DataPort {
   nextOutboxAt(accountId: AccountId): Promise<number | undefined>;
   outboxSent(id: number): Promise<void>;
   outboxFailed(id: number, error: string, rejected: boolean): Promise<boolean>;
+  draftsToSync(accountId: AccountId): Promise<DraftToSync[]>;
+  draftSynced(id: number, accountId: AccountId, updatedAt: number, mailbox: string, uid: number | undefined): Promise<void>;
+  draftDeletions(accountId: AccountId): Promise<{ id: number; mailbox: string; uid: number }[]>;
+  draftDeleted(id: number): Promise<void>;
 }
 
 export const DATA_PORT_METHODS = [
   'upsertAccount', 'setMailboxes', 'removeAccount', 'mailboxState', 'knownUids', 'uidsNeedingBodies', 'applyChanges', 'putBodies',
   'pendingChanges', 'nextSendAt', 'changeApplied', 'changeFailed', 'dueOutbox', 'nextOutboxAt', 'outboxSent', 'outboxFailed',
+  'draftsToSync', 'draftSynced', 'draftDeletions', 'draftDeleted',
 ] as const satisfies readonly (keyof DataPort)[];
 
 /** Adapts an in-process DataService to the async DataPort. */

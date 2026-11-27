@@ -61,8 +61,8 @@ export class FakeProvider implements MailProvider {
   constructor(opts: { caps?: Partial<Caps>; mailboxes?: Mailbox[] } = {}) {
     this.caps = { ...GMAIL_CAPS, ...opts.caps };
     const boxes = opts.mailboxes ?? (this.caps.labels
-      ? [{ path: 'INBOX', role: 'inbox' }, { path: '[Gmail]/All Mail', role: 'all' }, { path: '[Gmail]/Sent Mail', role: 'sent' }]
-      : [{ path: 'INBOX', role: 'inbox' }, { path: 'Sent Messages', role: 'sent' }]) as Mailbox[];
+      ? [{ path: 'INBOX', role: 'inbox' }, { path: '[Gmail]/All Mail', role: 'all' }, { path: '[Gmail]/Sent Mail', role: 'sent' }, { path: '[Gmail]/Drafts', role: 'drafts' }]
+      : [{ path: 'INBOX', role: 'inbox' }, { path: 'Sent Messages', role: 'sent' }, { path: 'Drafts', role: 'drafts' }]) as Mailbox[];
     for (const m of boxes) this.addMailbox(m);
   }
 
@@ -279,7 +279,23 @@ export class FakeProvider implements MailProvider {
     this.appends.push({ mailbox: path, raw: text, flags });
     const subject = /^Subject: (.*)$/m.exec(text)?.[1]?.trim() ?? '';
     const messageId = /^Message-ID: (.*)$/im.exec(text)?.[1]?.trim();
-    this.deliver({ subject, flags, ...(messageId ? { messageId } : {}), raw: text, labels: this.caps.labels ? ['\\Sent'] : [path] }, path);
+    const uid = this.deliver({ subject, flags, ...(messageId ? { messageId } : {}), raw: text, labels: this.caps.labels ? [flags.includes('\\Draft') ? '\\Draft' : '\\Sent'] : [path] }, path);
+    return { uid };
+  }
+
+  /** Messages deleted for good by the core, in order. */
+  removed: { mailbox: string; uids: number[] }[] = [];
+
+  async remove(path: string, uids: number[]) {
+    this.check('remove');
+    if (!this.connected) throw new Error('fake: not connected');
+    this.removed.push({ mailbox: path, uids: [...uids] });
+    for (const uid of uids) this.expunge(uid, path);
+  }
+
+  /** What's in a mailbox now, for tests. */
+  contents(path: string): { uid: number; subject: string; flags: string[] }[] {
+    return [...this.box(path).messages.values()].map((m) => ({ uid: m.header.uid, subject: m.header.subject, flags: m.header.flags }));
   }
 
   async *watch(path: string, signal: AbortSignal): AsyncIterable<MailEvent> {

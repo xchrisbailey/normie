@@ -1,7 +1,7 @@
 // The local store: one SQLite file in WAL mode, owned by the data process.
 import Database from 'better-sqlite3';
 import type {
-  AccountId, Address, AttachmentInfo, FlagChange, OutboxItem, OutgoingMessage, MailboxRole, MessageEdit, PendingChange, RemoteHeader, SplitId, SyncState, ThreadAction,
+  AccountId, Address, AttachmentInfo, DraftContent, DraftSummary, DraftToSync, FlagChange, OutboxItem, OutgoingMessage, MailboxRole, MessageEdit, PendingChange, RemoteHeader, SplitId, SyncState, ThreadAction,
   ThreadMessage, ThreadRow,
 } from './types';
 
@@ -125,12 +125,31 @@ const MIGRATIONS: string[] = [
   );
   create index outbox_due on outbox (account_id, state, send_at);
   `,
+  // Drafts, saved as the user types, and old server copies waiting to be deleted.
+  `
+  create table drafts (
+    id integer primary key,
+    account_id text not null,
+    content_json text not null,
+    updated_at integer not null,
+    synced_at integer not null default 0,
+    server_mailbox text,
+    server_uid integer
+  );
+  create table draft_deletions (
+    id integer primary key,
+    account_id text not null,
+    mailbox text not null,
+    uid integer not null
+  );
+  `,
 ];
 
 /** How long a delete waits before it's sent, so it can still be undone. */
 export const DELETE_HOLD_MS = 10_000;
 
 const FLAGGED = '\\Flagged';
+const DRAFT = '\\Draft';
 const SEEN = '\\Seen';
 const TRASH = '\\Trash';
 
@@ -144,14 +163,16 @@ const inverseOf = (e: MessageEdit): MessageEdit => ({
   ...(e.addLabels ? { removeLabels: e.addLabels } : {}),
 });
 
-/** Outgoing messages are stored as JSON, attachments as base64. */
-function encodeMessage(m: OutgoingMessage): string {
+type WithAttachments = { attachments?: { filename: string; contentType: string; content: Uint8Array }[] };
+
+/** Outgoing messages and drafts are stored as JSON, attachments as base64. */
+function encodeMessage<T extends WithAttachments>(m: T): string {
   return JSON.stringify({ ...m, attachments: (m.attachments ?? []).map((a) => ({ ...a, content: Buffer.from(a.content.buffer, a.content.byteOffset, a.content.byteLength).toString('base64') })) });
 }
 
-function decodeMessage(json: string): OutgoingMessage {
-  const m = JSON.parse(json) as Omit<OutgoingMessage, 'attachments'> & { attachments: { filename: string; contentType: string; content: string }[] };
-  return { ...m, attachments: m.attachments.map((a) => ({ ...a, content: new Uint8Array(Buffer.from(a.content, 'base64')) })) };
+function decodeMessage<T extends WithAttachments = OutgoingMessage>(json: string): T {
+  const m = JSON.parse(json) as Omit<T, 'attachments'> & { attachments: { filename: string; contentType: string; content: string }[] };
+  return { ...m, attachments: m.attachments.map((a) => ({ ...a, content: new Uint8Array(Buffer.from(a.content, 'base64')) })) } as unknown as T;
 }
 
 /** Applies an edit to a list of flags or Labels. */
@@ -278,7 +299,7 @@ export class Store {
   removeAccount(id: AccountId) {
     this.db.transaction(() => {
       this.db.prepare('delete from bodies where message_id in (select id from messages where account_id = ?)').run(id);
-      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes', 'muted_threads', 'outbox']) this.db.prepare(`delete from ${t} where account_id = ?`).run(id);
+      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes', 'muted_threads', 'outbox', 'drafts', 'draft_deletions']) this.db.prepare(`delete from ${t} where account_id = ?`).run(id);
       this.db.prepare('delete from accounts where id = ?').run(id);
     })();
   }
@@ -381,6 +402,11 @@ export class Store {
       for (const h of batch.headers ?? []) {
         const old = threadOf.get(accountId, mailbox, h.uid) as string | undefined;
         if (old) touched.add(old);
+        // Drafts are Normie's own business (see the drafts table), not messages in a Thread.
+        if (h.flags.includes(DRAFT)) {
+          if (old) del.run(accountId, mailbox, h.uid);
+          continue;
+        }
         const threadKey = h.threadId ?? h.messageId ?? h.remoteId;
         if (!old) arrived.add(threadKey);
         touched.add(threadKey);
@@ -395,6 +421,10 @@ export class Store {
         const key = threadOf.get(accountId, mailbox, f.uid) as string | undefined;
         if (!key) continue;
         touched.add(key);
+        if (f.flags.includes(DRAFT)) {
+          del.run(accountId, mailbox, f.uid);
+          continue;
+        }
         updateFlags.run(
           JSON.stringify(f.flags), f.flags.includes(SEEN) ? 0 : 1, f.flags.includes(FLAGGED) ? 1 : 0,
           f.labels ? JSON.stringify(f.labels) : null, f.labels ? inInbox(f.labels) : null,
@@ -627,6 +657,77 @@ export class Store {
     const r = this.db.prepare(`select count(*) count, count(last_error) waiting from pending_changes where state = 'pending'`).get() as { count: number; waiting: number };
     const o = this.db.prepare(`select count(*) count, count(last_error) waiting from outbox where state in ('queued', 'sending')`).get() as { count: number; waiting: number };
     return { count: r.count + o.count, waiting: r.waiting + o.waiting };
+  }
+
+  // --- Drafts
+
+  /** Save a draft (new when `id` is null). Returns its id. */
+  saveDraft(id: number | null, content: DraftContent, now = Date.now()): number {
+    if (id !== null && this.db.prepare('select 1 from drafts where id = ?').get(id)) {
+      this.db.prepare('update drafts set account_id = ?, content_json = ?, updated_at = ? where id = ?').run(content.accountId, encodeMessage(content), now, id);
+      return id;
+    }
+    return Number(this.db.prepare('insert into drafts(account_id, content_json, updated_at) values (?, ?, ?)')
+      .run(content.accountId, encodeMessage(content), now).lastInsertRowid);
+  }
+
+  /** Delete a draft here, and queue its server copy for deletion. Returns the Account, if there's one to tidy up. */
+  deleteDraft(id: number): AccountId | undefined {
+    const r = this.db.prepare('select account_id, server_mailbox, server_uid from drafts where id = ?').get(id) as
+      | { account_id: string; server_mailbox: string | null; server_uid: number | null } | undefined;
+    if (!r) return undefined;
+    this.db.transaction(() => {
+      this.db.prepare('delete from drafts where id = ?').run(id);
+      if (r.server_mailbox && r.server_uid) {
+        this.db.prepare('insert into draft_deletions(account_id, mailbox, uid) values (?, ?, ?)').run(r.account_id, r.server_mailbox, r.server_uid);
+      }
+    })();
+    return r.server_uid ? r.account_id : undefined;
+  }
+
+  drafts(): DraftSummary[] {
+    return (this.db.prepare('select id, account_id, content_json, updated_at from drafts order by updated_at desc').all() as
+      { id: number; account_id: string; content_json: string; updated_at: number }[]).map((r) => {
+      const c = JSON.parse(r.content_json) as DraftContent;
+      return { id: r.id, accountId: r.account_id, subject: c.subject, to: c.to, updatedAt: r.updated_at };
+    });
+  }
+
+  draft(id: number): DraftContent | null {
+    const json = this.db.prepare('select content_json from drafts where id = ?').pluck().get(id) as string | undefined;
+    return json ? decodeMessage<DraftContent>(json) : null;
+  }
+
+  /** Drafts whose latest version the server doesn't have. */
+  draftsToSync(accountId: AccountId): Omit<DraftToSync, 'messageId'>[] {
+    return (this.db.prepare('select id, content_json, updated_at from drafts where account_id = ? and updated_at > synced_at').all(accountId) as
+      { id: number; content_json: string; updated_at: number }[]).map((r) => ({ id: r.id, updatedAt: r.updated_at, content: decodeMessage<DraftContent>(r.content_json) }));
+  }
+
+  /**
+   * The server has this version of a draft, at `uid`. The previous copy is queued for deletion; if the draft was
+   * sent or discarded meanwhile, so is this one.
+   */
+  draftSynced(id: number, accountId: AccountId, updatedAt: number, mailbox: string, uid: number | undefined) {
+    const queue = this.db.prepare('insert into draft_deletions(account_id, mailbox, uid) values (?, ?, ?)');
+    this.db.transaction(() => {
+      const r = this.db.prepare('select server_mailbox, server_uid from drafts where id = ?').get(id) as
+        | { server_mailbox: string | null; server_uid: number | null } | undefined;
+      if (!r) {
+        if (uid) queue.run(accountId, mailbox, uid);
+        return;
+      }
+      if (r.server_mailbox && r.server_uid && r.server_uid !== uid) queue.run(accountId, r.server_mailbox, r.server_uid);
+      this.db.prepare('update drafts set synced_at = max(synced_at, ?), server_mailbox = ?, server_uid = ? where id = ?').run(updatedAt, mailbox, uid ?? null, id);
+    })();
+  }
+
+  draftDeletions(accountId: AccountId): { id: number; mailbox: string; uid: number }[] {
+    return this.db.prepare('select id, mailbox, uid from draft_deletions where account_id = ? order by id').all(accountId) as { id: number; mailbox: string; uid: number }[];
+  }
+
+  draftDeleted(id: number) {
+    this.db.prepare('delete from draft_deletions where id = ?').run(id);
   }
 
   // --- The Outbox

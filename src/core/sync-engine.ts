@@ -1,6 +1,7 @@
 // The sync side of the core: pulls changes from a MailProvider and hands them to the data side.
 // Runs in the sync process. Talks to the store only through DataPort.
 import type { DataPort } from './data-service';
+import { parseAddresses } from './addresses';
 import { buildMime } from './compose';
 import { ServerRejectedError, type AccountId, type Mailbox, type MailProvider, type MailTransport } from './types';
 
@@ -27,6 +28,8 @@ export interface SyncEngineOptions {
   backoffMs?: (attempt: number) => number;
   /** Sends mail. Without one, the Outbox just waits. */
   transport?: MailTransport;
+  /** Gather draft saves (one every keystroke pause) into one upload. */
+  draftDebounceMs?: number;
 }
 
 const DAY = 86_400_000;
@@ -64,6 +67,7 @@ export class SyncEngine {
   private sendAgain = false;
   private outboxTimer?: ReturnType<typeof setTimeout>;
   private sendFailures = 0;
+  private draftTimer?: ReturnType<typeof setTimeout>;
   private stopped = false;
   /** Resolves after the next live sync pass completes; for tests. */
   private passWaiters: (() => void)[] = [];
@@ -198,10 +202,47 @@ export class SyncEngine {
   /** One full sync pass: window headers, then window bodies, then older history as headers only. */
   async syncOnce() {
     this.outboxSoon();
+    this.draftsSoon();
     await this.replay();
     await this.syncHeaders();
     await this.syncBodies();
     await this.backfillHeaders();
+  }
+
+  // --- Drafts
+
+  /** Upload changed drafts after a pause, so typing doesn't append a copy per keystroke. */
+  draftsSoon() {
+    if (this.stopped) return;
+    clearTimeout(this.draftTimer);
+    this.draftTimer = setTimeout(() => void this.syncDrafts().catch((e) => this.log(`drafts failed: ${(e as Error).message}`)), this.o.draftDebounceMs ?? 3000);
+  }
+
+  /**
+   * Bring the Drafts mailbox up to date: append each changed draft (as a \Draft message), then delete the copies
+   * it replaces, and those of drafts sent or discarded. A failure leaves the rest for the next pass.
+   */
+  async syncDrafts() {
+    const { provider, data, accountId } = this.o;
+    const box = this.mailboxes.find((m) => m.role === 'drafts');
+    if (!box) return;
+    for (const d of await data.draftsToSync(accountId)) {
+      const c = d.content;
+      const { addresses: to } = parseAddresses(c.to);
+      const { addresses: cc } = parseAddresses(c.cc);
+      const { addresses: bcc } = parseAddresses(c.bcc);
+      const built = await buildMime({
+        accountId, from: c.from ?? { address: this.o.email }, to, cc, bcc, subject: c.subject, body: c.body,
+        ...(c.inReplyTo ? { inReplyTo: c.inReplyTo } : {}), ...(c.references ? { references: c.references } : {}),
+        ...(c.attachments ? { attachments: c.attachments } : {}),
+      }, d.messageId, new Date(this.now()));
+      const { uid } = await this.serial(() => provider.append(box.path, built.raw, ['\\Draft', '\\Seen']));
+      await data.draftSynced(d.id, accountId, d.updatedAt, box.path, uid);
+    }
+    for (const del of await data.draftDeletions(accountId)) {
+      await this.serial(() => provider.remove(del.mailbox, [del.uid]));
+      await data.draftDeleted(del.id);
+    }
   }
 
   // --- The Outbox
@@ -390,6 +431,7 @@ export class SyncEngine {
     this.stopped = true;
     clearTimeout(this.replayRetry);
     clearTimeout(this.outboxTimer);
+    clearTimeout(this.draftTimer);
     await this.sending?.catch(() => {});
     this.live?.abort();
     clearInterval(this.pollTimer);

@@ -19,7 +19,11 @@ export function coreApiOf(ds: DataService): CoreApi {
     labels: async (accountId) => ds.labels(accountId),
     allowImagesFrom: async (address) => ds.allowImagesFrom(address),
     attachment: (messageId, index) => ds.attachment(messageId, index),
-    send: async (m) => ds.send(m),
+    send: async (m, draftId) => ds.send(m, draftId),
+    saveDraft: async (id, content) => ds.saveDraft(id, content),
+    deleteDraft: async (id) => ds.deleteDraft(id),
+    drafts: async () => ds.drafts(),
+    draft: async (id) => ds.draft(id),
     cancelSend: async (id) => ds.cancelSend(id),
     original: (id, withAttachments) => ds.original(id, withAttachments),
   };
@@ -48,6 +52,7 @@ export interface CreateCoreOptions {
   deleteHoldMs?: number;
   transport?: MailTransport;
   undoSendMs?: number;
+  draftDebounceMs?: number;
   mime?: MimeReader;
 }
 
@@ -69,10 +74,12 @@ export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
     debounceMs: o.debounceMs,
     backoffMs: o.backoffMs,
     transport: o.transport,
+    draftDebounceMs: o.draftDebounceMs,
   });
   data.bodyRequester = (loc) => void engine.fetchBodies(loc.mailbox, [loc.uid]).catch(() => {});
   data.replayRequester = () => engine.replaySoon();
   data.outboxRequester = () => engine.outboxSoon();
+  data.draftsRequester = () => engine.draftsSoon();
   await engine.start();
   return {
     ...coreApiOf(data),

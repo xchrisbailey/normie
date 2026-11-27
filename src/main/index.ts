@@ -396,8 +396,30 @@ async function smokeKeys(w: BrowserWindow) {
   )) as { to: string; subject: string; body: string; focused: boolean } | null;
   await press('Escape');
   const reply = !!replyFields && /@/.test(replyFields.to) && replyFields.subject.startsWith('Re: ') && /^\n\nOn .* wrote:\n> /.test(replyFields.body) && replyFields.focused;
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply };
+  // A draft: type, Esc keeps it, Cmd-K "draft" reopens it; Cmd-Shift-Backspace discards it.
+  await press('c');
+  await new Promise((r) => setTimeout(r, 300));
+  await typeText('grace@example.com');
+  await new Promise((r) => setTimeout(r, 1200));
+  await press('Escape');
+  await press('K', 1, ['meta']);
+  await new Promise((r) => setTimeout(r, 300));
+  await typeText('draft');
+  const draftListed = (await w.webContents.executeJavaScript(`[...document.querySelectorAll('.palette li span')].some((s) => s.textContent.startsWith('Draft:'))`)) as boolean;
+  await press('Return');
+  await new Promise((r) => setTimeout(r, 300));
+  const draftTo = (await w.webContents.executeJavaScript(`document.querySelector('.composer input')?.value ?? ''`)) as string;
+  w.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace', modifiers: ['meta', 'shift'] });
+  w.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace', modifiers: ['meta', 'shift'] });
+  await new Promise((r) => setTimeout(r, 300));
+  await press('K', 1, ['meta']);
+  await new Promise((r) => setTimeout(r, 300));
+  await typeText('draft');
+  const draftGone = !((await w.webContents.executeJavaScript(`[...document.querySelectorAll('.palette li span')].some((s) => s.textContent.startsWith('Draft:'))`)) as boolean);
+  await press('Escape');
+  const drafts = draftListed && draftTo === 'grace@example.com' && draftGone;
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts;
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, draftListed, draftTo, draftGone };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };

@@ -53,6 +53,8 @@ button.primary:disabled { opacity: 0.6; cursor: default; }
 .composer .body { flex: 1; margin: 0; padding: 16px 20px; resize: none; font: 14px/1.55 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; color: var(--text); background: transparent; border: 0; outline: none; }
 .composer footer { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; border-top: 1px solid var(--surface0); }
 .composer .hint { color: var(--overlay); font-size: 12px; }
+.composer .actions { display: flex; gap: 8px; }
+.composer .quiet { font: inherit; padding: 8px 12px; border-radius: 8px; border: 0; background: transparent; color: var(--overlay); cursor: pointer; }
 .composer .error { color: #f38ba8; font-size: 12px; }
 .dev-overlay { position: fixed; right: 12px; bottom: 12px; padding: 6px 10px; border-radius: 6px; background: var(--crust); color: var(--subtext); font: 12px ui-monospace, Menlo, monospace; pointer-events: none; }
 .dev-overlay b { color: #a6e3a1; }
