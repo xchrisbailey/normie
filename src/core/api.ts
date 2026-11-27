@@ -1,4 +1,5 @@
 // The contract between the renderer and the core. No runtime dependencies, so the renderer can import it.
+import type { Original } from './reply';
 import type { OutgoingMessage, PendingStatus, SplitId, ThreadAction, ThreadMessage, ThreadRow } from './types';
 
 /** What the renderer can ask of the core. Every method is async because it crosses a MessagePort in the app. */
@@ -11,6 +12,8 @@ export interface CoreApi {
   send(message: OutgoingMessage): Promise<number>;
   /** Take a message back out of the Outbox (undo send, or after it failed). Null once it's on its way. */
   cancelSend(id: number): Promise<OutgoingMessage | null>;
+  /** What a reply or forward needs from a message (attachments only for a forward). */
+  original(messageId: number, withAttachments: boolean): Promise<Original | null>;
   /** One attachment's bytes. */
   attachment(messageId: number, index: number): Promise<{ filename: string; contentType: string; content: Uint8Array } | null>;
   /** Always load remote images from this sender. */
@@ -23,4 +26,4 @@ export interface CoreApi {
   pending(): Promise<PendingStatus>;
 }
 
-export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment', 'send', 'cancelSend'] as const satisfies readonly (keyof CoreApi)[];
+export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment', 'send', 'cancelSend', 'original'] as const satisfies readonly (keyof CoreApi)[];

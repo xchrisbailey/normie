@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { OutgoingMessage, ThreadAction, ThreadMessage, ThreadRow } from '../core/types';
 import type { ComposeStart, Identity } from './Composer';
+import { planReply, type ReplyKind } from '../core/reply';
 import { AccountBar, EmptyState, useAccounts } from './AccountBar';
 import type { CoreClient } from './core-client';
 import { DevOverlay } from './DevOverlay';
@@ -287,6 +288,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
     'palette.open': () => setPalette((p) => (p ? null : 'actions')),
     'compose.new': () => setCompose({ accountId: rows[clamp(selected)]?.accountId }),
     'send.undo': undoSend,
+    'compose.reply': () => replyTo('reply'),
+    'compose.replyAll': () => replyTo('replyAll'),
+    'compose.forward': () => replyTo('forward'),
     'thread.label': () => {
       if (rows[clamp(selected)]) setPalette('label');
     },
@@ -347,6 +351,18 @@ function Inbox({ core }: { core: CoreClient | null }) {
       setNote('Sending… ⌘Z to undo');
     });
   };
+
+  /** Reply, reply all or forward the latest message of the selected Thread. */
+  function replyTo(kind: ReplyKind) {
+    const row = rows[clamp(selected)];
+    if (!row || !core || !cache) return;
+    void cache.load(row.key).then(async (messages) => {
+      const last = messages.at(-1);
+      const original = last && (await core.original(last.id, kind === 'forward'));
+      if (!original) return setNote("Couldn't read that message.");
+      setCompose({ accountId: row.accountId, ...planReply(kind, original, identities.map((i) => i.from)) });
+    });
+  }
 
   /** Cmd-Z after sending: take the message back from the Outbox and reopen it. */
   function undoSend() {

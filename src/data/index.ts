@@ -3,7 +3,7 @@ import type { MessagePortMain } from 'electron';
 import { CORE_API_METHODS, coreApiOf } from '../core/core';
 import { DATA_PORT_METHODS, DataService } from '../core/data-service';
 import { mainPortChannel, serve } from '../core/rpc';
-import { attachmentContent, readMessage } from '../core/mime';
+import { attachmentContent, readMessage, readOriginal } from '../core/mime';
 import { Store } from '../core/store';
 
 type InitMessage =
@@ -34,7 +34,7 @@ function attach(kind: 'renderer-port' | 'sync-port', port: MessagePortMain) {
 process.parentPort.on('message', (e) => {
   const msg = e.data as InitMessage;
   if (msg.type === 'init') {
-    data = new DataService(new Store(msg.dbPath), { mime: { readMessage, attachmentContent } });
+    data = new DataService(new Store(msg.dbPath), { mime: { readMessage, attachmentContent, readOriginal } });
     // Main sends the Account list when it's the source of truth (not in fake or benchmark runs).
     if (msg.keepAccounts) {
       const removed = data.pruneAccounts(msg.keepAccounts);

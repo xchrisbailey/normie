@@ -101,19 +101,26 @@ export class FakeProvider implements MailProvider {
 
   // --- Scripting
 
+  /** Like Gmail: a reply joins the Thread of the message it answers. */
+  private threadOfMessage(messageId?: string): string | undefined {
+    if (!messageId) return undefined;
+    for (const b of this.boxes.values()) for (const m of b.messages.values()) if (m.header.messageId === messageId) return m.header.threadId;
+    return undefined;
+  }
+
   /** Deliver a message. Returns its UID. */
   deliver(input: FakeMessageInput, path = this.primaryPath): number {
     const b = this.box(path);
     const uid = b.uidNext++;
     b.modseq++;
-    const messageId = input.messageId ?? `<fake-${path}-${uid}@normie.test>`;
+    const messageId = input.messageId ?? (input.raw && /^Message-ID: (.*)$/im.exec(input.raw)?.[1]?.trim()) ?? `<fake-${path}-${uid}@normie.test>`;
     b.messages.set(uid, {
       modseq: b.modseq,
       text: input.text ?? `Body of ${input.subject}`,
       ...(input.raw ? { raw: input.raw } : {}),
       header: {
         uid, remoteId: this.caps.labels ? `gm-${uid}` : `${path}:${uid}`,
-        threadId: this.caps.serverThreads ? (input.threadId ?? `t-${uid}`) : undefined,
+        threadId: this.caps.serverThreads ? (input.threadId ?? this.threadOfMessage(input.inReplyTo ?? (input.raw && /^In-Reply-To: (.*)$/im.exec(input.raw)?.[1]?.trim())) ?? `t-${uid}`) : undefined,
         messageId, inReplyTo: input.inReplyTo, references: input.references,
         subject: input.subject, from: input.from ?? { name: 'Sender', address: 'sender@example.com' }, to: input.to ?? [{ address: 'me@example.com' }],
         date: input.date ?? Date.now(), flags: input.flags ?? [], labels: input.labels ?? (this.caps.labels ? ['\\Inbox'] : [path]),

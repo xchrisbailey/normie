@@ -1,6 +1,7 @@
 // The data side of the core: wraps the Store, answers the renderer's queries,
 // takes writes from sync, and emits change notices. Runs in the data process.
 import { newMessageId } from './ids';
+import type { Original } from './reply';
 import { Store, type BodyInput } from './store';
 import type {
   AccountId, AttachmentInfo, ChangeSet, OutboxItem, OutgoingMessage, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
@@ -9,6 +10,7 @@ import type {
 /** Reads stored messages (mailparser in the app). Injected, so the core can run without it. */
 export interface MimeReader {
   readMessage(raw: Uint8Array): Promise<{ html: string | null; attachments: AttachmentInfo[] }>;
+  readOriginal?(raw: Uint8Array, withAttachments: boolean): Promise<Original>;
   attachmentContent(raw: Uint8Array, index: number): Promise<{ filename: string; contentType: string; content: Uint8Array } | null>;
 }
 
@@ -114,6 +116,27 @@ export class DataService {
       }
     }
     return messages;
+  }
+
+  /** What a reply or forward needs from a message: its full headers when the body is stored, else what the store has. */
+  async original(messageId: number, withAttachments: boolean): Promise<Original | null> {
+    const s = this.store.messageSummary(messageId);
+    if (!s) return null;
+    const known: Original = { ...s, references: [], replyTo: [], cc: [], text: s.text ?? '', attachments: [] };
+    const raw = this.store.rawOf(messageId);
+    if (!raw?.length || !this.mime?.readOriginal) return known;
+    const read = await this.mime.readOriginal(raw, withAttachments).catch(() => null);
+    if (!read) return known;
+    // The raw message has the full headers; the store fills in anything it lacks.
+    return {
+      ...read,
+      ...(read.messageId ? {} : known.messageId ? { messageId: known.messageId } : {}),
+      ...(read.from ? {} : known.from ? { from: known.from } : {}),
+      to: read.to.length ? read.to : known.to,
+      subject: read.subject || known.subject,
+      date: read.date || known.date,
+      text: read.text || known.text,
+    };
   }
 
   /** One attachment's bytes, read from the stored message. */
