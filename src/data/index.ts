@@ -15,10 +15,18 @@ let data: DataService | undefined;
 const pendingPorts: { kind: 'renderer-port' | 'sync-port'; port: MessagePortMain }[] = [];
 let emitToSync: ((name: string, payload: unknown) => void) | undefined;
 
+/** After a few quiet seconds, SQLite gives its page cache back (#75). Every request pushes it back. */
+let quietTimer: ReturnType<typeof setTimeout> | undefined;
+const busy = () => {
+  clearTimeout(quietTimer);
+  quietTimer = setTimeout(() => data?.store.shrinkMemory(), 5000);
+};
+
 function attach(kind: 'renderer-port' | 'sync-port', port: MessagePortMain) {
   if (!data) return void pendingPorts.push({ kind, port });
   const ds = data;
   const ch = mainPortChannel(port);
+  port.on('message', busy);
   if (kind === 'renderer-port') {
     const api = coreApiOf(ds);
     const handlers = Object.fromEntries(CORE_API_METHODS.map((m) => [m, api[m]]));
@@ -32,6 +40,12 @@ function attach(kind: 'renderer-port' | 'sync-port', port: MessagePortMain) {
 }
 
 process.parentPort.on('message', (e) => {
+  if ((e.data as { type: string }).type === 'debug-memory') {
+    const m = process.memoryUsage();
+    const mb = (n: number) => Math.round(n / 1048576);
+    const sqlite = data ? (data.store.db.pragma('cache_size', { simple: true }) as number) : 0;
+    return void process.parentPort.postMessage({ type: 'debug-memory', rss: mb(m.rss), heapUsed: mb(m.heapUsed), heapTotal: mb(m.heapTotal), external: mb(m.external), arrayBuffers: mb(m.arrayBuffers), sqliteCache: sqlite });
+  }
   const msg = e.data as InitMessage;
   if (msg.type === 'init') {
     data = new DataService(new Store(msg.dbPath), { mime: { readMessage, attachmentContent, readOriginal } });
