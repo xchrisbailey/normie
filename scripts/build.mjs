@@ -1,5 +1,6 @@
 // Builds every process: esbuild for main, preload, data and sync; Vite for the renderer.
 import { build as esbuild } from 'esbuild';
+import { cpSync } from 'node:fs';
 import { build as vite } from 'vite';
 
 const node = {
@@ -19,4 +20,6 @@ await Promise.all([
   esbuild({ ...node, entryPoints: { 'bench/make-fixture': 'bench/make-fixture.ts' }, outdir: 'out', sourcemap: false }),
 ]);
 await vite({ configFile: 'vite.renderer.config.mts', logLevel: 'warn' });
+// Images main uses at runtime (the menu bar icon).
+cpSync('src/main/assets', 'out/main/assets', { recursive: true });
 console.log('built out/');
