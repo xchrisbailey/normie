@@ -14,6 +14,7 @@ A keyboard-first desktop mail client for Gmail, iCloud and any IMAP/SMTP server.
 | `npm run smoke` | Launch the app hidden with the fake provider and check the Inbox renders |
 | `npm run package` | The Mac app, a DMG and a zip in `dist/` (`npm run package:dir` for just the app) |
 | `npm run smoke:packaged` | The smoke check against the packaged app |
+| `npm run real-copy -- <probe.ts>` | Run a probe (see `scripts/probes/`) against a read-only copy of your real store |
 | `npm run bench` | The performance budgets against a 100,000-message fixture |
 | `GMAIL_USER=you@domain npm run test:live` | Read-only checks against real Gmail (browser sign-in). Add `GMAIL_LIVE_WRITE=1` to also mark one message Done and put it back, and `GMAIL_LIVE_SEND=1` to send one message to yourself |
 
