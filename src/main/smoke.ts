@@ -370,7 +370,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   const search =
     results.length > 0 && results.every((r) => /budget/i.test(r)) && /budget/i.test(resultOpened) && searchClosed && serverStatus === 'Server searched';
 
-  // Themes: Cmd-K "latte" turns the page and the reader frame light; "mocha" back to dark.
+  // Themes: Cmd-K "Theme: Normie Light" turns the page and the reader frame light; "Catppuccin Mocha" turns them dark.
   const paletteRun = async (text: string) => {
     await press('K', 1, ['meta']);
     await sleep(200);
@@ -381,19 +381,29 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   const bg = () => d.js<string>(`getComputedStyle(document.body).backgroundColor`);
   /** With NORMIE_SMOKE_SHOTS=<folder>, smoke saves screenshots to look at (a hidden window still renders). */
   const shot = d.shot;
-  await paletteRun('theme latte');
-  const latteBody = await bg();
-  await shot('latte-list');
+  await paletteRun('theme normie light');
+  const lightBody = await bg();
+  await shot('light-list');
   await press('Enter');
   await sleep(400);
-  await shot('latte-reader');
-  const latteFrame = await d.js<string>(
+  await shot('light-reader');
+  const lightFrame = await d.js<string>(
     `(() => { const d = document.querySelector('.mail-frame')?.contentDocument; return d ? getComputedStyle(d.body).backgroundColor : ''; })()`,
   );
   await press('Escape');
-  await paletteRun('theme mocha');
+  await paletteRun('theme catppuccin mocha');
   const mochaBody = await bg();
-  const themes = latteBody === 'rgb(239, 241, 245)' && latteFrame === 'rgb(239, 241, 245)' && mochaBody === 'rgb(30, 30, 46)';
+  // A VS Code theme dropped in the themes folder is in Cmd-K without a restart, and picking it applies it.
+  writeFileSync(
+    ctx.userFile('themes/smoke-paper.json'),
+    '{ "name": "Smoke Paper", // a comment, as VS Code allows\n "colors": { "editor.background": "#f4ecd8", "editor.foreground": "#3b2f1e", }, }',
+  );
+  await sleep(600);
+  await paletteRun('theme smoke paper');
+  const ownBody = await bg();
+  await paletteRun('theme catppuccin mocha');
+  const themes =
+    lightBody === 'rgb(251, 250, 255)' && lightFrame === 'rgb(251, 250, 255)' && mochaBody === 'rgb(30, 30, 46)' && ownBody === 'rgb(244, 236, 216)';
 
   // ? lists the keys (Snooze among them); Esc closes it.
   await press('?');
@@ -467,6 +477,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
     reminder,
     search,
     themes,
+    themeColors: { lightBody, lightFrame, mochaBody, ownBody },
     keyHelp,
   };
 }

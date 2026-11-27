@@ -1,4 +1,5 @@
 import type { ThreadRow } from '../core/types';
+import type { ActiveTheme, ThemeChoice, ThemeList } from '../core/vscode-theme';
 
 export {};
 
@@ -32,7 +33,13 @@ declare global {
       onMenuAction(fn: (ids: Array<string>) => void): () => void;
       notify(n: { key: string; title: string; body: string }): void;
       setInboxCount(n: number): void;
-      setTheme(t: 'mocha' | 'latte' | 'system'): void;
+      themes: {
+        current(legacy: string | null): ActiveTheme;
+        list(): Promise<ThemeList>;
+        choose(choice: ThemeChoice): Promise<ActiveTheme>;
+        onChanged(fn: (t: ActiveTheme) => void): () => void;
+        onListChanged(fn: (l: ThemeList) => void): () => void;
+      };
       toggleLoginItem(): Promise<{ on: boolean; packaged: boolean }>;
       onOpenThread(fn: (key: string) => void): () => void;
       openLink(url: string): void;

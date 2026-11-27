@@ -20,8 +20,8 @@ import { SyncBadge } from './SyncBadge';
 import { ThreadCache } from './thread-cache';
 import { toNotify } from './notify';
 import { KeyHelp } from './KeyHelp';
-import { applyTheme, currentTheme } from './theme';
-import type { Theme } from './theme';
+import { chooseTheme, useTheme, useThemes } from './theme';
+import { DEFAULT_CHOICE } from '../core/vscode-theme';
 import { WhenPicker } from './WhenPicker';
 import { describeWhen } from '../core/when';
 import { splitCounts, splitsFrom } from './splits';
@@ -64,6 +64,7 @@ const DRAFT_ITEM = 'draft:';
 const ACCOUNT_COLORS = ['blue', 'green', 'peach', 'pink', 'teal', 'yellow', 'mauve', 'maroon', 'sapphire'].map((c) => `var(--${c})`);
 const SNIPPET_ITEM = 'snippet:';
 const SCHEDULED_ITEM = 'scheduled:';
+const THEME_ITEM = 'theme:';
 
 /** Each Account's Labels, fetched once and again whenever the core says they changed. */
 function useLabels(core: CoreClient | null) {
@@ -138,7 +139,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const reported = useRef(false);
   const [overlay, setOverlay] = useState(false);
   const [keyHelp, setKeyHelp] = useState(false);
-  const [theme, setThemeState] = useState<Theme>(currentTheme);
+  const theme = useTheme();
+  const themeList = useThemes();
+  const themeProblems = theme.problem ? [theme.problem, ...themeList.problems] : themeList.problems;
   /** The open palette: every action, or Labels for the selected Thread. */
   const [palette, setPalette] = useState<null | 'actions' | 'label'>(null);
   /** The time picker, and what it's for. */
@@ -155,11 +158,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
     clearTimeout(noteTimer.current);
     noteTimer.current = setTimeout(() => setNoteState(null), 8000);
   }, []);
-  const setTheme = (t: Theme) => {
-    applyTheme(t);
-    setThemeState(t);
-    setNote(t === 'system' ? 'Theme follows the system' : `Theme: ${t === 'latte' ? 'Latte' : 'Mocha'}`);
-  };
+  const pickTheme = (id: string) => void chooseTheme({ mode: 'fixed', id }).then((t) => setNote(`Theme: ${t.theme.name}`));
+  // Following the system keeps the light and dark pair already chosen, or Normie's own.
+  const followSystem = () => void chooseTheme(theme.choice.mode === 'system' ? theme.choice : DEFAULT_CHOICE).then(() => setNote('Theme follows the system'));
   /** Messages whose remote images the user loaded this session. */
   const [imagesAllowed, setImagesAllowed] = useState<ReadonlySet<number>>(new Set());
   const frame = useRef<FrameHandle | null>(null);
@@ -479,9 +480,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
       requestAnimationFrame(() => searchInput.current?.focus());
     },
     'search.close': () => closeSearch(),
-    'theme.mocha': () => setTheme('mocha'),
-    'theme.latte': () => setTheme('latte'),
-    'theme.system': () => setTheme('system'),
+    'theme.system': () => followSystem(),
     'thread.snooze': () => {
       if (rows[clamp(selected)]) {
         setPicker('snooze');
@@ -786,7 +785,21 @@ function Inbox({ core }: { core: CoreClient | null }) {
       }
       return item;
     });
-    return [...actionItems(keymap.actions, context, (id) => id !== 'palette.open'), ...scheduledItems, ...draftItems, ...(rows.length ? labelItems : [])];
+    const on = theme.choice.mode === 'fixed' ? theme.theme.id : undefined;
+    const themeItems = themeList.themes.map((t) => {
+      const item: PaletteItem = { id: THEME_ITEM + t.id, name: `Theme: ${t.name}`, keywords: `theme appearance colors ${t.type}` };
+      if (t.id === on) {
+        item.hint = 'current';
+      }
+      return item;
+    });
+    return [
+      ...actionItems(keymap.actions, context, (id) => id !== 'palette.open'),
+      ...themeItems,
+      ...scheduledItems,
+      ...draftItems,
+      ...(rows.length ? labelItems : []),
+    ];
   };
 
   useEffect(() => {
@@ -894,6 +907,11 @@ function Inbox({ core }: { core: CoreClient | null }) {
             snippets.json: {snippetProblems.length} {snippetProblems.length === 1 ? 'problem' : 'problems'}
           </span>
         )}
+        {themeProblems.length > 0 && (
+          <span className="keymap-note" title={themeProblems.join('\n')}>
+            themes: {themeProblems.length} {themeProblems.length === 1 ? 'problem' : 'problems'}
+          </span>
+        )}
         {keymap.problems.length > 0 && (
           <span className="keymap-note" title={keymap.problems.join('\n')}>
             keymap.json: {keymap.problems.length} {keymap.problems.length === 1 ? 'problem' : 'problems'}
@@ -937,7 +955,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
               onLoadImages={() => loadImages(false)}
               onAlwaysLoadImages={() => loadImages(true)}
               onAttachment={onAttachment}
-              theme={theme}
+              theme={theme.theme.id}
             />
           )}
         </div>
@@ -965,6 +983,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
               applyLabel(item.id.slice(LABEL_ITEM.length));
             } else if (item.id.startsWith(DRAFT_ITEM)) {
               openDraft(Number(item.id.slice(DRAFT_ITEM.length)));
+            } else if (item.id.startsWith(THEME_ITEM)) {
+              pickTheme(item.id.slice(THEME_ITEM.length));
             } else if (item.id.startsWith(SCHEDULED_ITEM)) {
               openScheduled(Number(item.id.slice(SCHEDULED_ITEM.length)));
             } else if (item.id.startsWith(SNIPPET_ITEM)) {

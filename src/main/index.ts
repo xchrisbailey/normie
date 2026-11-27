@@ -1,12 +1,15 @@
 // The main process: windows, process wiring and (later) sign-in and secrets.
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, Tray, MessageChannelMain, shell, utilityProcess } from 'electron';
 import type { MenuItemConstructorOptions, UtilityProcess } from 'electron';
-import { existsSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { types } from 'node:util';
 import { errorMessage, expected } from '../core/errors';
-import { parseJson } from '../core/json';
+import { isJsonObject, parseJson } from '../core/json';
+import type { JsonValue } from '../core/json';
+import { choiceFrom, legacyChoice } from '../core/vscode-theme';
+import type { ResolvedTheme } from '../core/vscode-theme';
 import { log, logError } from '../core/log';
 import { sleep } from '../core/sleep';
 import { mainPortChannel, serve } from '../core/rpc';
@@ -24,7 +27,9 @@ import { mergeKeymap } from '../renderer/commands/keymap';
 import { menuSections } from '../renderer/commands/menu';
 import { runBench } from './bench';
 import { runSmoke } from './smoke';
+import { ThemeStore } from './themes';
 import { ACTIONS } from '../renderer/commands/registry';
+import { themeTokens } from '../renderer/theme-tokens';
 
 const smoke = process.env.NORMIE_SMOKE === '1';
 const bench = process.env.NORMIE_BENCH === '1';
@@ -191,7 +196,7 @@ function createWindow() {
     width: 1280,
     height: 820,
     show: false,
-    backgroundColor: '#1e1e2e',
+    backgroundColor: groundOf(activeTheme().theme),
     title: 'Normie',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
@@ -304,19 +309,30 @@ function updateTray() {
 
 // --- Start at login: on by default for the installed app (never for a dev build, which would register Electron).
 
-type Settings = { openAtLogin?: boolean };
+type Settings = { openAtLogin?: boolean; theme?: JsonValue };
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 function readSettings(): Settings {
   try {
     const v = parseJson(readFileSync(settingsPath(), 'utf8'));
-    return typeof v === 'object' && v !== null && !Array.isArray(v) && typeof v.openAtLogin === 'boolean' ? { openAtLogin: v.openAtLogin } : {};
+    if (!isJsonObject(v)) {
+      return {};
+    }
+    const out: Settings = {};
+    if (typeof v.openAtLogin === 'boolean') {
+      out.openAtLogin = v.openAtLogin;
+    }
+    if (v.theme !== undefined) {
+      out.theme = v.theme;
+    }
+    return out;
   } catch {
     return {};
   }
 }
+const writeSettings = (change: Settings) => writeFileSync(settingsPath(), JSON.stringify({ ...readSettings(), ...change }));
 const loginItem = () => readSettings().openAtLogin ?? true;
 function setLoginItem(on: boolean) {
-  writeFileSync(settingsPath(), JSON.stringify({ ...readSettings(), openAtLogin: on }));
+  writeSettings({ openAtLogin: on });
   if (app.isPackaged) {
     app.setLoginItemSettings({ openAtLogin: on });
   }
@@ -326,13 +342,75 @@ ipcMain.handle('login-item:toggle', () => {
   setLoginItem(!loginItem());
   return { on: loginItem(), packaged: app.isPackaged };
 });
-ipcMain.on('theme', (_e, t: unknown) => {
-  if (t !== 'mocha' && t !== 'latte' && t !== 'system') {
-    return;
+// --- Themes: VS Code color themes, bundled and in themes/ in the data folder. The choice lives in settings.json.
+
+const themes = new ThemeStore(path.join(__dirname, 'assets', 'themes'), path.join(app.getPath('userData'), 'themes'));
+/** Whether a choice was ever saved; until then a theme picked before themes were files is carried over. */
+const savedChoice = () => readSettings().theme !== undefined;
+const themeChoice = () => choiceFrom(readSettings().theme);
+
+/** The theme to show now, with main's own parts (menus, the window behind the page) set to match. */
+function activeTheme() {
+  const choice = themeChoice();
+  if (choice.mode === 'system') {
+    nativeTheme.themeSource = 'system';
   }
-  nativeTheme.themeSource = t === 'mocha' ? 'dark' : t === 'latte' ? 'light' : 'system';
-  win?.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1e1e2e' : '#eff1f5');
+  const { theme, problem } = themes.active(choice, nativeTheme.shouldUseDarkColors);
+  if (choice.mode === 'fixed') {
+    nativeTheme.themeSource = theme.type;
+  }
+  win?.setBackgroundColor(groundOf(theme));
+  return { theme, choice, problem };
+}
+/** The page's background for a theme, opaque, as the window shows it before the page paints. */
+const groundOf = (t: ResolvedTheme) => themeTokens(t.colors, t.type)['--ground'];
+const sendTheme = () => win?.webContents.send('theme:changed', activeTheme());
+
+// Read synchronously before the first frame, so launch never flashes the wrong colours. `legacy` is the choice the
+// window kept in its own storage before themes were files (mocha, latte, system).
+ipcMain.on('theme:current', (e, legacy: unknown) => {
+  const carried = legacyChoice(legacy);
+  if (!savedChoice() && carried) {
+    writeSettings({ theme: carried });
+  }
+  e.returnValue = activeTheme();
 });
+ipcMain.handle('themes:list', () => themes.list());
+ipcMain.handle('theme:choose', (_e, v: unknown) => {
+  const choice = choiceFrom(v);
+  const ids = choice.mode === 'fixed' ? [choice.id] : [choice.light, choice.dark];
+  if (!ids.every((id) => themes.has(id))) {
+    return activeTheme();
+  }
+  writeSettings({ theme: choice.mode === 'fixed' ? { mode: 'fixed', id: choice.id } : { mode: 'system', light: choice.light, dark: choice.dark } });
+  const now = activeTheme();
+  win?.webContents.send('theme:changed', now);
+  return now;
+});
+nativeTheme.on('updated', () => {
+  if (themeChoice().mode === 'system') {
+    sendTheme();
+  }
+});
+
+/** The user's themes folder: a change there updates the list, and the theme on screen if it's one of them. */
+function watchThemes() {
+  const dir = path.join(app.getPath('userData'), 'themes');
+  mkdirSync(dir, { recursive: true });
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    watch(dir, () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        win?.webContents.send('themes:changed', themes.list());
+        sendTheme();
+      }, 100);
+    });
+  } catch (error) {
+    logError(`[main] can't watch the themes folder: ${errorMessage(error)}`);
+  }
+}
+
 ipcMain.on('inbox-count', (_e, n: unknown) => {
   if (typeof n !== 'number' || n === inboxCount) {
     return;
@@ -610,6 +688,7 @@ app.once('ready', () => {
   }
   buildTray();
   watchUserFiles();
+  watchThemes();
   buildMenu();
   loadSnapshot();
   initAccounts();

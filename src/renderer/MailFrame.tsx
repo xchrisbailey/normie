@@ -14,23 +14,23 @@ const csp = (remote: boolean) =>
   `default-src 'none'; style-src 'unsafe-inline'; img-src data:${remote ? ' https: http:' : ''}; font-src data:; media-src 'none'`;
 
 /** The frame's own stylesheet, in the app's current theme (its colours are read from the page). */
-const shellCss = (c: Record<'base' | 'text' | 'surface0' | 'surface1' | 'overlay', string>, dark: boolean) => `
+const shellCss = (c: Record<'ground' | 'fg' | 'line' | 'line2' | 'fg3', string>, dark: boolean) => `
   :root { color-scheme: ${dark ? 'dark' : 'light'}; }
-  html, body { margin: 0; background: ${c.base}; color: ${c.text}; font: 14px/1.55 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+  html, body { margin: 0; background: ${c.ground}; color: ${c.fg}; font: 14px/1.55 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
   body { padding: 0 28px 40px; }
-  article { border-top: 1px solid ${c.surface0}; padding: 14px 0; }
+  article { border-top: 1px solid ${c.line}; padding: 14px 0; }
   article:first-child { border-top: 0; }
   header { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin-bottom: 10px; }
   .from { font-weight: 600; }
-  time { color: ${c.overlay}; font-variant-numeric: tabular-nums; }
-  .to { grid-column: 1 / -1; color: ${c.overlay}; font-size: 12px; }
+  time { color: ${c.fg3}; font-variant-numeric: tabular-nums; }
+  .to { grid-column: 1 / -1; color: ${c.fg3}; font-size: 12px; }
   pre { margin: 0; white-space: pre-wrap; word-wrap: break-word; font: inherit; }
-  .pending { color: ${c.overlay}; font-style: italic; }
-  .html { background: #fff; color: #111; border-radius: 8px; padding: 16px; overflow-x: auto; ${dark ? '' : `box-shadow: 0 0 0 1px ${c.surface0};`} }
+  .pending { color: ${c.fg3}; font-style: italic; }
+  .html { background: #fff; color: #111; border-radius: 8px; padding: 16px; overflow-x: auto; ${dark ? '' : `box-shadow: 0 0 0 1px ${c.line};`} }
   .attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-  .attachment { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-radius: 6px; background: ${c.surface0}; font-size: 12px; }
-  .attachment .size { color: ${c.overlay}; }
-  .attachment button { font: inherit; color: ${c.text}; background: ${c.surface1}; border: 0; border-radius: 4px; padding: 2px 8px; cursor: pointer; }
+  .attachment { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-radius: 6px; background: ${c.line}; font-size: 12px; }
+  .attachment .size { color: ${c.fg3}; }
+  .attachment button { font: inherit; color: ${c.fg}; background: ${c.line2}; border: 0; border-radius: 4px; padding: 2px 8px; cursor: pointer; }
 `;
 
 /** The page's theme colours right now. */
@@ -38,7 +38,7 @@ function themeColors() {
   const css = getComputedStyle(document.documentElement);
   const v = (name: string) => css.getPropertyValue(`--${name}`).trim();
   return {
-    colors: { base: v('base'), text: v('text'), surface0: v('surface0'), surface1: v('surface1'), overlay: v('overlay') },
+    colors: { ground: v('ground'), fg: v('fg'), line: v('line'), line2: v('line2'), fg3: v('fg3') },
     dark: css.colorScheme !== 'light',
   };
 }
@@ -219,7 +219,7 @@ export const MailFrame = memo(function MailFrame({
 
   return (
     <iframe
-      key={`${remote ? 'remote' : 'blocked'}:${theme}:${colors.colors.base}`}
+      key={`${remote ? 'remote' : 'blocked'}:${theme}:${Object.values(colors.colors).join()}`}
       ref={frame}
       className="mail-frame"
       title="Message"
