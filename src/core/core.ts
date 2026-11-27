@@ -21,6 +21,7 @@ export function coreApiOf(ds: DataService): CoreApi {
     attachment: (messageId, index) => ds.attachment(messageId, index),
     send: async (m, draftId, sendAt) => ds.send(m, draftId, sendAt),
     scheduled: async () => ds.scheduled(),
+    search: async (q, limit) => ds.search(q, limit),
     saveDraft: async (id, content) => ds.saveDraft(id, content),
     deleteDraft: async (id) => ds.deleteDraft(id),
     drafts: async () => ds.drafts(),

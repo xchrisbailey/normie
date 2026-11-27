@@ -19,6 +19,8 @@ export const ACTIONS = [
   { id: 'compose.replyAll', name: 'Reply All', keys: ['Shift-R'], contexts: ['list', 'reader'] },
   { id: 'compose.forward', name: 'Forward', keys: ['f'], contexts: ['list', 'reader'] },
   { id: 'send.undo', name: 'Undo Send', keys: ['Cmd-Z'], contexts: ['list', 'reader'] },
+  { id: 'search.open', name: 'Search', keys: ['/'], contexts: ['list', 'reader'] },
+  { id: 'search.close', name: 'Close Search', keys: ['Escape'], contexts: ['list'] },
   { id: 'thread.done', name: 'Mark Done', keys: ['e'], contexts: ['list', 'reader'] },
   { id: 'thread.star', name: 'Star or Unstar', keys: ['s'], contexts: ['list', 'reader'] },
   { id: 'thread.delete', name: 'Delete', keys: ['#'], contexts: ['list', 'reader'] },

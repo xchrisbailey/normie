@@ -8,6 +8,8 @@ export const BUDGETS = {
   triageMs: 16,
   /** Open the command palette (Cmd-K): keydown to the frame that shows it. Checked at p95. */
   paletteMs: 16,
+  /** Local search over the 100,000-message fixture: query to Thread rows, in the data process. Checked at p95. */
+  searchMs: 100,
   /** Launch to a usable inbox (first frame with rows) on Apple silicon, with a store and snapshot from before. Median of 5. */
   coldStartMs: 1500,
   /** Open a cached (prefetched) Thread: keydown to the frame that shows it. Checked at p95. */

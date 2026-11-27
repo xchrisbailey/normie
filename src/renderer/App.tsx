@@ -82,7 +82,14 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const [splitId, setSplitId] = useState('inbox');
   const split = splits.find((s) => s.id === splitId) ?? splits[0]!;
   const filterOf = useCallback((list: ThreadRow[]) => list.filter(split.match), [split]);
-  const rows = useMemo(() => filterOf(allRows), [allRows, filterOf]);
+  const withOverridesRef = useRef<(r: ThreadRow[]) => ThreadRow[]>((r) => r);
+  /** Search: the query and its results; while it's open, the list shows the results instead of a Split. */
+  const [search, setSearch] = useState<{ query: string; results: ThreadRow[] } | null>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const searchRef = useRef(search);
+  searchRef.current = search;
+  // Overrides (triage) lay over search results too; recomputed whenever the rows change.
+  const rows = useMemo(() => (search ? withOverridesRef.current(search.results) : filterOf(allRows)), [allRows, filterOf, search]);
   const counts = useMemo(() => splitCounts(splits, allRows), [splits, allRows]);
   // The menu bar shows the Inbox count.
   useEffect(() => window.normie.setInboxCount(counts.get('inbox') ?? 0), [counts]);
@@ -141,6 +148,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
     }
     return out;
   };
+  withOverridesRef.current = withOverrides;
   /** Recent triage actions, newest last, for z. */
   const undoStack = useRef<{ key: string; prev: ThreadRow; ids: Promise<number[]>; after?: ThreadAction }[]>([]);
   const loadRows = useRef<() => void>(() => {});
@@ -248,7 +256,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
     overrides.current.set(row.key, change);
     const nextAll = withOverrides(allRows);
     setAllRows(nextAll);
-    const next = filterOf(nextAll);
+    const next = searchRef.current ? withOverrides(searchRef.current.results) : filterOf(nextAll);
     const removed = next.length < rows.length;
     if (removed) {
       const to = Math.min(i, next.length - 1);
@@ -291,7 +299,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
     inserts.current.set(entry.key, entry.prev);
     const nextAll = withOverrides(allRows);
     setAllRows(nextAll);
-    const next = filterOf(nextAll);
+    const next = searchRef.current ? withOverrides(searchRef.current.results) : filterOf(nextAll);
     const i = next.findIndex((r) => r.key === entry.key);
     if (i >= 0) {
       setSelected(i);
@@ -367,6 +375,12 @@ function Inbox({ core }: { core: CoreClient | null }) {
     'app.loginItem': () => {
       void window.normie.toggleLoginItem().then((r) => setNote(r.packaged ? `Start at login is ${r.on ? 'on' : 'off'}` : `Start at login is ${r.on ? 'on' : 'off'} (it applies to the installed app)`));
     },
+    'search.open': () => {
+      setOpen(null);
+      setSearch((s) => s ?? { query: '', results: [] });
+      requestAnimationFrame(() => searchInput.current?.focus());
+    },
+    'search.close': () => closeSearch(),
     'thread.snooze': () => {
       if (rows[clamp(selected)]) setPicker('snooze');
     },
@@ -505,6 +519,28 @@ function Inbox({ core }: { core: CoreClient | null }) {
     });
   }), [core, setNote]);
 
+  /** Run the search as the query changes (a short pause between keys first). */
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const onSearchInput = (query: string) => {
+    setSearch((s) => ({ query, results: s?.results ?? [] }));
+    clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => {
+      if (!core) return;
+      void core.search(query).then((results) => {
+        if (searchRef.current?.query !== query) return;
+        setSearch({ query, results });
+        setSelected(0);
+        selectedKey.current = undefined;
+      });
+    }, 60);
+  };
+  function closeSearch() {
+    clearTimeout(searchTimer.current);
+    setSearch(null);
+    setSelected(0);
+    selectedKey.current = undefined;
+  }
+
   /** Labels of the selected Thread's Account. */
   /** The selected Thread's Account's Labels, or folders to move to. */
   const rowLabels = (): LabelSet => labels.get(rows[clamp(selected)]?.accountId ?? '') ?? { moves: false, names: [] };
@@ -551,6 +587,29 @@ function Inbox({ core }: { core: CoreClient | null }) {
   return (
     <main className="app">
       <header className="split-bar">
+        {search ? (
+          <span className="search-bar">
+            <input
+              ref={searchInput}
+              value={search.query}
+              placeholder="Search: words, &quot;a phrase&quot;, from:, to:, subject:"
+              spellCheck={false}
+              onChange={(e) => onSearchInput(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter or ↓ moves to the results (then j, k, Enter, e…); Esc closes the search.
+                if (e.key === 'Enter' || e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                  setSelected(0);
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  closeSearch();
+                }
+              }}
+            />
+            <span className="count">{search.results.length}</span>
+          </span>
+        ) : (
         <nav className="splits" aria-label="Splits">
           {splits.map((s) => (
             <button key={s.id} className={s.id === split.id ? 'split active' : 'split'} onClick={() => openSplit(s.id)} tabIndex={-1}>
@@ -558,6 +617,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
             </button>
           ))}
         </nav>
+        )}
         <SyncBadge core={core} />
         {note && <span className="sync-note">{note}</span>}
         {splitProblems.length > 0 && (

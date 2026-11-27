@@ -10,6 +10,9 @@ html, body, #root { height: 100%; margin: 0; }
 body { background: var(--base); color: var(--text); overflow: hidden; -webkit-font-smoothing: antialiased; }
 .app { display: flex; flex-direction: column; height: 100%; }
 .split-bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--mantle); border-bottom: 1px solid var(--surface0); -webkit-app-region: drag; padding-left: 84px; }
+.search-bar { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; -webkit-app-region: no-drag; }
+.search-bar input { flex: 1; max-width: 520px; font: inherit; color: var(--text); background: var(--base); border: 1px solid var(--surface1); border-radius: 6px; padding: 4px 10px; outline: none; }
+.search-bar input:focus { border-color: var(--blue); }
 .splits { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; -webkit-app-region: no-drag; }
 .split { font: inherit; color: var(--subtext); font-weight: 500; background: none; border: 0; border-radius: 6px; padding: 3px 9px; cursor: pointer; white-space: nowrap; }
 .split .count { font-weight: 400; margin-left: 2px; }

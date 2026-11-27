@@ -346,6 +346,19 @@ async function runBench(w: BrowserWindow, info: { rows: number }) {
   const peak = measureMemory();
   await new Promise((r) => setTimeout(r, Number(process.env.NORMIE_BENCH_SETTLE_MS) || 8000));
   const memory = measureMemory();
+  // Search: words common and rare, operators and phrases, each run a few times.
+  const queries = ['review', 'the', 'budget 1234', 'from:ada', 'subject:"design review"', 'schedule numbers', 'thanks', 'offsite agenda', 'zzzz', 'to:me'];
+  const searchTimes = (await new Promise<unknown>((resolve) => {
+    const onMessage = (m: { type?: string; times?: unknown }) => {
+      if (m?.type !== 'debug-search') return;
+      dataProc!.off('message', onMessage);
+      resolve(m.times);
+    };
+    dataProc!.on('message', onMessage);
+    dataProc!.postMessage({ type: 'debug-search', queries: [...queries, ...queries, ...queries] });
+  })) as { q: string; n: number; ms: number }[];
+  const searchMs = searchTimes.map((t) => t.ms).sort((a, b) => a - b);
+  const searchPct = pctOf(searchMs);
   // Where the memory is, inside the data process and the renderer (for #75).
   const dataMem = await new Promise((resolve) => {
     dataProc!.once('message', (m) => resolve(m));
@@ -359,6 +372,7 @@ async function runBench(w: BrowserWindow, info: { rows: number }) {
     { budget: 'triageMs', value: donePct(95), limit: budgets.triageMs, detail: `Done: p50 ${donePct(50).toFixed(1)}, p95 ${donePct(95).toFixed(1)}, max ${(dones.at(-1) ?? 0).toFixed(1)} ms over ${dones.length} Threads` },
     { budget: 'switchMs', value: switchPct(95), limit: budgets.switchMs, detail: `Split: p50 ${switchPct(50).toFixed(1)}, p95 ${switchPct(95).toFixed(1)}, max ${(switches.at(-1) ?? 0).toFixed(1)} ms over ${switches.length} switches` },
     { budget: 'paletteMs', value: palettePct(95), limit: budgets.paletteMs, detail: `Cmd-K: p50 ${palettePct(50).toFixed(1)}, p95 ${palettePct(95).toFixed(1)}, max ${(palettes.at(-1) ?? 0).toFixed(1)} ms over ${palettes.length} opens` },
+    { budget: 'searchMs', value: searchPct(95), limit: budgets.searchMs, detail: `p50 ${searchPct(50).toFixed(1)}, p95 ${searchPct(95).toFixed(1)}, max ${(searchMs.at(-1) ?? 0).toFixed(1)} ms over ${searchMs.length} queries (slowest: ${searchTimes.sort((a, b) => b.ms - a.ms)[0]?.q})` },
     { budget: 'memoryMb', value: memory.mb, limit: budgets.memoryMb, detail: `settled; ${memory.detail}; peak while scrolling ${peak.mb.toFixed(0)}` },
   ];
   const pressesOk = ms.length === 300 && opens.length === 31 && dones.length === 50 && palettes.length === 40 && switches.length === 40;
@@ -668,13 +682,28 @@ async function smokeKeys(w: BrowserWindow) {
   await press('Escape');
   const reminder = reminderLine.includes('Back in the Inbox Tomorrow');
 
+  // Search: /, "budget", Enter → results; j/Enter opens one; Esc closes the reader, Esc again closes the search.
+  await press('/');
+  await new Promise((r) => setTimeout(r, 200));
+  for (const ch of 'budget') w.webContents.sendInputEvent({ type: 'char', keyCode: ch });
+  await new Promise((r) => setTimeout(r, 400));
+  await press('Return');
+  const results = (await w.webContents.executeJavaScript(`[...document.querySelectorAll('.row .subject')].map((s) => s.firstChild.textContent)`)) as string[];
+  await press('Return');
+  await new Promise((r) => setTimeout(r, 400));
+  const resultOpened = (await w.webContents.executeJavaScript(`document.querySelector('.reader h1')?.textContent ?? ''`)) as string;
+  await press('Escape');
+  await press('Escape');
+  const searchClosed = (await w.webContents.executeJavaScript(`!document.querySelector('.search-bar') && !!document.querySelector('.splits')`)) as boolean;
+  const search = results.length > 0 && results.every((r) => /budget/i.test(r)) && /budget/i.test(resultOpened) && searchClosed;
+
   // Closing the window keeps Normie running: the window hides, the page still answers, the menu bar item stays.
   w.close();
   await new Promise((r) => setTimeout(r, 200));
   const stillAnswers = (await w.webContents.executeJavaScript('1 + 1').catch(() => 0)) === 2;
   const keepsRunning = !w.isDestroyed() && !w.isVisible() && stillAnswers && !!tray && !tray.isDestroyed();
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick && snooze && keepsRunning && sendLater && reminder;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick, snooze, keepsRunning, sendLater, reminder };
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick && snooze && keepsRunning && sendLater && reminder && search;
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick, snooze, keepsRunning, sendLater, reminder, search, results: results.length };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };
