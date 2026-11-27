@@ -23,7 +23,7 @@ A keyboard-first desktop mail client for Gmail, iCloud and any IMAP/SMTP server.
 2. Open it from Applications. It's signed ad-hoc (no Apple Developer account), so if macOS says it can't check the developer (for example, after copying it from another Mac), right-click → Open once.
 3. Normie starts at login and lives in the menu bar when its window is closed; Quit (⌘Q, or the menu bar envelope) really quits. Start at login can be turned off from the menu bar or `Cmd-K`.
 
-To update: quit Normie, build again, and replace the app in Applications. Your mail, Accounts and settings stay in `~/Library/Application Support/normie/`.
+To update: quit Normie and run `npm run install-app` (it builds, replaces the app in Applications, and refuses while Normie is running). The menu bar menu and About Normie show which build you're running: its commit and when it was built. Your mail, Accounts and settings stay in `~/Library/Application Support/normie/`.
 
 The development build (`npm start`) and the installed app share that folder, so run one at a time. They may each keep their passwords under their own Keychain key: the first time the installed app runs, an Account can show "Sign in again"; signing in once fixes it.
 

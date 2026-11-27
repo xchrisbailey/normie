@@ -196,6 +196,11 @@ const openedAtLogin = process.platform === 'darwin' && app.isPackaged && app.get
 
 // --- The menu bar item: open Normie, the Inbox count, start at login, quit.
 
+/** Which build this is (set by scripts/build.mjs): commit and build time. */
+declare const __NORMIE_BUILD__: { commit: string; time: string } | undefined;
+const buildInfo = typeof __NORMIE_BUILD__ === 'undefined' ? { commit: 'dev', time: '' } : __NORMIE_BUILD__;
+const buildLabel = `${buildInfo.commit}${buildInfo.time ? `, built ${new Date(buildInfo.time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}` : ''}`;
+
 let tray: Tray | undefined;
 let inboxCount = 0;
 
@@ -226,6 +231,7 @@ function updateTray() {
     { type: 'separator' },
     { label: 'Start at Login', type: 'checkbox', checked: loginItem(), enabled: app.isPackaged, click: (i) => setLoginItem(i.checked) },
     { type: 'separator' },
+    { label: `Build ${buildLabel}`, enabled: false },
     { label: 'Quit Normie', accelerator: 'CommandOrControl+Q', click: () => app.quit() },
   ]));
 }
@@ -466,6 +472,7 @@ app.whenReady().then(() => {
   app.setAboutPanelOptions({
     applicationName: 'Normie',
     applicationVersion: app.getVersion(),
+    version: buildLabel,
     credits: 'A keyboard-first mail client for Gmail, iCloud and IMAP.',
   });
   if (app.isPackaged && !smoke) app.setLoginItemSettings({ openAtLogin: loginItem() });
