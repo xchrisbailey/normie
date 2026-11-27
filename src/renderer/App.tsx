@@ -24,7 +24,9 @@ import { chooseTheme, useTheme, useThemes } from './theme';
 import { DEFAULT_CHOICE } from '../core/vscode-theme';
 import { WhenPicker } from './WhenPicker';
 import { describeWhen } from '../core/when';
-import { splitCounts, splitsFrom } from './splits';
+import { splitSummaries, splitsFrom } from './splits';
+import { Header } from './Header';
+import { note, Toasts, useProblems } from './Toasts';
 import { ThreadList } from './ThreadList';
 import { useKeymap, useKeys, useSnippets, useSplitsFile } from './useKeys';
 import type { Handlers } from './useKeys';
@@ -127,9 +129,10 @@ function Inbox({ core }: { core: CoreClient | null }) {
   });
   // Overrides (triage) lay over search results too; recomputed whenever the rows change.
   const rows = useMemo(() => (search ? overrides.apply(search.results) : filterOf(allRows)), [allRows, filterOf, search, overrides]);
-  const counts = useMemo(() => splitCounts(splits, allRows), [splits, allRows]);
+  const summaries = useMemo(() => splitSummaries(splits, allRows), [splits, allRows]);
   // The menu bar shows the Inbox count.
-  useEffect(() => window.normie.setInboxCount(counts.get('inbox') ?? 0), [counts]);
+  const inboxCount = summaries.get('inbox')?.count ?? 0;
+  useEffect(() => window.normie.setInboxCount(inboxCount), [inboxCount]);
   const fromSnapshot = useRef(true);
   const [coreAnswered, setCoreAnswered] = useState(false);
   const painted = useRef(false);
@@ -142,6 +145,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const theme = useTheme();
   const themeList = useThemes();
   const themeProblems = theme.problem ? [theme.problem, ...themeList.problems] : themeList.problems;
+  useProblems('themes', themeProblems);
   /** The open palette: every action, or Labels for the selected Thread. */
   const [palette, setPalette] = useState<null | 'actions' | 'label'>(null);
   /** The time picker, and what it's for. */
@@ -150,14 +154,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const [drafts, setDrafts] = useState<Array<DraftSummary>>([]);
   /** Messages scheduled with Send Later, fetched when the palette opens. */
   const [scheduled, setScheduled] = useState<Array<ScheduledSummary>>([]);
-  /** A short message in the top bar, gone after a few seconds. */
-  const [note, setNoteState] = useState<string | null>(null);
-  const noteTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const setNote = useCallback((text: string) => {
-    setNoteState(text);
-    clearTimeout(noteTimer.current);
-    noteTimer.current = setTimeout(() => setNoteState(null), 8000);
-  }, []);
+  const setNote = note;
   const pickTheme = (id: string) => void chooseTheme({ mode: 'fixed', id }).then((t) => setNote(`Theme: ${t.theme.name}`));
   // Following the system keeps the light and dark pair already chosen, or Normie's own.
   const followSystem = () => void chooseTheme(theme.choice.mode === 'system' ? theme.choice : DEFAULT_CHOICE).then(() => setNote('Theme follows the system'));
@@ -511,6 +508,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
     },
   };
   const keymap = useKeymap();
+  useProblems('splits.json', splitProblems);
+  useProblems('snippets.json', snippetProblems);
+  useProblems('keymap.json', keymap.problems);
   useKeys(context, handlers, keymap.actions);
 
   /** Run a registry action by id, as the palette and the native menus do. Of several ids, the one that applies here. */
@@ -844,81 +844,65 @@ function Inbox({ core }: { core: CoreClient | null }) {
   }
 
   return (
-    <main className="app">
-      <header className="split-bar">
-        {search ? (
-          <span className="search-bar">
-            <input
-              ref={searchInput}
-              value={search.query}
-              placeholder='Search: words, "a phrase", from:, to:, subject:'
-              spellCheck={false}
-              onChange={(e) => onSearchInput(e.target.value)}
-              onKeyDown={(e) => {
-                // Enter or ↓ moves to the results (then j, k, Enter, e…); Esc closes the search.
-                if (e.key === 'Enter' || e.key === 'ArrowDown') {
-                  e.preventDefault();
-                  e.currentTarget.blur();
-                  setSelected(0);
-                } else if (e.key === 'Escape') {
-                  e.preventDefault();
-                  closeSearch();
-                }
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                  searchServer();
-                }
-              }}
-            />
-            <span className="count">{search.results.length}</span>
-            {search.server === 'searching' ? (
-              <span className="sync-note">Searching the server…</span>
-            ) : search.server === 'done' ? (
-              <span className="sync-note">Server searched</span>
-            ) : search.query.trim() ? (
-              <button
-                type="button"
-                className="quiet search-server"
-                onClick={() => searchServer()}
-                tabIndex={-1}
-                title="Also search mail that isn't stored on this Mac (⌘↩)"
-              >
-                Search the server
-              </button>
-            ) : null}
-          </span>
-        ) : (
-          <nav className="splits" aria-label="Splits">
-            {splits.map((s) => (
-              <button type="button" key={s.id} className={s.id === split.id ? 'split active' : 'split'} onClick={() => openSplit(s.id)} tabIndex={-1}>
-                {s.name} <span className="count">{s.id === split.id ? rows.length : counts.get(s.id)}</span>
-              </button>
-            ))}
-          </nav>
-        )}
-        <SyncBadge core={core} />
-        {note && <span className="sync-note">{note}</span>}
-        {splitProblems.length > 0 && (
-          <span className="keymap-note" title={splitProblems.join('\n')}>
-            splits.json: {splitProblems.length} {splitProblems.length === 1 ? 'problem' : 'problems'}
-          </span>
-        )}
-        {snippetProblems.length > 0 && (
-          <span className="keymap-note" title={snippetProblems.join('\n')}>
-            snippets.json: {snippetProblems.length} {snippetProblems.length === 1 ? 'problem' : 'problems'}
-          </span>
-        )}
-        {themeProblems.length > 0 && (
-          <span className="keymap-note" title={themeProblems.join('\n')}>
-            themes: {themeProblems.length} {themeProblems.length === 1 ? 'problem' : 'problems'}
-          </span>
-        )}
-        {keymap.problems.length > 0 && (
-          <span className="keymap-note" title={keymap.problems.join('\n')}>
-            keymap.json: {keymap.problems.length} {keymap.problems.length === 1 ? 'problem' : 'problems'}
-          </span>
-        )}
-        {accounts && <AccountBar accounts={accounts} />}
-      </header>
+    <main className={open || compose ? 'app wide' : 'app'}>
+      <Header
+        splits={splits}
+        openId={split.id}
+        openCount={rows.length}
+        summaries={summaries}
+        onOpenSplit={openSplit}
+        actions={keymap.actions}
+        sync={<SyncBadge core={core} />}
+        onInbox={() => {
+          closeSearch();
+          openSplit('inbox');
+        }}
+        onSearch={() => runAction(['search.open'])}
+        onCompose={() => runAction(['compose.new'])}
+        search={
+          search ? (
+            <span className="search-bar">
+              <input
+                ref={searchInput}
+                value={search.query}
+                placeholder='Search: words, "a phrase", from:, to:, subject:'
+                spellCheck={false}
+                onChange={(e) => onSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter or ↓ moves to the results (then j, k, Enter, e…); Esc closes the search.
+                  if (e.key === 'Enter' || e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                    setSelected(0);
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    closeSearch();
+                  }
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                    searchServer();
+                  }
+                }}
+              />
+              <span className="count">{search.results.length}</span>
+              {search.server === 'searching' ? (
+                <span className="sync-note">Searching the server…</span>
+              ) : search.server === 'done' ? (
+                <span className="sync-note">Server searched</span>
+              ) : search.query.trim() ? (
+                <button
+                  type="button"
+                  className="quiet search-server"
+                  onClick={() => searchServer()}
+                  tabIndex={-1}
+                  title="Also search mail that isn't stored on this Mac (⌘↩)"
+                >
+                  Search the server
+                </button>
+              ) : null}
+            </span>
+          ) : null
+        }
+      />
       {empty ? (
         <EmptyState />
       ) : (
@@ -960,6 +944,12 @@ function Inbox({ core }: { core: CoreClient | null }) {
           )}
         </div>
       )}
+      {accounts && (
+        <footer className="foot">
+          <AccountBar accounts={accounts} />
+        </footer>
+      )}
+      <Toasts />
       {overlay && <DevOverlay />}
       {keyHelp && <KeyHelp actions={keymap.actions} onClose={() => setKeyHelp(false)} />}
       {picker === 'snooze' && (

@@ -4,7 +4,7 @@ import { createCore } from '../src/core/core';
 import type { TestCore } from '../src/core/core';
 import { FakeProvider, fakeExtractText } from '../src/core/fake-provider';
 import type { ThreadRow } from '../src/core/types';
-import { builtInSplits, splitCounts, splitsFrom } from '../src/renderer/splits';
+import { builtInSplits, splitCounts, splitsFrom, splitSummaries } from '../src/renderer/splits';
 import { isListMail } from '../src/sync/imap-provider';
 
 const NOW = Date.UTC(2026, 10, 27, 12);
@@ -74,6 +74,15 @@ describe('Splits', () => {
     ]);
     expect(two.map((s) => s.name)).toEqual(['Inbox', 'Important', 'Other', 'Newsletters', 'VIP', 'Work', 'Home', 'Snoozed']);
     expect(splitCounts(two, rows).get('account:gmail:me@example.com')).toBe(4);
+  });
+
+  it('give each tab its unread mark and its newest Threads for the peek', async () => {
+    const c = await inbox();
+    const rows = await c.rows('inbox');
+    const sums = splitSummaries(builtInSplits([]), rows, 1);
+    const news = rows.filter((r) => r.tags?.newsletter);
+    expect(sums.get('newsletters')).toEqual({ count: news.length, unread: news.some((r) => r.unread), newest: news.slice(0, 1) });
+    expect(sums.get('vip')).toEqual({ count: 0, unread: false, newest: [] });
   });
 
   it('read list headers', () => {

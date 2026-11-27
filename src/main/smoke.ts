@@ -22,10 +22,14 @@ export interface SmokeContext {
 export async function runSmoke(w: BrowserWindow, info: { rows: number; view: 'list' | 'empty' }, ctx: SmokeContext, msSinceLaunch: number) {
   const reauth = info.view === 'list' ? await smokeReauth(w) : undefined;
   const form = info.view === 'list' ? await smokeAddAccountForm(w) : undefined;
+  const header = info.view === 'list' ? await smokeHeader(w) : undefined;
   const keys = info.view === 'list' ? await smokeKeys(w, ctx) : undefined;
   const empty = info.view === 'empty' ? await smokeEmpty(w) : undefined;
-  const ok = info.view === 'list' ? info.rows > 0 && !!keys?.ok && !!form?.ok && !!reauth?.ok : !ctx.noRealAccounts && info.view === 'empty' && !!empty?.ok;
-  return { ok, report: { ...info, msSinceLaunch, packaged: app.isPackaged, reauth, form, keys, empty } };
+  const ok =
+    info.view === 'list'
+      ? info.rows > 0 && !!keys?.ok && !!header?.ok && !!form?.ok && !!reauth?.ok
+      : !ctx.noRealAccounts && info.view === 'empty' && !!empty?.ok;
+  return { ok, report: { ...info, msSinceLaunch, packaged: app.isPackaged, reauth, form, keys, header, empty } };
 }
 
 /** "Sign in again" on an iCloud Account opens that Account's password form, filled in, not Google's sign-in. */
@@ -40,6 +44,82 @@ async function smokeReauth(w: BrowserWindow) {
   await w.webContents.executeJavaScript(`document.querySelector('.sheet .quiet').click()`);
   await sleep(100);
   return { ok: form?.title === 'Sign in to smoke@icloud.com again' && form.email === 'smoke@icloud.com' && form.focused === 'password', form };
+}
+
+/** The header's nth Split tab (from 0). */
+const nthTab = (i: number) => `.splits .split:nth-of-type(${i + 1})`;
+
+/**
+ * The header row, used with the mouse: a click opens a tab and the underline follows it; resting on a tab peeks at its
+ * newest Threads; the icons open Search; a narrow window puts the last tabs in More, and choosing one opens it.
+ */
+async function smokeHeader(w: BrowserWindow) {
+  const d = drive(w);
+  // Hover and the tab underline's animation need a window on screen: shown from here on, without taking focus.
+  w.showInactive();
+  await sleep(300);
+  const tabNames = () => d.js<Array<string>>(`[...document.querySelectorAll('.split .split-name')].map((s) => s.textContent)`);
+  const openName = () => d.js<string>(`document.querySelector('.split[data-selected] .split-name')?.textContent ?? ''`);
+  const names = await tabNames();
+  const target = names[1] ?? '';
+  const clicked = await d.clickAt(nthTab(1));
+  await sleep(300);
+  const listCount = await d.js<number>(`document.querySelectorAll('.row').length`);
+  const tabCount = await d.js<number>(`Number(document.querySelector('.split[data-selected] .count')?.textContent || 0)`);
+  const clickOpens = clicked.hit && (await openName()) === target && listCount > 0 === tabCount > 0;
+  // The underline sits under the open tab once it has moved there.
+  await sleep(500);
+  const inkUnder = await d.js<boolean>(`(() => {
+    const ink = document.querySelector('.split-ink')?.getBoundingClientRect();
+    const tab = document.querySelector('.split[data-selected]')?.getBoundingClientRect();
+    return !!ink && !!tab && ink.width > 0 && ink.left >= tab.left && ink.right <= tab.right + 0.5 && Math.abs(ink.bottom - tab.bottom) < 1;
+  })()`);
+  // Rest the pointer on the first tab (now closed): its peek shows its newest Threads.
+  const first = await d.js<{ x: number; y: number }>(
+    `(() => { const r = document.querySelector('${nthTab(0)}').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`,
+  );
+  w.webContents.sendInputEvent({ type: 'mouseMove', ...first });
+  await sleep(900);
+  await d.shot('header-peek');
+  const peekCards = await d.js<number>(`document.querySelectorAll('.peek[data-open] .peek-card').length`);
+  w.webContents.sendInputEvent({ type: 'mouseMove', x: first.x, y: first.y + 300 });
+  await sleep(300);
+  const peek = peekCards >= 1 && peekCards <= 3;
+  // The Search icon opens the search, typing in it; Esc closes it.
+  const searchIcon = await d.clickAt('.tool[aria-label="Search"]');
+  await sleep(200);
+  const searchFocused = await d.js<boolean>(`document.activeElement === document.querySelector('.search-bar input')`);
+  await d.press('Escape');
+  const icons = searchIcon.hit && searchFocused && !(await d.js<boolean>(`!!document.querySelector('.search-bar')`));
+  // A narrow window: the last tabs move into More, and choosing one from it opens that Split.
+  const [width, height] = w.getSize();
+  w.setSize(420, height ?? 820);
+  await sleep(500);
+  await d.shot('header-narrow');
+  const shownNarrow = await tabNames();
+  const moreClick = await d.clickAt('.split.more');
+  await sleep(300);
+  const items = await d.js<Array<string>>(`[...document.querySelectorAll('.menu .split-item .split-name')].map((s) => s.textContent)`);
+  const pick = items.at(-1) ?? '';
+  const itemClick = await d.clickAt('.menu .split-item:last-of-type');
+  await sleep(300);
+  const opened = await openName();
+  const stillFits = await d.js<boolean>(`document.querySelector('.top-row').scrollWidth <= document.querySelector('.top-row').clientWidth`);
+  w.setSize(width ?? 1280, height ?? 820);
+  await sleep(300);
+  const more =
+    shownNarrow.length < names.length &&
+    moreClick.hit &&
+    items.length > 0 &&
+    itemClick.hit &&
+    opened === pick &&
+    stillFits &&
+    (await tabNames()).length === names.length;
+  // Back to the Inbox, with the pointer off the header, for whatever runs next.
+  await d.clickAt('.tool[aria-label="Inbox"]');
+  w.webContents.sendInputEvent({ type: 'mouseMove', x: 4, y: 400 });
+  await sleep(300);
+  return { ok: clickOpens && inkUnder && peek && icons && more, names, clickOpens, inkUnder, peekCards, icons, shownNarrow, items, opened, more };
 }
 
 /** Smoke check with no Accounts: the iCloud form explains that the login must be the @icloud.com address. */
@@ -63,7 +143,7 @@ async function smokeAddAccountForm(w: BrowserWindow) {
     w.webContents.sendInputEvent({ type, x: Math.round(field.x), y: Math.round(field.y), button: 'left', clickCount: 1 });
   }
   const selectedBefore = await d.js<string>(`document.querySelector('.row.selected')?.dataset.key ?? ''`);
-  const countBefore = await d.js<number>(`Number(document.querySelector('.split.active .count')?.textContent)`);
+  const countBefore = await d.js<number>(`Number(document.querySelector('.split[data-selected] .count')?.textContent)`);
   // A menu command arriving while typing in the form (as a key equivalent would, when the page answers slowly) is ignored.
   await drive(w).menuAction('thread.done');
   // Real key presses (down, char, up), as fast as the events go: none may reach the app's keys.
@@ -74,7 +154,7 @@ async function smokeAddAccountForm(w: BrowserWindow) {
   const selectedAfter = await d.js<string>(`document.querySelector('.row.selected')?.dataset.key ?? ''`);
   await w.webContents.executeJavaScript(`document.querySelector('.sheet .quiet').click()`);
   await sleep(100);
-  const countAfter = await d.js<number>(`Number(document.querySelector('.split.active .count')?.textContent)`);
+  const countAfter = await d.js<number>(`Number(document.querySelector('.split[data-selected] .count')?.textContent)`);
   return {
     ok: onTop && typed === fast && selectedBefore === selectedAfter && countBefore === countAfter,
     onTop,
@@ -147,7 +227,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
     'risky';
   const reader = html && focusedFrame && readerClosed && riskyRefused;
   // Done takes the selected Thread out of the list.
-  const count = () => d.js<number>(`Number(document.querySelector('.split.active .count')?.textContent)`);
+  const count = () => d.js<number>(`Number(document.querySelector('.split[data-selected] .count')?.textContent)`);
   const before = await count();
   await press('e');
   const done = (await count()) === before - 1;
@@ -277,7 +357,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   await press('Escape');
   const snippet = expanded === 'Great work. Thanks so much!';
   // Tab steps through the Splits; Newsletters holds the fake newsletter; 0 goes back to the whole Inbox.
-  const activeSplit = () => d.js<string>(`document.querySelector('.split.active')?.firstChild?.textContent?.trim()`);
+  const activeSplit = () => d.js<string>(`document.querySelector('.split[data-selected] .split-name')?.textContent`);
   const tabs: Array<string> = [];
   for (let i = 0; i < 4; i++) {
     await press('Tab');
@@ -288,7 +368,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   // splits.json reorders, renames and hides tabs without a restart.
   writeFileSync(ctx.userFile('splits.json'), JSON.stringify([{ id: 'newsletters', name: 'Reading' }, { id: 'other' }]));
   await sleep(600);
-  const ownTabs = await d.js<string>(`[...document.querySelectorAll('.split')].map((s) => s.firstChild.textContent.trim()).join('|')`);
+  const ownTabs = await d.js<string>(`[...document.querySelectorAll('.split .split-name')].map((s) => s.textContent).join('|')`);
   const splits = builtIns && ownTabs === 'Inbox|Reading|Other|Snoozed';
   // Clicking a notification opens its Thread (main sends open-thread with the key).
   const target = await d.js<{ key: string; subject: string }>(
@@ -302,7 +382,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   // h, "tomorrow 9", Enter: the Thread leaves the Inbox for the Snoozed tab.
   const tabCount = (name: string) =>
     d.js<number>(
-      `Number([...document.querySelectorAll('.split')].find((s) => s.firstChild.textContent.trim() === '${name}')?.querySelector('.count')?.textContent)`,
+      `Number([...document.querySelectorAll('.split')].find((s) => s.querySelector('.split-name')?.textContent === '${name}')?.querySelector('.count')?.textContent)`,
     );
   const inboxBefore = await tabCount('Inbox');
   await press('h');
@@ -323,7 +403,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   await sleep(100);
   await press('Return');
   await sleep(300);
-  const scheduledNote = await d.js<string>(`document.querySelector('.sync-note')?.textContent ?? ''`);
+  const scheduledNote = await d.js<string>(`document.querySelector('.toast-title')?.textContent ?? ''`);
   await press('K', 1, ['meta']);
   await sleep(300);
   await typeText('scheduled');

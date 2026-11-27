@@ -1,6 +1,6 @@
 // The main process: windows, process wiring and (later) sign-in and secrets.
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, Tray, MessageChannelMain, shell, utilityProcess } from 'electron';
-import type { MenuItemConstructorOptions, UtilityProcess } from 'electron';
+import type { BrowserWindowConstructorOptions, MenuItemConstructorOptions, UtilityProcess } from 'electron';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -192,7 +192,7 @@ function connectRenderer(w: BrowserWindow) {
 }
 
 function createWindow() {
-  win = new BrowserWindow({
+  const options: BrowserWindowConstructorOptions = {
     width: 1280,
     height: 820,
     show: false,
@@ -206,7 +206,12 @@ function createWindow() {
       additionalArguments: noRealAccounts ? ['--normie-fake'] : [],
       backgroundThrottling: !bench,
     },
-  });
+  };
+  // The header row is the title bar: the page draws to the top, and the window drags by the row.
+  if (process.platform === 'darwin') {
+    options.titleBarStyle = 'hiddenInset';
+  }
+  win = new BrowserWindow(options);
   const w = win;
   w.webContents.on('did-finish-load', () => connectRenderer(w));
   // Closing the window keeps Normie running in the menu bar, so sync and timed work carry on. Quit really quits.
