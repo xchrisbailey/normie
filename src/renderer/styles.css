@@ -47,6 +47,8 @@ body { background: var(--base); color: var(--text); overflow: hidden; -webkit-fo
 .sheet input.port { flex: 0 0 64px; }
 .sheet select { flex: 0 0 100px; }
 .sheet input.bad { border-color: #f38ba8; }
+.sheet input[type=radio] { flex: 0 0 auto; }
+.sheet .add-row { align-self: flex-start; padding: 4px 0; }
 .sheet label.check { font-size: 12px; color: var(--subtext); }
 .sheet label.check input { flex: 0; }
 .sheet footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }

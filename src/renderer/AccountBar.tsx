@@ -1,6 +1,7 @@
 // Shows which Accounts are signed in, and a quiet way to sign in again when one has expired.
 import { useEffect, useState } from 'react';
 import { AddPasswordAccount, type PasswordProvider } from './AddAccount';
+import { IdentitiesEditor } from './Identities';
 
 export function useAccounts() {
   const [accounts, setAccounts] = useState<AccountRecord[] | null>(null);
@@ -35,6 +36,7 @@ export function AccountBar({ accounts }: { accounts: AccountRecord[] }) {
   /** The Account whose chip was clicked: offers Remove, with a confirmation. */
   const [selected, setSelected] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [editing, setEditing] = useState<AccountRecord | null>(null);
   return (
     <div className="accounts">
       {accounts.map((a) =>
@@ -53,7 +55,10 @@ export function AccountBar({ accounts }: { accounts: AccountRecord[] }) {
                     <button className="quiet" onClick={() => setConfirming(false)}>Cancel</button>
                   </>
                 ) : (
-                  <button className="quiet" onClick={() => setConfirming(true)}>Remove Account…</button>
+                  <>
+                    <button className="quiet" onClick={() => { setSelected(null); setEditing(a); }}>Identities…</button>
+                    <button className="quiet" onClick={() => setConfirming(true)}>Remove Account…</button>
+                  </>
                 )}
               </span>
             )}
@@ -80,6 +85,7 @@ export function AccountBar({ accounts }: { accounts: AccountRecord[] }) {
         </span>
       )}
       {form && <AddPasswordAccount provider={form} onDone={() => setForm(null)} />}
+      {editing && <IdentitiesEditor account={editing} onDone={() => setEditing(null)} />}
       {error && <span className="account-error">{error}</span>}
     </div>
   );

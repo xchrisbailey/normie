@@ -268,6 +268,10 @@ export class DataService {
     this.store.upsertAccount(id, kind, email);
   }
 
+  setIdentities(accountId: AccountId, addresses: string[]) {
+    this.store.setIdentities(accountId, addresses);
+  }
+
   setMailboxes(accountId: AccountId, boxes: { path: string; role?: MailboxRole }[]) {
     this.store.setMailboxes(accountId, boxes);
     this.emit({ type: 'labels-changed', accountId });
@@ -323,6 +327,7 @@ export class DataService {
 export interface DataPort {
   upsertAccount(id: AccountId, kind: string, email: string): Promise<void>;
   setMailboxes(accountId: AccountId, boxes: { path: string; role?: MailboxRole }[]): Promise<void>;
+  setIdentities(accountId: AccountId, addresses: string[]): Promise<void>;
   removeAccount(accountId: AccountId): Promise<void>;
   mailboxState(accountId: AccountId, mailbox: string): Promise<SyncState | null>;
   knownUids(accountId: AccountId, mailbox: string, since?: number): Promise<number[]>;
@@ -344,7 +349,7 @@ export interface DataPort {
 }
 
 export const DATA_PORT_METHODS = [
-  'upsertAccount', 'setMailboxes', 'removeAccount', 'mailboxState', 'knownUids', 'uidsNeedingBodies', 'applyChanges', 'putBodies',
+  'upsertAccount', 'setMailboxes', 'setIdentities', 'removeAccount', 'mailboxState', 'knownUids', 'uidsNeedingBodies', 'applyChanges', 'putBodies',
   'pendingChanges', 'nextSendAt', 'changeApplied', 'changeFailed', 'dueOutbox', 'nextOutboxAt', 'outboxSent', 'outboxFailed',
   'draftsToSync', 'draftSynced', 'draftDeletions', 'draftDeleted',
 ] as const satisfies readonly (keyof DataPort)[];

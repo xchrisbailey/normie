@@ -352,7 +352,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
   /** The Identities mail can go out from: one per Account for now (several come with milestone 4). */
   const identities: Identity[] = window.normie.fake
     ? [{ accountId: 'fake-1', from: { address: 'me@example.com' } }]
-    : (accounts ?? []).filter((a) => a.status === 'ok').map((a) => ({ accountId: a.id, from: { address: a.email } }));
+    : (accounts ?? []).filter((a) => a.status === 'ok').flatMap((a) =>
+      (a.identities?.length ? a.identities : [{ address: a.email }]).map((from) => ({ accountId: a.id, from })));
 
   const suggestContacts = useCallback((q: string) => (core ? core.contacts(q, 6) : Promise.resolve([])), [core]);
 

@@ -55,3 +55,13 @@ describe('forwarding', () => {
     expect('inReplyTo' in f).toBe(false);
   });
 });
+
+describe('Identities on reply', () => {
+  it('answers from the custom-domain Identity the message was sent to, not the login', () => {
+    const login = { address: 'me@icloud.com' };
+    const custom = { name: 'Chris', address: 'chris@srcery.example' };
+    const r = planReply('reply', original({ to: [{ address: 'CHRIS@srcery.example' }], cc: [] }), [login, custom], when);
+    expect(r.from).toEqual(custom);
+    expect(r.to).toEqual([ada]);
+  });
+});

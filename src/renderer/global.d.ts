@@ -6,6 +6,8 @@ declare global {
     kind: 'gmail' | 'imap';
     email: string;
     status: 'ok' | 'needs-sign-in';
+    /** From names and addresses this Account sends as, the default first. Absent: just the login address. */
+    identities?: { name?: string; address: string }[];
   }
 
   interface Window {
@@ -28,6 +30,7 @@ declare global {
         list(): Promise<AccountRecord[]>;
         addGmail(loginHint?: string): Promise<AccountRecord>;
         remove(id: string): Promise<void>;
+        setIdentities(id: string, identities: { name?: string; address: string }[]): Promise<{ ok: true } | { ok: false; error: string }>;
         addPassword(input: {
           provider: 'icloud' | 'imap'; email: string; user?: string; password: string; savesSent?: boolean;
           imap?: { host: string; port: number; security: 'tls' | 'starttls' | 'none' };
