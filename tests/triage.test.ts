@@ -198,3 +198,78 @@ describe('failed changes', () => {
     expect(p.edits.map((e) => e.uids)).toContainEqual([mailbox().invoice]);
   });
 });
+
+describe('undo', () => {
+  it('cancels a change that has not reached the server: it is never sent', async () => {
+    const { p } = mailbox();
+    const c = await start(p);
+    p.failNext = 1;
+    const ids = await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
+    await c.engine.idle();
+    await c.undo(ids);
+    expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
+    await c.engine.replay();
+    expect(p.edits).toEqual([]);
+    expect(await c.pending()).toEqual({ count: 0, waiting: 0 });
+  });
+
+  it('sends the inverse of a change the server already has', async () => {
+    const { p, lunch } = mailbox();
+    const c = await start(p);
+    const ids = await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
+    await c.engine.replay();
+    await c.undo(ids);
+    expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
+    await c.engine.replay();
+    expect(p.edits.map((e) => e.edit)).toEqual([{ removeLabels: ['\\Inbox'] }, { addLabels: ['\\Inbox'] }]);
+    expect(p.edits[1]!.uids).toEqual(lunch.inbox);
+    await c.engine.syncOnce();
+    expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
+  });
+
+  it('reverses a change that was on its way when it was undone', async () => {
+    const { p } = mailbox();
+    const c = await start(p);
+    p.failNext = 1;
+    const ids = await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
+    await c.engine.idle();
+    // The sync process has picked the change up and is sending it...
+    const [inFlight] = c.data.pendingChanges('acct-1');
+    await c.undo(ids);
+    expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
+    // ...and the server takes it.
+    await p.edit(inFlight!.mailbox, inFlight!.uids, inFlight!.edit);
+    c.data.changeApplied(inFlight!.id);
+    await c.engine.idle();
+    await c.engine.replay();
+    expect(p.edits.map((e) => e.edit)).toEqual([{ removeLabels: ['\\Inbox'] }, { addLabels: ['\\Inbox'] }]);
+    await c.engine.syncOnce();
+    expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
+  });
+
+  it('walks back through several actions', async () => {
+    const { p } = mailbox();
+    const c = await start(p);
+    const first = await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
+    const second = await c.act(await keyOf(c, 'Invoice'), { type: 'done' });
+    expect(await subjects(c)).toEqual([]);
+    await c.undo(second);
+    expect(await subjects(c)).toEqual(['Invoice']);
+    await c.undo(first);
+    expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
+    await c.engine.replay();
+    await c.engine.syncOnce();
+    expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
+  });
+
+  it('undoing twice does nothing more', async () => {
+    const { p } = mailbox();
+    const c = await start(p);
+    const ids = await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
+    await c.engine.replay();
+    await c.undo(ids);
+    await c.undo(ids);
+    await c.engine.replay();
+    expect(p.edits).toHaveLength(2);
+  });
+});

@@ -303,7 +303,11 @@ async function smokeKeys(w: BrowserWindow) {
   const before = await count();
   await press('e');
   const done = (await count()) === before - 1;
-  return { ok: start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done, start, afterJ, afterK, afterGG, reader, done };
+  // z brings it back.
+  await press('z');
+  const undone = (await count()) === before;
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone;
+  return { ok, start, afterJ, afterK, afterGG, reader, done, undone };
 }
 
 ipcMain.handle('accounts:list', () => accounts.list());

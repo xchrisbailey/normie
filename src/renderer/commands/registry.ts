@@ -11,6 +11,7 @@ export const ACTIONS = [
   { id: 'reader.prev', name: 'Previous Thread', keys: ['k', 'ArrowUp'], contexts: ['reader'] },
   { id: 'reader.close', name: 'Back to List', keys: ['Escape', 'u'], contexts: ['reader'] },
   { id: 'thread.done', name: 'Mark Done', keys: ['e'], contexts: ['list', 'reader'] },
+  { id: 'undo', name: 'Undo', keys: ['z'], contexts: ['list', 'reader'] },
   { id: 'go.inbox', name: 'Go to Inbox', keys: ['g i'], contexts: ['list', 'reader'] },
   { id: 'dev.overlay', name: 'Toggle Performance Overlay', keys: ['Cmd-Shift-D'], contexts: ['list', 'reader', 'composer'] },
 ] as const satisfies readonly ActionDef[];
