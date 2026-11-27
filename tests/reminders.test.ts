@@ -28,7 +28,7 @@ async function start() {
 
 async function sendWithReminder(c: TestCore, remindAt: number) {
   const id = await c.send({
-    accountId: 'acct-1', from: { address: 'me@example.com' }, to: [{ address: 'ada@example.com' }], cc: [], bcc: [], subject: 'Proposal', body: 'Thoughts?', remindAt,
+    accountId: 'gmail:me@example.com', from: { address: 'me@example.com' }, to: [{ address: 'ada@example.com' }], cc: [], bcc: [], subject: 'Proposal', body: 'Thoughts?', remindAt,
   });
   now += 5000;
   await c.engine.sendOutbox();
@@ -88,7 +88,7 @@ describe('Reminders', () => {
   it('go with the message when its send is undone', async () => {
     const { c } = await start();
     const id = await c.send({
-      accountId: 'acct-1', from: { address: 'me@example.com' }, to: [{ address: 'ada@example.com' }], cc: [], bcc: [], subject: 'Proposal', body: 'x', remindAt: now + HOUR,
+      accountId: 'gmail:me@example.com', from: { address: 'me@example.com' }, to: [{ address: 'ada@example.com' }], cc: [], bcc: [], subject: 'Proposal', body: 'x', remindAt: now + HOUR,
     });
     expect((await c.cancelSend(id))?.remindAt).toBe(now + HOUR);
     expect(c.data.store.nextReminderAt()).toBeUndefined();

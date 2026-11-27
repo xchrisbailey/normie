@@ -58,9 +58,9 @@ describe('Splits', () => {
     const c = await inbox();
     const rows = await c.rows('inbox');
     expect(Object.fromEntries(splitCounts(builtInSplits([]), rows))).toEqual({ inbox: 4, important: 1, other: 1, newsletters: 2, vip: 0, snoozed: 0 });
-    const two = builtInSplits([{ id: 'acct-1', name: 'Work' }, { id: 'icloud:me', name: 'Home' }]);
+    const two = builtInSplits([{ id: 'gmail:me@example.com', name: 'Work' }, { id: 'icloud:me', name: 'Home' }]);
     expect(two.map((s) => s.name)).toEqual(['Inbox', 'Important', 'Other', 'Newsletters', 'VIP', 'Work', 'Home', 'Snoozed']);
-    expect(splitCounts(two, rows).get('account:acct-1')).toBe(4);
+    expect(splitCounts(two, rows).get('account:gmail:me@example.com')).toBe(4);
   });
 
   it('read list headers', () => {

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Nothing reaches GitHub without the checks passing: typecheck, tests, process boundaries, smoke.
+# (npm run bench is the slower, occasional check: run it when a change touches the key path, memory or startup.)
+exec npm run verify

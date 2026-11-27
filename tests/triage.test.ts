@@ -51,7 +51,7 @@ describe('Done', () => {
     await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
     await c.engine.replay();
     expect(p.edits).toEqual([{ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeLabels: ['\\Inbox'] } }]);
-    expect(c.data.pendingChanges('acct-1')).toEqual([]);
+    expect(c.data.pendingChanges('gmail:me@example.com')).toEqual([]);
     // The next sync agrees with what's on screen.
     await c.engine.syncOnce();
     expect(await subjects(c)).toEqual(['Invoice']);
@@ -72,12 +72,12 @@ describe('Done', () => {
     await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
     await c.engine.idle();
     expect(p.edits).toEqual([]);
-    expect(c.data.pendingChanges('acct-1')).toMatchObject([{ uids: lunch.inbox, attempts: 0 }]);
+    expect(c.data.pendingChanges('gmail:me@example.com')).toMatchObject([{ uids: lunch.inbox, attempts: 0 }]);
     expect(await subjects(c)).toEqual(['Invoice']);
 
     await c.engine.syncOnce();
     expect(p.edits).toHaveLength(1);
-    expect(c.data.pendingChanges('acct-1')).toEqual([]);
+    expect(c.data.pendingChanges('gmail:me@example.com')).toEqual([]);
   });
 
   it("doesn't bring the Thread back when a sync lands before the change reaches the server", async () => {
@@ -91,7 +91,7 @@ describe('Done', () => {
     p.failNext = 1; // the replay at the start of the pass fails again; the header sync goes through
     await c.engine.syncOnce();
     expect(await subjects(c)).toEqual(['Invoice']);
-    expect(c.data.pendingChanges('acct-1')).toHaveLength(1);
+    expect(c.data.pendingChanges('gmail:me@example.com')).toHaveLength(1);
   });
 
   it('survives a restart and is sent on the next sync', async () => {
@@ -142,7 +142,7 @@ describe('failed changes', () => {
     const c = await fastCore(p);
     p.failNext = 3;
     await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
-    await waitFor(() => c.data.pendingChanges('acct-1').length === 0);
+    await waitFor(() => c.data.pendingChanges('gmail:me@example.com').length === 0);
     expect(p.edits).toHaveLength(1);
   });
 
@@ -171,7 +171,7 @@ describe('failed changes', () => {
     expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
     expect(c.notices).toContainEqual({ type: 'change-failed', subject: 'Lunch', error: 'fake: server refused the edit' });
     expect(c.notices).toContainEqual({ type: 'rows-changed', split: 'inbox' });
-    expect(c.data.pendingChanges('acct-1')).toEqual([]);
+    expect(c.data.pendingChanges('gmail:me@example.com')).toEqual([]);
     expect(p.edits).toEqual([]);
   });
 
@@ -182,7 +182,7 @@ describe('failed changes', () => {
     await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
     await waitFor(() => p.failNext === 0, 3000);
     await c.engine.idle();
-    await waitFor(() => c.data.pendingChanges('acct-1').length === 0);
+    await waitFor(() => c.data.pendingChanges('gmail:me@example.com').length === 0);
     expect(await subjects(c)).toEqual(['Invoice']);
     expect(c.notices.some((n) => n.type === 'change-failed')).toBe(false);
   });
@@ -234,7 +234,7 @@ describe('undo', () => {
     const ids = await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
     await c.engine.idle();
     // The sync process has picked the change up and is sending it...
-    const [inFlight] = c.data.pendingChanges('acct-1');
+    const [inFlight] = c.data.pendingChanges('gmail:me@example.com');
     await c.undo(ids);
     expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
     // ...and the server takes it.
@@ -425,7 +425,7 @@ describe('Labels', () => {
   it("lists the Account's own Labels, not system mailboxes", async () => {
     const { p } = labelled();
     const c = await start(p);
-    expect(await c.labels('acct-1')).toEqual({ moves: false, names: ['Receipts', 'Sent Messages', 'Work/Projects'] });
+    expect(await c.labels('gmail:me@example.com')).toEqual({ moves: false, names: ['Receipts', 'Sent Messages', 'Work/Projects'] });
   });
 
   it('adds a Label to every message in the Thread that lacks it, and keeps the Thread in the Inbox', async () => {
