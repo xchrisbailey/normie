@@ -282,6 +282,40 @@ export class ImapProvider implements MailProvider {
     return r.uid ? { uid: r.uid } : {};
   }
 
+  /**
+   * Move messages. ImapFlow uses MOVE where the server has it, else COPY + \\Deleted + EXPUNGE. New UIDs come from
+   * COPYUID (UIDPLUS); without it they're found by Message-ID in the destination.
+   */
+  async move(path: string, uids: number[], destination: string) {
+    if (!uids.length) return { uids: [] };
+    const ids = new Map<number, string>();
+    const moved = await this.withMailbox(path, async () => {
+      for await (const m of this.c.fetch(uids.join(','), { uid: true, envelope: true }, { uid: true })) if (m.envelope?.messageId) ids.set(m.uid, m.envelope.messageId);
+      const r = await this.c.messageMove(uids.join(','), destination, { uid: true });
+      if (!r) {
+        if (this.client?.usable) throw new ServerRejectedError(`server refused to move to ${destination}`);
+        throw new Error(`connection lost while moving to ${destination}`);
+      }
+      return r.uidMap;
+    }, false);
+    const out = uids.map((u) => moved?.get(u) ?? 0);
+    if (out.some((u) => !u) && ids.size) {
+      await this.withMailbox(destination, async () => {
+        for (let i = 0; i < uids.length; i++) {
+          const id = ids.get(uids[i]!);
+          if (out[i] || !id) continue;
+          const found = await this.c.search({ header: { 'message-id': id } }, { uid: true });
+          if (found && found.length) out[i] = Math.max(...found);
+        }
+      });
+    }
+    return { uids: out };
+  }
+
+  async createMailbox(path: string) {
+    await this.c.mailboxCreate(path);
+  }
+
   async remove(path: string, uids: number[]) {
     if (!uids.length) return;
     await this.withMailbox(path, async () => {

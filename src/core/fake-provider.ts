@@ -286,6 +286,42 @@ export class FakeProvider implements MailProvider {
     return { uid };
   }
 
+  /** Moves the core made, in order, and how (MOVE, or copy + delete + expunge without it). */
+  moves: { from: string; to: string; uids: number[]; method: 'move' | 'copy+delete' }[] = [];
+
+  async move(path: string, uids: number[], destination: string) {
+    this.check('move');
+    if (!this.connected) throw new Error('fake: not connected');
+    const from = this.box(path);
+    this.box(destination);
+    this.moves.push({ from: path, to: destination, uids: [...uids], method: this.caps.move ? 'move' : 'copy+delete' });
+    const out: number[] = [];
+    for (const uid of uids) {
+      const m = from.messages.get(uid);
+      if (!m) {
+        out.push(0);
+        continue;
+      }
+      const h = m.header;
+      out.push(this.deliver({
+        subject: h.subject, ...(h.from ? { from: h.from } : {}), to: h.to, date: h.date, flags: h.flags, ...(h.messageId ? { messageId: h.messageId } : {}),
+        ...(h.inReplyTo ? { inReplyTo: h.inReplyTo } : {}), ...(h.references ? { references: h.references } : {}),
+        ...(h.threadId ? { threadId: h.threadId } : {}), text: m.text, ...(m.raw ? { raw: m.raw } : {}),
+        labels: this.caps.labels ? h.labels : [destination],
+      }, destination));
+      this.expunge(uid, path);
+    }
+    return { uids: out };
+  }
+
+  async createMailbox(path: string) {
+    this.check('createMailbox');
+    if (this.boxes.has(path)) return;
+    // Like iCloud, a new folder named Archive or Trash is found by its name.
+    const role = /^archive$/i.test(path) ? 'archive' : /^(trash|deleted messages)$/i.test(path) ? 'trash' : undefined;
+    this.addMailbox(role ? { path, role } : { path });
+  }
+
   /** Messages deleted for good by the core, in order. */
   removed: { mailbox: string; uids: number[] }[] = [];
 

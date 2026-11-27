@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { DraftSummary, OutgoingMessage, ThreadAction, ThreadMessage, ThreadRow } from '../core/types';
+import type { DraftSummary, LabelSet, OutgoingMessage, ThreadAction, ThreadMessage, ThreadRow } from '../core/types';
 import type { ComposerHandle, ComposeStart, Identity } from './Composer';
 import { planReply, type ReplyKind } from '../core/reply';
 import { AccountBar, EmptyState, useAccounts } from './AccountBar';
@@ -39,7 +39,7 @@ const SNIPPET_ITEM = 'snippet:';
 
 /** Each Account's Labels, fetched once and again whenever the core says they changed. */
 function useLabels(core: CoreClient | null) {
-  const [labels, setLabels] = useState(new Map<string, string[]>());
+  const [labels, setLabels] = useState(new Map<string, LabelSet>());
   const accounts = useAccounts();
   useEffect(() => {
     if (!core) return;
@@ -400,10 +400,13 @@ function Inbox({ core }: { core: CoreClient | null }) {
   }), [core, setNote]);
 
   /** Labels of the selected Thread's Account. */
-  const rowLabels = () => labels.get(rows[clamp(selected)]?.accountId ?? '') ?? [];
-  const applyLabel = (label: string) => triage({ type: 'label', label, on: true }, (r) => r);
+  /** The selected Thread's Account's Labels, or folders to move to. */
+  const rowLabels = (): LabelSet => labels.get(rows[clamp(selected)]?.accountId ?? '') ?? { moves: false, names: [] };
+  // On a folder server a "Label" is a move, which takes the Thread out of the Inbox.
+  const applyLabel = (label: string) => triage({ type: 'label', label, on: true }, rowLabels().moves ? () => null : (r) => r);
   const paletteItems = (mode: 'actions' | 'label'): PaletteItem[] => {
-    const labelItems = rowLabels().map((l) => ({ id: LABEL_ITEM + l, name: mode === 'label' ? l : `Label: ${l}`, keywords: l }));
+    const set = rowLabels();
+    const labelItems = set.names.map((l) => ({ id: LABEL_ITEM + l, name: mode === 'label' ? l : `${set.moves ? 'Move to' : 'Label'}: ${l}`, keywords: l }));
     if (mode === 'label') return labelItems;
     // While writing: snippets, by name, with their trigger.
     if (compose) return snippets.map((s) => ({ id: SNIPPET_ITEM + s.trigger, name: `Snippet: ${s.name}`, hint: `;${s.trigger}`, keywords: `${s.trigger} ${s.text.slice(0, 60)}` }));
@@ -487,7 +490,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
       {palette && (
         <Palette
           items={paletteItems(palette)}
-          placeholder={palette === 'label' ? 'Apply a Label' : compose ? 'Insert a snippet' : 'Type a command or Label'}
+          placeholder={palette === 'label' ? (rowLabels().moves ? 'Move to…' : 'Apply a Label') : compose ? 'Insert a snippet' : 'Type a command or Label'}
           onClose={() => setPalette(null)}
           onRun={(item) => {
             setPalette(null);

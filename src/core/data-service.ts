@@ -4,7 +4,7 @@ import { newMessageId } from './ids';
 import type { Original } from './reply';
 import { Store, type BodyInput } from './store';
 import type {
-  AccountId, Address, AttachmentInfo, ChangeSet, DraftContent, DraftSummary, DraftToSync, OutboxItem, OutgoingMessage, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
+  AccountId, Address, AttachmentInfo, ChangeResult, ChangeSet, LabelSet, DraftContent, DraftSummary, DraftToSync, OutboxItem, OutgoingMessage, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
 } from './types';
 
 /** Reads stored messages (mailparser in the app). Injected, so the core can run without it. */
@@ -233,8 +233,8 @@ export class DataService {
     this.emit({ type: 'pending', ...this.store.pendingStatus() });
   }
 
-  changeApplied(id: number) {
-    const replayAgain = this.store.changeApplied(id);
+  changeApplied(id: number, result?: ChangeResult) {
+    const replayAgain = this.store.changeApplied(id, result);
     this.emitPending();
     // It was undone while on its way: its inverse is now queued.
     if (replayAgain) this.replayRequester?.(replayAgain);
@@ -273,7 +273,7 @@ export class DataService {
     this.emit({ type: 'labels-changed', accountId });
   }
 
-  labels(accountId: AccountId): string[] {
+  labels(accountId: AccountId): LabelSet {
     return this.store.labels(accountId);
   }
 
@@ -331,7 +331,7 @@ export interface DataPort {
   putBodies(accountId: AccountId, mailbox: string, bodies: BodyInput[]): Promise<void>;
   pendingChanges(accountId: AccountId): Promise<PendingChange[]>;
   nextSendAt(accountId: AccountId): Promise<number | undefined>;
-  changeApplied(id: number): Promise<void>;
+  changeApplied(id: number, result?: ChangeResult): Promise<void>;
   changeFailed(id: number, error: string, rejected: boolean): Promise<boolean>;
   dueOutbox(accountId: AccountId): Promise<OutboxItem[]>;
   nextOutboxAt(accountId: AccountId): Promise<number | undefined>;

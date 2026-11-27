@@ -319,6 +319,16 @@ export class SyncEngine {
     if (next !== undefined) this.outboxTimer = setTimeout(() => this.outboxSoon(), Math.max(0, next - this.now()));
   }
 
+  /** Create a mailbox the Account lacks (Archive or Trash on a folder server), then re-read the list. */
+  private async ensureMailbox(path: string) {
+    if (this.mailboxes.some((m) => m.path === path)) return;
+    const { provider, data, accountId } = this.o;
+    await provider.createMailbox(path);
+    this.mailboxes = await provider.listMailboxes();
+    await data.setMailboxes(accountId, this.mailboxes);
+    this.log(`created ${path}`);
+  }
+
   // --- Pending changes
 
   /** Resolves once work already queued on the connection is done; for tests. */
@@ -344,8 +354,14 @@ export class SyncEngine {
       let failed = false;
       for (const c of await data.pendingChanges(accountId)) {
         try {
-          await provider.edit(c.mailbox, c.uids, c.edit);
-          await data.changeApplied(c.id);
+          if (c.edit.moveTo !== undefined) {
+            await this.ensureMailbox(c.edit.moveTo);
+            const moved = await provider.move(c.mailbox, c.uids, c.edit.moveTo);
+            await data.changeApplied(c.id, { movedUids: moved.uids });
+          } else {
+            await provider.edit(c.mailbox, c.uids, c.edit);
+            await data.changeApplied(c.id);
+          }
         } catch (e) {
           failed = true;
           const rejected = e instanceof ServerRejectedError;

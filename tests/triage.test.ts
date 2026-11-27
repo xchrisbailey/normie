@@ -425,7 +425,7 @@ describe('Labels', () => {
   it("lists the Account's own Labels, not system mailboxes", async () => {
     const { p } = labelled();
     const c = await start(p);
-    expect(await c.labels('acct-1')).toEqual(['Receipts', 'Sent Messages', 'Work/Projects']);
+    expect(await c.labels('acct-1')).toEqual({ moves: false, names: ['Receipts', 'Sent Messages', 'Work/Projects'] });
   });
 
   it('adds a Label to every message in the Thread that lacks it, and keeps the Thread in the Inbox', async () => {
