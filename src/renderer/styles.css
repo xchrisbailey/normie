@@ -1,9 +1,27 @@
-/* Catppuccin Mocha */
+/* Catppuccin: Mocha by default, Latte as an option, or following the system (data-theme on <html>). */
 :root {
   --base: #1e1e2e; --mantle: #181825; --crust: #11111b; --surface0: #313244; --surface1: #45475a;
   --text: #cdd6f4; --subtext: #a6adc8; --overlay: #7f849c; --blue: #89b4fa; --lavender: #b4befe;
+  --yellow: #f9e2af; --red: #f38ba8; --green: #a6e3a1; --peach: #fab387; --pink: #f5c2e7; --teal: #94e2d5;
+  --mauve: #cba6f7; --maroon: #eba0ac; --sapphire: #74c7ec; --shadow: rgb(0 0 0 / 0.4); --scrim: rgb(17 17 27 / 0.5);
   color-scheme: dark;
   font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+}
+:root[data-theme="latte"] {
+  --base: #eff1f5; --mantle: #e6e9ef; --crust: #dce0e8; --surface0: #ccd0da; --surface1: #bcc0cc;
+  --text: #4c4f69; --subtext: #5c5f77; --overlay: #8c8fa1; --blue: #1e66f5; --lavender: #7287fd;
+  --yellow: #df8e1d; --red: #d20f39; --green: #40a02b; --peach: #fe640b; --pink: #ea76cb; --teal: #179299;
+  --mauve: #8839ef; --maroon: #e64553; --sapphire: #209fb5; --shadow: rgb(76 79 105 / 0.18); --scrim: rgb(220 224 232 / 0.55);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    --base: #eff1f5; --mantle: #e6e9ef; --crust: #dce0e8; --surface0: #ccd0da; --surface1: #bcc0cc;
+    --text: #4c4f69; --subtext: #5c5f77; --overlay: #8c8fa1; --blue: #1e66f5; --lavender: #7287fd;
+    --yellow: #df8e1d; --red: #d20f39; --green: #40a02b; --peach: #fe640b; --pink: #ea76cb; --teal: #179299;
+    --mauve: #8839ef; --maroon: #e64553; --sapphire: #209fb5; --shadow: rgb(76 79 105 / 0.18); --scrim: rgb(220 224 232 / 0.55);
+    color-scheme: light;
+  }
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
@@ -28,26 +46,26 @@ body { background: var(--base); color: var(--text); overflow: hidden; -webkit-fo
 .snippet { margin-left: 10px; color: var(--overlay); font-weight: 400; }
 .date { text-align: right; color: var(--overlay); font-variant-numeric: tabular-nums; }
 .row .acct { display: inline-block; width: 6px; height: 6px; border-radius: 3px; margin-right: 8px; vertical-align: middle; }
-.row .date.reminder { color: #f9e2af; }
+.row .date.reminder { color: var(--yellow); }
 .composer .reminder-line { display: flex; align-items: center; gap: 8px; padding: 6px 20px; font-size: 12px; color: var(--subtext); border-top: 1px solid var(--surface0); }
 .row .date.snoozed { color: var(--blue); }
-.row .star { color: #f9e2af; margin-right: 6px; }
+.row .star { color: var(--yellow); margin-right: 6px; }
 .row.selected { background: var(--surface0); box-shadow: inset 2px 0 0 var(--blue); }
 .accounts { margin-left: auto; display: flex; gap: 8px; align-items: center; -webkit-app-region: no-drag; }
 .account { color: var(--subtext); font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--surface0); border: 0; font: inherit; }
 .account.add { color: var(--blue); cursor: pointer; }
 .account.add:disabled { opacity: 0.6; cursor: default; }
-.account.needs-sign-in { color: var(--base); background: #f9e2af; cursor: pointer; }
-.sync-badge { color: #f9e2af; font-size: 12px; font-variant-numeric: tabular-nums; }
-.keymap-note { color: #f9e2af; font-size: 12px; cursor: help; }
+.account.needs-sign-in { color: var(--base); background: var(--yellow); cursor: pointer; }
+.sync-badge { color: var(--yellow); font-size: 12px; font-variant-numeric: tabular-nums; }
+.keymap-note { color: var(--yellow); font-size: 12px; cursor: help; }
 .sync-note { color: var(--subtext); font-size: 12px; }
 .account-wrap { position: relative; display: inline-flex; }
 .accounts button.account { cursor: pointer; }
-.popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 180px; max-width: 320px; padding: 8px; background: var(--mantle); border: 1px solid var(--surface0); border-radius: 8px; box-shadow: 0 10px 30px rgb(0 0 0 / 0.35); font-size: 12px; color: var(--subtext); white-space: normal; }
+.popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 180px; max-width: 320px; padding: 8px; background: var(--mantle); border: 1px solid var(--surface0); border-radius: 8px; box-shadow: 0 10px 30px var(--shadow); font-size: 12px; color: var(--subtext); white-space: normal; }
 .popover .quiet, .popover .danger { font: inherit; text-align: left; padding: 6px 8px; border-radius: 5px; border: 0; background: transparent; color: var(--text); cursor: pointer; }
 .popover .quiet:hover { background: var(--surface0); }
-.popover .danger { background: #f38ba8; color: var(--base); text-align: center; }
-.sheet { width: min(480px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 10px; padding: 20px; background: var(--mantle); border: 1px solid var(--surface0); border-radius: 12px; box-shadow: 0 16px 48px rgb(0 0 0 / 0.4); }
+.popover .danger { background: var(--red); color: var(--base); text-align: center; }
+.sheet { width: min(480px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 10px; padding: 20px; background: var(--mantle); border: 1px solid var(--surface0); border-radius: 12px; box-shadow: 0 16px 48px var(--shadow); }
 .sheet h2 { margin: 0 0 4px; font-size: 16px; color: var(--text); }
 .sheet .help { margin: 0; color: var(--subtext); font-size: 12px; line-height: 1.5; }
 .sheet label { display: flex; align-items: center; gap: 8px; }
@@ -56,7 +74,7 @@ body { background: var(--base); color: var(--text); overflow: hidden; -webkit-fo
 .sheet input:focus { border-color: var(--blue); }
 .sheet input.port { flex: 0 0 64px; }
 .sheet select { flex: 0 0 100px; }
-.sheet input.bad { border-color: #f38ba8; }
+.sheet input.bad { border-color: var(--red); }
 .sheet input[type=radio] { flex: 0 0 auto; }
 .sheet .add-row { align-self: flex-start; padding: 4px 0; }
 .sheet label.check { font-size: 12px; color: var(--subtext); }
@@ -64,13 +82,13 @@ body { background: var(--base); color: var(--text); overflow: hidden; -webkit-fo
 .sheet footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .sheet .quiet, .empty .link, .or .link { font: inherit; background: none; border: 0; color: var(--overlay); cursor: pointer; padding: 8px 12px; }
 .or { font-size: 12px; color: var(--overlay); }
-.account-error { color: #f38ba8; font-size: 12px; }
+.account-error { color: var(--red); font-size: 12px; }
 .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--subtext); }
 button.primary { font: inherit; padding: 8px 16px; border-radius: 8px; border: 0; background: var(--blue); color: var(--base); font-weight: 600; cursor: pointer; }
 button.primary:disabled { opacity: 0.6; cursor: default; }
 /* Above the list and the top bar, and never part of the window's drag area, wherever it's rendered from. */
-.palette-backdrop { position: fixed; inset: 0; z-index: 100; -webkit-app-region: no-drag; display: flex; justify-content: center; align-items: flex-start; padding-top: 14vh; background: rgb(17 17 27 / 0.5); }
-.palette { width: min(560px, calc(100vw - 32px)); background: var(--mantle); border: 1px solid var(--surface0); border-radius: 10px; overflow: hidden; box-shadow: 0 16px 48px rgb(0 0 0 / 0.4); }
+.palette-backdrop { position: fixed; inset: 0; z-index: 100; -webkit-app-region: no-drag; display: flex; justify-content: center; align-items: flex-start; padding-top: 14vh; background: var(--scrim); }
+.palette { width: min(560px, calc(100vw - 32px)); background: var(--mantle); border: 1px solid var(--surface0); border-radius: 10px; overflow: hidden; box-shadow: 0 16px 48px var(--shadow); }
 .palette input { width: 100%; box-sizing: border-box; padding: 12px 16px; font: inherit; font-size: 15px; color: var(--text); background: transparent; border: 0; border-bottom: 1px solid var(--surface0); outline: none; }
 .palette ul { list-style: none; margin: 0; padding: 4px; max-height: 50vh; overflow-y: auto; }
 .palette li { display: flex; justify-content: space-between; align-items: center; padding: 7px 12px; border-radius: 6px; color: var(--subtext); cursor: default; }
@@ -94,16 +112,16 @@ button.primary:disabled { opacity: 0.6; cursor: default; }
 .composer .attachments button { font: inherit; color: var(--subtext); background: none; border: 0; cursor: pointer; }
 .composer .address-field { flex: 1; position: relative; display: flex; }
 .composer .address-field input { flex: 1; }
-.composer .suggestions { position: absolute; top: calc(100% + 6px); left: -8px; z-index: 10; min-width: 320px; list-style: none; margin: 0; padding: 4px; background: var(--mantle); border: 1px solid var(--surface0); border-radius: 8px; box-shadow: 0 10px 30px rgb(0 0 0 / 0.35); }
+.composer .suggestions { position: absolute; top: calc(100% + 6px); left: -8px; z-index: 10; min-width: 320px; list-style: none; margin: 0; padding: 4px; background: var(--mantle); border: 1px solid var(--surface0); border-radius: 8px; box-shadow: 0 10px 30px var(--shadow); }
 .composer .suggestions li { padding: 6px 10px; border-radius: 5px; color: var(--text); cursor: default; white-space: nowrap; }
 .composer .suggestions li.selected { background: var(--surface0); }
 .composer .suggestions .address { color: var(--overlay); margin-left: 6px; }
 .composer .actions { display: flex; gap: 8px; }
 .composer .quiet { font: inherit; padding: 8px 12px; border-radius: 8px; border: 0; background: transparent; color: var(--overlay); cursor: pointer; }
-.composer .error { color: #f38ba8; font-size: 12px; }
+.composer .error { color: var(--red); font-size: 12px; }
 .dev-overlay { position: fixed; right: 12px; bottom: 12px; padding: 6px 10px; border-radius: 6px; background: var(--crust); color: var(--subtext); font: 12px ui-monospace, Menlo, monospace; pointer-events: none; }
-.dev-overlay b { color: #a6e3a1; }
-.dev-overlay.over b { color: #f38ba8; }
+.dev-overlay b { color: var(--green); }
+.dev-overlay.over b { color: var(--red); }
 .panes { flex: 1; display: flex; min-height: 0; }
 .panes .thread-list { flex: 1; }
 .panes.reading .thread-list { flex: 0 0 38%; border-right: 1px solid var(--surface0); }

@@ -41,6 +41,10 @@ A keyboard-first desktop mail client for Gmail, iCloud and any IMAP/SMTP server.
 
 In the composer: `Cmd-Enter` sends, `Cmd-Shift-Enter` sends later (at a time in plain words; scheduled messages are in `Cmd-K`), `Cmd-Shift-H` sets a Reminder (the Thread comes back if nobody but you writes by then), `Esc` closes and keeps a draft, `Cmd-Shift-Backspace` discards it, `Cmd-Shift-A` attaches files (or drop them on it), and `Cmd-K` inserts a snippet. Drafts reopen from `Cmd-K`.
 
+### Themes
+
+Catppuccin Mocha is the default. `Cmd-K` → "Theme: Latte (Light)" or "Theme: Follow the System" switches; the choice is remembered.
+
 ### Your own keys
 
 Put a `keymap.json` in the app's data folder (`~/Library/Application Support/normie/`). Each entry replaces an action's keys; `[]` unbinds it. Action ids are in `src/renderer/commands/registry.ts`. Changes apply without a restart. Problems (unknown actions, malformed keys, clashes) show as a note in the top bar, and the rest of the file still applies.

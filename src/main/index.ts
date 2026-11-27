@@ -1,5 +1,5 @@
 // The main process: windows, process wiring and (later) sign-in and secrets.
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, Tray, MessageChannelMain, shell, utilityProcess, type MenuItemConstructorOptions, type UtilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, Tray, MessageChannelMain, shell, utilityProcess, type MenuItemConstructorOptions, type UtilityProcess } from 'electron';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -241,6 +241,11 @@ function setLoginItem(on: boolean) {
 ipcMain.handle('login-item:toggle', () => {
   setLoginItem(!loginItem());
   return { on: loginItem(), packaged: app.isPackaged };
+});
+ipcMain.on('theme', (_e, t: unknown) => {
+  if (t !== 'mocha' && t !== 'latte' && t !== 'system') return;
+  nativeTheme.themeSource = t === 'mocha' ? 'dark' : t === 'latte' ? 'light' : 'system';
+  win?.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1e1e2e' : '#eff1f5');
 });
 ipcMain.on('inbox-count', (_e, n: unknown) => {
   if (typeof n !== 'number' || n === inboxCount) return;
@@ -704,13 +709,39 @@ async function smokeKeys(w: BrowserWindow) {
   await press('Escape');
   const search = results.length > 0 && results.every((r) => /budget/i.test(r)) && /budget/i.test(resultOpened) && searchClosed && serverStatus === 'Server searched';
 
+  // Themes: Cmd-K "latte" turns the page and the reader frame light; "mocha" back to dark.
+  const paletteRun = async (text: string) => {
+    await press('K', 1, ['meta']);
+    await new Promise((r) => setTimeout(r, 200));
+    await typeText(text);
+    await press('Return');
+    await new Promise((r) => setTimeout(r, 300));
+  };
+  const bg = () => w.webContents.executeJavaScript(`getComputedStyle(document.body).backgroundColor`) as Promise<string>;
+  /** With NORMIE_SMOKE_SHOTS=<folder>, smoke saves screenshots to look at (a hidden window still renders). */
+  const shot = async (name: string) => {
+    const dir = process.env.NORMIE_SMOKE_SHOTS;
+    if (dir) writeFileSync(path.join(dir, `${name}.png`), (await w.webContents.capturePage()).toPNG());
+  };
+  await paletteRun('theme latte');
+  const latteBody = await bg();
+  await shot('latte-list');
+  await press('Enter');
+  await new Promise((r) => setTimeout(r, 400));
+  await shot('latte-reader');
+  const latteFrame = (await w.webContents.executeJavaScript(`(() => { const d = document.querySelector('.mail-frame')?.contentDocument; return d ? getComputedStyle(d.body).backgroundColor : ''; })()`)) as string;
+  await press('Escape');
+  await paletteRun('theme mocha');
+  const mochaBody = await bg();
+  const themes = latteBody === 'rgb(239, 241, 245)' && latteFrame === 'rgb(239, 241, 245)' && mochaBody === 'rgb(30, 30, 46)';
+
   // Closing the window keeps Normie running: the window hides, the page still answers, the menu bar item stays.
   w.close();
   await new Promise((r) => setTimeout(r, 200));
   const stillAnswers = (await w.webContents.executeJavaScript('1 + 1').catch(() => 0)) === 2;
   const keepsRunning = !w.isDestroyed() && !w.isVisible() && stillAnswers && !!tray && !tray.isDestroyed();
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick && snooze && keepsRunning && sendLater && reminder && search;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick, snooze, keepsRunning, sendLater, reminder, search, results: results.length, serverStatus };
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick && snooze && keepsRunning && sendLater && reminder && search && themes;
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick, snooze, keepsRunning, sendLater, reminder, search, themes, latteBody, latteFrame, mochaBody };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };

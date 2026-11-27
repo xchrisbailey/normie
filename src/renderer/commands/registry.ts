@@ -47,6 +47,9 @@ export const ACTIONS = [
   { id: 'filter.9', name: 'Show Account 9', keys: ['9'], contexts: ['list', 'reader'] },
   { id: 'go.inbox', name: 'Go to Inbox', keys: ['g i'], contexts: ['list', 'reader'] },
   { id: 'palette.open', name: 'Command Palette', keys: ['Cmd-K'], contexts: ['list', 'reader', 'composer'] },
+  { id: 'theme.mocha', name: 'Theme: Mocha (Dark)', keys: [], contexts: ['list', 'reader'] },
+  { id: 'theme.latte', name: 'Theme: Latte (Light)', keys: [], contexts: ['list', 'reader'] },
+  { id: 'theme.system', name: 'Theme: Follow the System', keys: [], contexts: ['list', 'reader'] },
   { id: 'app.loginItem', name: 'Start at Login: On or Off', keys: [], contexts: ['list', 'reader'] },
   { id: 'dev.overlay', name: 'Toggle Performance Overlay', keys: ['Cmd-Shift-D'], contexts: ['list', 'reader', 'composer'] },
 ] as const satisfies readonly ActionDef[];

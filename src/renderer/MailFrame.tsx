@@ -12,29 +12,37 @@ const who = (a?: Address) => (a ? (a.name ? `${a.name} <${a.address}>` : a.addre
 const csp = (remote: boolean) =>
   `default-src 'none'; style-src 'unsafe-inline'; img-src data:${remote ? ' https: http:' : ''}; font-src data:; media-src 'none'`;
 
-const SHELL_CSS = `
-  :root { color-scheme: dark; }
-  html, body { margin: 0; background: #1e1e2e; color: #cdd6f4; font: 14px/1.55 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+/** The frame's own stylesheet, in the app's current theme (its colours are read from the page). */
+const shellCss = (c: Record<'base' | 'text' | 'surface0' | 'surface1' | 'overlay', string>, dark: boolean) => `
+  :root { color-scheme: ${dark ? 'dark' : 'light'}; }
+  html, body { margin: 0; background: ${c.base}; color: ${c.text}; font: 14px/1.55 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
   body { padding: 0 28px 40px; }
-  article { border-top: 1px solid #313244; padding: 14px 0; }
+  article { border-top: 1px solid ${c.surface0}; padding: 14px 0; }
   article:first-child { border-top: 0; }
   header { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin-bottom: 10px; }
   .from { font-weight: 600; }
-  time { color: #7f849c; font-variant-numeric: tabular-nums; }
-  .to { grid-column: 1 / -1; color: #7f849c; font-size: 12px; }
+  time { color: ${c.overlay}; font-variant-numeric: tabular-nums; }
+  .to { grid-column: 1 / -1; color: ${c.overlay}; font-size: 12px; }
   pre { margin: 0; white-space: pre-wrap; word-wrap: break-word; font: inherit; }
-  .pending { color: #7f849c; font-style: italic; }
-  .html { background: #fff; color: #111; border-radius: 8px; padding: 16px; overflow-x: auto; }
+  .pending { color: ${c.overlay}; font-style: italic; }
+  .html { background: #fff; color: #111; border-radius: 8px; padding: 16px; overflow-x: auto; ${dark ? '' : `box-shadow: 0 0 0 1px ${c.surface0};`} }
   .attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-  .attachment { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-radius: 6px; background: #313244; font-size: 12px; }
-  .attachment .size { color: #7f849c; }
-  .attachment button { font: inherit; color: #cdd6f4; background: #45475a; border: 0; border-radius: 4px; padding: 2px 8px; cursor: pointer; }
+  .attachment { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-radius: 6px; background: ${c.surface0}; font-size: 12px; }
+  .attachment .size { color: ${c.overlay}; }
+  .attachment button { font: inherit; color: ${c.text}; background: ${c.surface1}; border: 0; border-radius: 4px; padding: 2px 8px; cursor: pointer; }
 `;
+
+/** The page's theme colours right now. */
+function themeColors() {
+  const css = getComputedStyle(document.documentElement);
+  const v = (name: string) => css.getPropertyValue(`--${name}`).trim();
+  return { colors: { base: v('base'), text: v('text'), surface0: v('surface0'), surface1: v('surface1'), overlay: v('overlay') }, dark: css.colorScheme !== 'light' };
+}
 const sizeOf = (n: number) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
 const PAPER_CSS = `:host { display: block; } img { max-width: 100%; height: auto; } table { max-width: 100%; }`;
 
-const shell = (remote: boolean) =>
-  `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp(remote)}"><style>${SHELL_CSS}</style></head><body></body></html>`;
+const shell = (remote: boolean, theme: ReturnType<typeof themeColors>) =>
+  `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp(remote)}"><style>${shellCss(theme.colors, theme.dark)}</style></head><body></body></html>`;
 
 /** Fill the frame's document with the Thread's messages. */
 function render(doc: Document, messages: ThreadMessage[], allow: (m: ThreadMessage) => boolean) {
@@ -103,7 +111,7 @@ export interface FrameHandle {
 
 export type AttachmentAction = (action: 'open' | 'save', messageId: number, index: number) => void;
 
-export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, remote, handle, onAttachment }: {
+export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, remote, handle, onAttachment, theme }: {
   threadKey: string;
   messages: ThreadMessage[];
   allow: (m: ThreadMessage) => boolean;
@@ -111,7 +119,10 @@ export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, r
   remote: boolean;
   handle?: React.MutableRefObject<FrameHandle | null>;
   onAttachment?: AttachmentAction;
+  /** The app's theme name: a new one rebuilds the frame in its colours. */
+  theme?: string;
 }) {
+  const colors = themeColors();
   const frame = useRef<HTMLIFrameElement>(null);
   const ready = useRef(false);
   const latest = useRef({ messages, allow, onAttachment });
@@ -165,12 +176,12 @@ export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, r
 
   return (
     <iframe
-      key={remote ? 'remote' : 'blocked'}
+      key={`${remote ? 'remote' : 'blocked'}:${theme}:${colors.colors.base}`}
       ref={frame}
       className="mail-frame"
       title="Message"
       sandbox="allow-same-origin"
-      srcDoc={shell(remote)}
+      srcDoc={shell(remote, colors)}
       onLoad={() => {
         ready.current = false;
         onLoad();
