@@ -7,7 +7,7 @@ export interface MenuEntry {
   ids: string[];
   /** Electron accelerator. */
   accelerator?: string;
-  /** False for plain keys: shown in the menu, but left to the page so typing in a field still works. */
+  /** Whether the accelerator is a real one (always, now: only Cmd shortcuts get one). */
   registerAccelerator: boolean;
 }
 
@@ -43,12 +43,12 @@ export function menuSections(actions: readonly ActionDef[]): MenuSection[] {
       same.ids.push(a.id);
       continue;
     }
-    const key = a.keys.find((k) => acceleratorOf(k));
+    // Only Cmd shortcuts go in the menus. A plain key there becomes a macOS key equivalent: when the page is slow to
+    // answer a key press (fast typing), Chromium hands the key to the menu, which then runs the action even though
+    // the key was typed into a field. Plain keys are listed by ? and the palette instead.
+    const key = a.keys.find((k) => k.startsWith('Cmd-') && !EDIT_MENU_KEYS.has(k) && acceleratorOf(k));
     const accelerator = key ? acceleratorOf(key) : undefined;
-    section.entries.push({
-      label: a.name, ids: [a.id], ...(accelerator ? { accelerator } : {}),
-      registerAccelerator: !!key && key.startsWith('Cmd-') && !EDIT_MENU_KEYS.has(key),
-    });
+    section.entries.push({ label: a.name, ids: [a.id], ...(accelerator ? { accelerator } : {}), registerAccelerator: !!accelerator });
   }
   return [...sections.values()];
 }

@@ -419,11 +419,14 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const runAction = useCallback((ids: string[]) => {
     const { handlers: h, context: ctx } = latest.current;
     // The Edit menu's Undo: typing in a field, or else Undo Send.
+    const el = document.activeElement as HTMLElement | null;
+    const typing = !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
     if (ids[0] === 'edit.undo') {
-      const el = document.activeElement as HTMLElement | null;
-      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA)$/.test(el.tagName))) return void document.execCommand('undo');
+      if (typing) return void document.execCommand('undo');
       return void h['send.undo']?.();
     }
+    // While typing in a field, or with a form or the palette open, only Cmd commands run from the menus.
+    if ((typing || document.querySelector('.palette-backdrop')) && !ids.some((x) => ACTIONS.find((a) => a.id === x)?.keys.some((k) => k.startsWith('Cmd-')))) return;
     const id = ids.find((x) => ACTIONS.some((a) => a.id === x && (a.contexts as readonly string[]).includes(ctx)) && h[x as keyof Handlers]);
     if (id) void h[id as keyof Handlers]!();
   }, []);
