@@ -1,6 +1,6 @@
 // The contract between the renderer and the core. No runtime dependencies, so the renderer can import it.
 import type { Original } from './reply';
-import type { Address, DraftContent, DraftSummary, OutgoingMessage, PendingStatus, SplitId, ThreadAction, ThreadMessage, ThreadRow } from './types';
+import type { Address, DraftContent, DraftSummary, LabelSet, OutgoingMessage, PendingStatus, SplitId, ThreadAction, ThreadMessage, ThreadRow } from './types';
 
 /** What the renderer can ask of the core. Every method is async because it crosses a MessagePort in the app. */
 export interface CoreApi {
@@ -26,7 +26,7 @@ export interface CoreApi {
   /** Always load remote images from this sender. */
   allowImagesFrom(address: string): Promise<void>;
   /** An Account's own Labels, for the Label picker. Kept current by 'labels-changed' notices. */
-  labels(accountId: string): Promise<string[]>;
+  labels(accountId: string): Promise<LabelSet>;
   /** Undo the changes an `act` returned. */
   undo(ids: number[]): Promise<void>;
   /** Changes still on their way to the server. Kept current by 'pending' notices. */

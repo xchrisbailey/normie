@@ -1,7 +1,7 @@
 // The local store: one SQLite file in WAL mode, owned by the data process.
 import Database from 'better-sqlite3';
 import type {
-  AccountId, Address, AttachmentInfo, DraftContent, DraftSummary, DraftToSync, FlagChange, OutboxItem, OutgoingMessage, MailboxRole, MessageEdit, PendingChange, RemoteHeader, SplitId, SyncState, ThreadAction,
+  AccountId, Address, AttachmentInfo, ChangeResult, DraftContent, LabelSet, DraftSummary, DraftToSync, FlagChange, OutboxItem, OutgoingMessage, MailboxRole, MessageEdit, PendingChange, RemoteHeader, SplitId, SyncState, ThreadAction,
   ThreadMessage, ThreadRow,
 } from './types';
 
@@ -182,6 +182,10 @@ const MIGRATIONS: string[] = [
   );
   create index thread_refs_thread on thread_refs (account_id, thread_key);
   `,
+  // What a replayed change left behind for undo (where moved messages are now).
+  `
+  alter table pending_changes add column result_json text;
+  `,
 ];
 
 /** How long a delete waits before it's sent, so it can still be undone. */
@@ -250,7 +254,17 @@ interface ActionMessage {
  * Which of a Thread's messages (oldest first) an action changes, and how. Only messages the action really
  * changes are picked, so the inverse edit restores exactly what was there.
  */
-function planAction(action: ThreadAction, msgs: ActionMessage[]): { pick: ActionMessage[]; edit: MessageEdit }[] {
+/** Where moves go on a folder server; created when the Account has none. */
+interface Folders {
+  archive: string;
+  trash: string;
+}
+
+function planAction(action: ThreadAction, msgs: ActionMessage[], folders?: Folders): { pick: ActionMessage[]; edit: MessageEdit }[] {
+  if (folders) {
+    const plan = planFolderAction(action, msgs, folders);
+    if (plan) return plan;
+  }
   const labelled = msgs.filter((m) => m.role !== 'inbox');
   const inInbox = labelled.filter((m) => (JSON.parse(m.labels_json) as string[]).includes(INBOX_LABEL));
   const latest = msgs.at(-1);
@@ -281,6 +295,29 @@ function planAction(action: ThreadAction, msgs: ActionMessage[]): { pick: Action
       return [action.on
         ? { pick: msgs.filter((m) => m.unread), edit: { addFlags: [SEEN] } }
         : { pick: msgs.some((m) => m.unread) || !latest ? [] : [latest], edit: { removeFlags: [SEEN] } }];
+  }
+}
+
+/**
+ * Done, delete, mute and Labels on folder servers, where they're moves. Flags (star, read) are the same as on Gmail,
+ * so those return null and planAction handles them.
+ */
+function planFolderAction(action: ThreadAction, msgs: ActionMessage[], f: Folders): { pick: ActionMessage[]; edit: MessageEdit }[] | null {
+  const inInbox = msgs.filter((m) => m.role === 'inbox');
+  switch (action.type) {
+    case 'done':
+      // Only the Inbox messages move to Archive; my copies in Sent stay where they are.
+      return [{ pick: inInbox, edit: { moveTo: f.archive } }];
+    case 'mute':
+      return action.on ? [{ pick: inInbox, edit: { moveTo: f.archive } }] : [];
+    case 'delete':
+      return [{ pick: msgs.filter((m) => m.mailbox !== f.trash), edit: { moveTo: f.trash } }];
+    case 'label':
+      // A folder is a place: the Thread's mail (not Sent, Drafts or Trash) moves there. Taking a "Label" off moves nothing.
+      if (!action.on) return [];
+      return [{ pick: msgs.filter((m) => (m.role === null || m.role === 'inbox' || m.role === 'archive') && m.mailbox !== action.label), edit: { moveTo: action.label } }];
+    default:
+      return null;
   }
 }
 
@@ -369,14 +406,13 @@ export class Store {
    * The Account's own Labels, sorted: on Gmail these are its mailboxes, less the Inbox and system ones.
    * Folder servers have none until milestone 4.
    */
-  labels(accountId: AccountId): string[] {
-    const isGmail = this.db.prepare(`select 1 from mailboxes where account_id = ? and role = 'all'`).pluck().get(accountId);
-    if (!isGmail) return [];
-    return (this.db
-      .prepare(`select path from mailboxes where account_id = ? and role is null and upper(path) != 'INBOX'
-                and path not like '[Gmail]/%' and path not like '[Google Mail]/%' order by path collate nocase`)
-      .pluck()
-      .all(accountId) as string[]);
+  labels(accountId: AccountId): LabelSet {
+    const boxes = this.db.prepare('select path, role from mailboxes where account_id = ? order by path collate nocase').all(accountId) as { path: string; role: string | null }[];
+    // Gmail: Labels are its mailboxes, less the Inbox and system ones. Folder servers: their own folders, to move to.
+    const names = boxes
+      .filter((b) => b.role === null && b.path.toUpperCase() !== 'INBOX' && !/^\[(Gmail|Google Mail)\]\//.test(b.path))
+      .map((b) => b.path);
+    return { moves: !boxes.some((b) => b.role === 'all'), names: boxes.length ? names : [] };
   }
 
   mailboxState(accountId: AccountId, path: string): SyncState | null {
@@ -530,7 +566,7 @@ export class Store {
           ? 'insert into muted_threads(account_id, thread_key) values (?, ?) on conflict do nothing'
           : 'delete from muted_threads where account_id = ? and thread_key = ?').run(accountId, threadKey);
       }
-      for (const { pick, edit } of planAction(action, msgs)) {
+      for (const { pick, edit } of planAction(action, msgs, this.foldersOf(accountId))) {
         const targets = new Map<string, number[]>();
         for (const m of pick) targets.set(m.mailbox, [...(targets.get(m.mailbox) ?? []), m.uid]);
         for (const [mailbox, uids] of targets) {
@@ -543,9 +579,27 @@ export class Store {
     return { changes, inboxChanged };
   }
 
+  /** Where moves go, for a folder-server Account (none for Gmail, which has All Mail). */
+  private foldersOf(accountId: AccountId): Folders | undefined {
+    const boxes = this.db.prepare('select path, role from mailboxes where account_id = ?').all(accountId) as { path: string; role: string | null }[];
+    if (!boxes.length || boxes.some((b) => b.role === 'all')) return undefined;
+    return {
+      archive: boxes.find((b) => b.role === 'archive')?.path ?? 'Archive',
+      trash: boxes.find((b) => b.role === 'trash')?.path ?? 'Trash',
+    };
+  }
+
   /** Apply an edit to local messages. Returns the thread keys touched; the caller refreshes them. */
   private editMessages(accountId: AccountId, mailbox: string, uids: number[], edit: MessageEdit): string[] {
-    const isInboxMailbox = this.db.prepare('select role from mailboxes where account_id = ? and path = ?').pluck().get(accountId, mailbox) === 'inbox';
+    const roleOf = this.db.prepare('select role from mailboxes where account_id = ? and path = ?').pluck();
+    if (edit.moveTo !== undefined) {
+      // A move only changes where the message counts: in the Inbox if it's going to the Inbox. The server moves it;
+      // the next sync sees it gone from here and arrived there.
+      const inbox = roleOf.get(accountId, edit.moveTo) === 'inbox' ? 1 : 0;
+      const set = this.db.prepare('update messages set in_inbox = ? where account_id = ? and mailbox = ? and uid = ? returning thread_key').pluck();
+      return [...new Set(uids.flatMap((uid) => (set.all(inbox, accountId, mailbox, uid) as string[])))];
+    }
+    const isInboxMailbox = roleOf.get(accountId, mailbox) === 'inbox';
     const get = this.db.prepare('select flags_json, labels_json, thread_key from messages where account_id = ? and mailbox = ? and uid = ?');
     const set = this.db.prepare('update messages set flags_json = ?, labels_json = ?, unread = ?, starred = ?, in_inbox = ? where account_id = ? and mailbox = ? and uid = ?');
     const keys = new Set<string>();
@@ -600,9 +654,20 @@ export class Store {
   }
 
   private changeRow(id: number) {
-    return this.db.prepare('select account_id, thread_key, mailbox, uids_json, edit_json, state from pending_changes where id = ?').get(id) as
-      | { account_id: string; thread_key: string; mailbox: string; uids_json: string; edit_json: string; state: 'pending' | 'applied' | 'cancelled' | 'undone' }
+    return this.db.prepare('select account_id, thread_key, mailbox, uids_json, edit_json, state, result_json from pending_changes where id = ?').get(id) as
+      | { account_id: string; thread_key: string; mailbox: string; uids_json: string; edit_json: string; result_json: string | null; state: 'pending' | 'applied' | 'cancelled' | 'undone' }
       | undefined;
+  }
+
+  /**
+   * The change that undoes a change the server already has: the inverse edit, where the messages are now. A move goes
+   * back from its destination, by the UIDs the server gave them there; null when those aren't known.
+   */
+  private inverseChange(c: { mailbox: string; uids_json: string; edit_json: string; result_json: string | null }): { mailbox: string; uids: number[]; edit: MessageEdit } | null {
+    const edit = JSON.parse(c.edit_json) as MessageEdit;
+    if (edit.moveTo === undefined) return { mailbox: c.mailbox, uids: JSON.parse(c.uids_json) as number[], edit: inverseOf(edit) };
+    const moved = ((c.result_json ? (JSON.parse(c.result_json) as ChangeResult) : {}).movedUids ?? []).filter((u) => u > 0);
+    return moved.length ? { mailbox: edit.moveTo, uids: moved, edit: { moveTo: c.mailbox } } : null;
   }
 
   private queueChange(accountId: AccountId, threadKey: string, mailbox: string, uids: number[], edit: MessageEdit, now = Date.now(), sendAfter = 0): number {
@@ -615,18 +680,19 @@ export class Store {
    * The server has the change. Kept as applied, so it can be undone. If it was cancelled while on its way,
    * its inverse is queued instead; returns that Account so the caller can replay again.
    */
-  changeApplied(id: number): AccountId | undefined {
+  changeApplied(id: number, result?: ChangeResult): AccountId | undefined {
     const c = this.changeRow(id);
     if (!c) return undefined;
     if (c.state === 'cancelled') {
       // The local copy was already put back when it was cancelled: only the server needs the inverse.
+      const inverse = this.inverseChange({ ...c, result_json: result ? JSON.stringify(result) : null });
       this.db.transaction(() => {
-        this.queueChange(c.account_id, c.thread_key, c.mailbox, JSON.parse(c.uids_json) as number[], inverseOf(JSON.parse(c.edit_json) as MessageEdit));
+        if (inverse) this.queueChange(c.account_id, c.thread_key, inverse.mailbox, inverse.uids, inverse.edit);
         this.db.prepare('delete from pending_changes where id = ?').run(id);
       })();
-      return c.account_id;
+      return inverse ? c.account_id : undefined;
     }
-    this.db.prepare(`update pending_changes set state = 'applied', last_error = null where id = ?`).run(id);
+    this.db.prepare(`update pending_changes set state = 'applied', last_error = null, result_json = ? where id = ?`).run(result ? JSON.stringify(result) : null, id);
     this.db.prepare(`delete from pending_changes where state in ('applied', 'undone') and id <= (select max(id) from pending_changes) - ?`).run(KEEP_APPLIED);
     return undefined;
   }
@@ -646,11 +712,20 @@ export class Store {
   }
 
   /** Put the local copy back as it was before a change. Returns whether the Inbox Split was affected. */
-  private revertLocally(c: { account_id: string; mailbox: string; uids_json: string; edit_json: string }): boolean {
-    let inboxChanged = false;
-    for (const k of this.editMessages(c.account_id, c.mailbox, JSON.parse(c.uids_json) as number[], inverseOf(JSON.parse(c.edit_json) as MessageEdit))) {
-      if (this.refreshThread(c.account_id, k)) inboxChanged = true;
+  private revertLocally(c: { account_id: string; mailbox: string; uids_json: string; edit_json: string; result_json?: string | null }): boolean {
+    const edit = JSON.parse(c.edit_json) as MessageEdit;
+    const keys = new Set<string>();
+    if (edit.moveTo === undefined) {
+      this.editMessages(c.account_id, c.mailbox, JSON.parse(c.uids_json) as number[], inverseOf(edit)).forEach((k) => keys.add(k));
+    } else {
+      // Back where they came from: wherever the messages are by now (still here, or already synced there).
+      const back: MessageEdit = { moveTo: c.mailbox };
+      this.editMessages(c.account_id, c.mailbox, JSON.parse(c.uids_json) as number[], back).forEach((k) => keys.add(k));
+      const moved = (c.result_json ? (JSON.parse(c.result_json) as ChangeResult) : {}).movedUids?.filter((u) => u > 0) ?? [];
+      if (moved.length) this.editMessages(c.account_id, edit.moveTo, moved, back).forEach((k) => keys.add(k));
     }
+    let inboxChanged = false;
+    for (const k of keys) if (this.refreshThread(c.account_id, k)) inboxChanged = true;
     return inboxChanged;
   }
 
@@ -675,11 +750,12 @@ export class Store {
     const accounts = new Set<AccountId>();
     let inboxChanged = false;
     // A delete Gmail already has can't come back from here: Trash is outside All Mail. Undo stops at the hold.
-    const sentToTrash = ids.some((id) => {
+    // Nor can a move whose new UIDs the server never told us.
+    const stuck = ids.some((id) => {
       const c = this.changeRow(id);
-      return c?.state === 'applied' && (JSON.parse(c.edit_json) as MessageEdit).addLabels?.includes(TRASH);
+      return c?.state === 'applied' && ((JSON.parse(c.edit_json) as MessageEdit).addLabels?.includes(TRASH) || !this.inverseChange(c));
     });
-    if (sentToTrash) return { accounts: [], inboxChanged: false };
+    if (stuck) return { accounts: [], inboxChanged: false };
     this.db.transaction(() => {
       for (const id of [...ids].sort((a, b) => b - a)) {
         const c = this.changeRow(id);
@@ -688,7 +764,8 @@ export class Store {
           this.db.prepare(`update pending_changes set state = 'cancelled' where id = ?`).run(id);
         } else {
           this.db.prepare(`update pending_changes set state = 'undone' where id = ?`).run(id);
-          this.queueChange(c.account_id, c.thread_key, c.mailbox, JSON.parse(c.uids_json) as number[], inverseOf(JSON.parse(c.edit_json) as MessageEdit));
+          const inverse = this.inverseChange(c)!;
+          this.queueChange(c.account_id, c.thread_key, inverse.mailbox, inverse.uids, inverse.edit);
           accounts.add(c.account_id);
         }
         if (this.revertLocally(c)) inboxChanged = true;

@@ -86,12 +86,22 @@ export type MailEvent =
   | { type: 'flags'; mailbox: string; uid: number; flags: string[] }
   | { type: 'expunge'; mailbox: string; uid?: number };
 
-/** Changes to the flags and Labels of some messages. Labels apply only on servers with caps.labels. */
+/**
+ * Changes to some messages: flags, Labels (servers with caps.labels), or a move to another mailbox (folder
+ * servers). A move is never combined with the others.
+ */
 export interface MessageEdit {
   addFlags?: string[];
   removeFlags?: string[];
   addLabels?: string[];
   removeLabels?: string[];
+  moveTo?: string;
+}
+
+/** What a replayed change left behind that undo needs: where moved messages are now. */
+export interface ChangeResult {
+  /** UIDs in the destination mailbox, in the same order as the change's UIDs (0 where unknown). */
+  movedUids?: number[];
 }
 
 /** A message the user wrote, as the composer hands it to the core. */
@@ -177,6 +187,12 @@ export type ThreadAction =
   /** Gmail: add or remove a Label. Folder servers, where a Label is a move, come in milestone 4. */
   | { type: 'label'; label: string; on: boolean };
 
+/** An Account's Labels, or on folder servers its folders, where applying one moves the Thread. */
+export interface LabelSet {
+  moves: boolean;
+  names: string[];
+}
+
 /** A triage action recorded by the core and waiting to reach the server. */
 export interface PendingChange {
   id: number;
@@ -210,6 +226,9 @@ export interface MailProvider {
   fetchBodies(mailbox: string, uids: number[]): Promise<RawMessage[]>;
   /** Change flags and Labels on the server. */
   edit(mailbox: string, uids: number[], edit: MessageEdit): Promise<void>;
+  /** Move messages to another mailbox (MOVE, or copy + delete + expunge). Returns their new UIDs, 0 where unknown. */
+  move(mailbox: string, uids: number[], destination: string): Promise<{ uids: number[] }>;
+  createMailbox(path: string): Promise<void>;
   /** Add a message to a mailbox, such as a sent copy to Sent. Returns its UID when the server says (UIDPLUS). */
   append(mailbox: string, raw: Uint8Array, flags: string[]): Promise<{ uid?: number }>;
   /** Delete messages for good (flag deleted, then expunge), such as an old copy of a draft. */
