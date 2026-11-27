@@ -1,5 +1,5 @@
 // The main process: windows, process wiring and (later) sign-in and secrets.
-import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, shell, utilityProcess, type MenuItemConstructorOptions, type UtilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, MessageChannelMain, shell, utilityProcess, type MenuItemConstructorOptions, type UtilityProcess } from 'electron';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -507,8 +507,15 @@ async function smokeKeys(w: BrowserWindow) {
   await new Promise((r) => setTimeout(r, 600));
   const ownTabs = (await w.webContents.executeJavaScript(`[...document.querySelectorAll('.split')].map((s) => s.firstChild.textContent.trim()).join('|')`)) as string;
   const splits = builtIns && ownTabs === 'Inbox|Reading|Other';
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, tabs, ownTabs };
+  // Clicking a notification opens its Thread (main sends open-thread with the key).
+  const target = (await w.webContents.executeJavaScript(`(() => { const r = document.querySelectorAll('.row')[2]; return { key: r.dataset.key, subject: r.querySelector('.subject').firstChild.textContent }; })()`)) as { key: string; subject: string };
+  w.webContents.send('open-thread', target.key);
+  await new Promise((r) => setTimeout(r, 400));
+  const openedSubject = (await w.webContents.executeJavaScript(`document.querySelector('.reader h1')?.textContent ?? ''`)) as string;
+  await press('Escape');
+  const notifyClick = openedSubject === target.subject;
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick;
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };
@@ -536,6 +543,19 @@ ipcMain.handle('attachment:save', async (_e, file: unknown): Promise<{ ok: boole
   writeFileSync(r.filePath, file.content);
   await quarantine(r.filePath);
   return { ok: true, path: r.filePath };
+});
+
+/** New mail in a notifying Split. Clicking brings Normie forward with that Thread open. */
+ipcMain.on('notify', (_e, n: { key: string; title: string; body: string }) => {
+  if (!Notification.isSupported() || typeof n?.key !== 'string') return;
+  const note = new Notification({ title: String(n.title).slice(0, 120), body: String(n.body).slice(0, 240) });
+  note.on('click', () => {
+    if (!win) return;
+    win.show();
+    win.focus();
+    win.webContents.send('open-thread', n.key);
+  });
+  note.show();
 });
 
 ipcMain.on('open-link', (_e, url: unknown) => {

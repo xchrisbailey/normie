@@ -12,6 +12,7 @@ import type { FrameHandle } from './MailFrame';
 import { blockedMessages, Reader } from './Reader';
 import { SyncBadge } from './SyncBadge';
 import { ThreadCache } from './thread-cache';
+import { toNotify } from './notify';
 import { splitCounts, splitsFrom } from './splits';
 import { ThreadList } from './ThreadList';
 import { useKeymap, useKeys, useSnippets, useSplitsFile, type Handlers } from './useKeys';
@@ -450,6 +451,30 @@ function Inbox({ core }: { core: CoreClient | null }) {
       } else setNote('Already sent');
     });
   }
+
+  // New mail in a notifying Split: a notification (unless Normie is in front), one per Thread per burst.
+  const notified = useRef(new Map<string, number>());
+  const splitsRef = useRef(splits);
+  splitsRef.current = splits;
+  useEffect(() => core?.onNotice((n) => {
+    if (n.type !== 'arrived') return;
+    void core.rows('inbox').then((r) => {
+      const notices = toNotify(n.keys, r, splitsRef.current, notified.current, Date.now());
+      if (document.hasFocus()) return;
+      for (const note of notices) window.normie.notify(note);
+    });
+  }), [core]);
+
+  // A clicked notification opens its Thread, in the whole Inbox.
+  const openThreadRef = useRef<(key: string) => void>(() => {});
+  openThreadRef.current = (key) => {
+    const i = allRows.findIndex((r) => r.key === key);
+    if (i < 0) return;
+    setSplitId('inbox');
+    setCompose(null);
+    openRow(allRows[i]!, i, allRows);
+  };
+  useEffect(() => window.normie.onOpenThread((key) => openThreadRef.current(key)), []);
 
   // A message the server kept refusing comes back to the composer, with the reason.
   useEffect(() => core?.onNotice((n) => {

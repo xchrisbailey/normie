@@ -18,6 +18,7 @@ const Row = memo(function Row({ row, selected, top, marker }: { row: ThreadRow; 
       style={{ top }}
       role="option"
       aria-selected={selected}
+      data-key={row.key}
     >
       <span className="from">
         {marker && <span className="acct" style={{ background: marker }} />}
