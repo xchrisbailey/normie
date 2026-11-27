@@ -17,6 +17,8 @@ declare global {
       platform: string;
       fake: boolean;
       onMenuAction(fn: (ids: string[]) => void): () => void;
+      keymap(): Promise<{ file?: unknown; error?: string }>;
+      onKeymapChanged(fn: (k: { file?: unknown; error?: string }) => void): () => void;
       accounts: {
         list(): Promise<AccountRecord[]>;
         addGmail(loginHint?: string): Promise<AccountRecord>;

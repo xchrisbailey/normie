@@ -1,19 +1,36 @@
 // One keydown handler for the whole window. Resolves keys through the registry and runs the action.
 // Runs entirely in renderer memory: no message to another process on the key path.
-import { useEffect, useRef } from 'react';
-import { KeyResolver, tokenOf, type Context } from './commands/keys';
+import { useEffect, useRef, useState } from 'react';
+import { KeyResolver, tokenOf, type ActionDef, type Context } from './commands/keys';
+import { mergeKeymap } from './commands/keymap';
 import { ACTIONS, type ActionId } from './commands/registry';
 import { measureToNextFrame } from './perf';
 
 /** A handler may return a promise; the action is measured to the frame after it settles. */
 export type Handlers = Partial<Record<ActionId, () => void | Promise<unknown>>>;
 
-export function useKeys(context: Context, handlers: Handlers) {
+/** The registry with the user's keymap laid over it, plus any problems with the file. Updates when the file changes. */
+export function useKeymap() {
+  const [state, setState] = useState<{ actions: readonly ActionDef[]; problems: string[] }>({ actions: ACTIONS, problems: [] });
+  useEffect(() => {
+    const apply = (k: { file?: unknown; error?: string }) => {
+      const merged = mergeKeymap(ACTIONS, k.file);
+      const problems = k.error ? [k.error] : merged.problems;
+      for (const p of problems) console.warn(`[keymap] ${p}`);
+      setState({ actions: merged.actions, problems });
+    };
+    void window.normie.keymap().then(apply);
+    return window.normie.onKeymapChanged(apply);
+  }, []);
+  return state;
+}
+
+export function useKeys(context: Context, handlers: Handlers, actions: readonly ActionDef[] = ACTIONS) {
   const latest = useRef({ context, handlers });
   latest.current = { context, handlers };
 
   useEffect(() => {
-    const resolver = new KeyResolver(ACTIONS);
+    const resolver = new KeyResolver(actions);
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
@@ -32,5 +49,5 @@ export function useKeys(context: Context, handlers: Handlers) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [actions]);
 }

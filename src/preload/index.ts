@@ -22,6 +22,13 @@ contextBridge.exposeInMainWorld('normie', {
     ipcRenderer.on('menu:action', handler);
     return () => void ipcRenderer.off('menu:action', handler);
   },
+  /** The user's keymap file, parsed (or why it couldn't be). */
+  keymap: (): Promise<{ file?: unknown; error?: string }> => ipcRenderer.invoke('keymap:get'),
+  onKeymapChanged: (fn: (k: { file?: unknown; error?: string }) => void) => {
+    const handler = (_e: unknown, k: { file?: unknown; error?: string }) => fn(k);
+    ipcRenderer.on('keymap:changed', handler);
+    return () => void ipcRenderer.off('keymap:changed', handler);
+  },
   accounts: {
     list: (): Promise<AccountRecord[]> => ipcRenderer.invoke('accounts:list'),
     addGmail: (loginHint?: string): Promise<AccountRecord> => ipcRenderer.invoke('accounts:add-gmail', loginHint),

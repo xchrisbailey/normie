@@ -10,7 +10,7 @@ import { Reader } from './Reader';
 import { SyncBadge } from './SyncBadge';
 import { ThreadCache } from './thread-cache';
 import { ThreadList } from './ThreadList';
-import { useKeys, type Handlers } from './useKeys';
+import { useKeymap, useKeys, type Handlers } from './useKeys';
 
 const PREFETCH = 3;
 
@@ -265,7 +265,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
       if (rows[clamp(selected)]) setPalette('label');
     },
   };
-  useKeys(context, handlers);
+  const keymap = useKeymap();
+  useKeys(context, handlers, keymap.actions);
 
   /** Run a registry action by id, as the palette and the native menus do. Of several ids, the one that applies here. */
   const latest = useRef({ handlers, context });
@@ -283,7 +284,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const paletteItems = (mode: 'actions' | 'label'): PaletteItem[] => {
     const labelItems = rowLabels().map((l) => ({ id: LABEL_ITEM + l, name: mode === 'label' ? l : `Label: ${l}`, keywords: l }));
     if (mode === 'label') return labelItems;
-    return [...actionItems(ACTIONS, context, (id) => id !== 'palette.open' && !!handlers[id as keyof Handlers]), ...(rows.length ? labelItems : [])];
+    return [...actionItems(keymap.actions, context, (id) => id !== 'palette.open' && !!handlers[id as keyof Handlers]), ...(rows.length ? labelItems : [])];
   };
 
   return (
@@ -292,6 +293,11 @@ function Inbox({ core }: { core: CoreClient | null }) {
         <span className="split active">Inbox</span>
         <span className="count">{rows.length}</span>
         <SyncBadge core={core} />
+        {keymap.problems.length > 0 && (
+          <span className="keymap-note" title={keymap.problems.join('\n')}>
+            keymap.json: {keymap.problems.length} {keymap.problems.length === 1 ? 'problem' : 'problems'}
+          </span>
+        )}
         {accounts && <AccountBar accounts={accounts} />}
       </header>
       {empty ? (

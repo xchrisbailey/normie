@@ -13,6 +13,32 @@ A keyboard-first desktop mail client for Gmail, iCloud and any IMAP/SMTP server.
 | `npm run smoke` | Launch the app hidden with the fake provider and check the Inbox renders |
 | `npm run package` | Unsigned Mac build in `dist/` |
 | `npm run smoke:packaged` | The smoke check against the packaged app |
+| `npm run bench` | The performance budgets against a 100,000-message fixture |
+| `GMAIL_USER=you@domain npm run test:live` | Read-only checks against real Gmail (browser sign-in). Add `GMAIL_LIVE_WRITE=1` to also mark one message Done and put it back |
+
+## Keys
+
+`Cmd-K` opens the palette, which lists every action with its key.
+
+| | |
+|---|---|
+| `j` / `k`, `Enter`, `Esc` | Move, open a Thread, back to the list |
+| `e` | Done |
+| `#` | Delete (to Trash; `z` can bring it back for 10 s) |
+| `s` | Star or unstar |
+| `u` | Mark read or unread |
+| `m` | Mute: Done now and whenever new mail arrives in it |
+| `l` | Apply a Label |
+| `z` | Undo the last action |
+| `g i`, `g g`, `Shift-G` | Inbox, first Thread, last Thread |
+
+### Your own keys
+
+Put a `keymap.json` in the app's data folder (`~/Library/Application Support/normie/`). Each entry replaces an action's keys; `[]` unbinds it. Action ids are in `src/renderer/commands/registry.ts`. Changes apply without a restart. Problems (unknown actions, malformed keys, clashes) show as a note in the top bar, and the rest of the file still applies.
+
+```json
+{ "thread.done": ["e", "y"], "thread.star": "Shift-S", "thread.mute": [] }
+```
 
 ## Layout
 
