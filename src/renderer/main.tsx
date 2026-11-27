@@ -9,6 +9,8 @@ import { applyTheme, launchTheme } from './theme';
 
 // The theme first, so the first frame is already in the right colours.
 applyTheme(launchTheme());
+// On a Mac the header row sits under the window's traffic lights, so it needs room above it.
+document.documentElement.dataset.platform = window.normie.platform;
 
 // A file dropped anywhere but the composer is ignored, never opened in the window.
 for (const type of ['dragover', 'drop'] as const) {

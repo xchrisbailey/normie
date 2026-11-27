@@ -170,15 +170,32 @@ export function splitsFrom(file: unknown, accounts: Array<{ id: string; name: st
   return { splits: [inbox, ...out.filter((s) => s.id !== 'inbox')].map(awake).concat(SNOOZED_SPLIT), problems };
 }
 
-/** Each Split's count, in one pass over the rows. */
-export function splitCounts(splits: Array<SplitDef>, rows: Array<ThreadRow>): Map<string, number> {
-  const counts = new Map(splits.map((s) => [s.id, 0]));
+/** What a Split's tab shows: how many Threads, whether any is unread, and its newest few for the peek. */
+export interface SplitSummary {
+  count: number;
+  unread: boolean;
+  newest: Array<ThreadRow>;
+}
+
+/** Each Split's summary, in one pass over the rows (newest first, as the list keeps them). */
+export function splitSummaries(splits: Array<SplitDef>, rows: Array<ThreadRow>, peek = 3): Map<string, SplitSummary> {
+  const out = new Map(splits.map((s): [string, SplitSummary] => [s.id, { count: 0, unread: false, newest: [] }]));
   for (const r of rows) {
     for (const s of splits) {
-      if (s.match(r)) {
-        counts.set(s.id, (counts.get(s.id) ?? 0) + 1);
+      const sum = out.get(s.id);
+      if (sum && s.match(r)) {
+        sum.count++;
+        sum.unread ||= r.unread;
+        if (sum.newest.length < peek) {
+          sum.newest.push(r);
+        }
       }
     }
   }
-  return counts;
+  return out;
+}
+
+/** Each Split's count, in one pass over the rows. */
+export function splitCounts(splits: Array<SplitDef>, rows: Array<ThreadRow>): Map<string, number> {
+  return new Map([...splitSummaries(splits, rows, 0)].map(([id, s]) => [id, s.count]));
 }

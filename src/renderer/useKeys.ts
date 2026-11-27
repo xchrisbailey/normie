@@ -76,6 +76,10 @@ export function useKeys(context: Context, handlers: Handlers, actions: ReadonlyA
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) {
         return;
       }
+      // An open menu (More, in the header) takes its own arrows, Enter and letters.
+      if (target?.closest('[role="menu"]')) {
+        return;
+      }
       // While a form or the palette is open, keys are its own: none reach the list behind it.
       if (document.querySelector('.palette-backdrop')) {
         return;
