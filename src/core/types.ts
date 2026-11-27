@@ -266,6 +266,8 @@ export interface RowTags {
   known: boolean;
   /** The other person in the Thread (its latest sender who isn't me), lowercased. */
   sender?: string;
+  /** The Thread's own Labels (Gmail; system ones left out). */
+  labels?: string[];
 }
 
 export interface ThreadMessage {

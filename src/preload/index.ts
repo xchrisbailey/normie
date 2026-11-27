@@ -39,6 +39,12 @@ contextBridge.exposeInMainWorld('normie', {
     ipcRenderer.on('snippets:changed', handler);
     return () => void ipcRenderer.off('snippets:changed', handler);
   },
+  splits: (): Promise<{ file?: unknown; error?: string }> => ipcRenderer.invoke('splits:get'),
+  onSplitsChanged: (fn: (k: { file?: unknown; error?: string }) => void) => {
+    const handler = (_e: unknown, k: { file?: unknown; error?: string }) => fn(k);
+    ipcRenderer.on('splits:changed', handler);
+    return () => void ipcRenderer.off('splits:changed', handler);
+  },
   accounts: {
     list: (): Promise<AccountRecord[]> => ipcRenderer.invoke('accounts:list'),
     addGmail: (loginHint?: string): Promise<AccountRecord> => ipcRenderer.invoke('accounts:add-gmail', loginHint),

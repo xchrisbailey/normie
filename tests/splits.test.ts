@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createCore, type TestCore } from '../src/core/core';
 import { FakeProvider, fakeExtractText } from '../src/core/fake-provider';
 import type { ThreadRow } from '../src/core/types';
-import { builtInSplits, splitCounts } from '../src/renderer/splits';
+import { builtInSplits, splitCounts, splitsFrom } from '../src/renderer/splits';
 import { isListMail } from '../src/sync/imap-provider';
 
 const NOW = Date.UTC(2026, 10, 27, 12);
@@ -82,5 +82,59 @@ describe('Splits', () => {
     expect((await core.rows('inbox'))[0]!.tags!.newsletter).toBe(false);
     while (core.data.backfillListFlags(10));
     expect((await core.rows('inbox'))[0]!.tags!.newsletter).toBe(true);
+  });
+});
+
+describe('splits.json', () => {
+  const accounts = [{ id: 'gmail:work@acme.com', name: 'work@acme.com' }, { id: 'icloud:me', name: 'me@icloud.com' }];
+  const row = (over: Omit<Partial<ThreadRow>, 'tags'> & { tags?: Partial<NonNullable<ThreadRow['tags']>> } = {}): ThreadRow => ({
+    key: 'k', accountId: 'gmail:work@acme.com', subject: 's', from: 'f', date: 0, snippet: '', unread: false, starred: false, count: 1,
+    ...over, tags: { newsletter: false, vip: false, known: false, ...over.tags },
+  });
+
+  it('keeps the built-ins when there is no file', () => {
+    const { splits, problems } = splitsFrom(undefined, accounts);
+    expect(problems).toEqual([]);
+    expect(splits.map((s) => s.id)).toEqual(['inbox', 'important', 'other', 'newsletters', 'vip', 'account:gmail:work@acme.com', 'account:icloud:me']);
+    expect(splits.filter((s) => s.notify).map((s) => s.id)).toEqual(['important']);
+  });
+
+  it('orders, renames and hides built-ins, places the Account tabs, and always starts with Inbox', () => {
+    const { splits } = splitsFrom([{ id: 'newsletters', name: 'Reading' }, { id: 'accounts' }, { id: 'important', notify: false }], accounts);
+    expect(splits.map((s) => s.name)).toEqual(['Inbox', 'Reading', 'work@acme.com', 'me@icloud.com', 'Important']);
+    expect(splits.some((s) => s.notify)).toBe(false);
+  });
+
+  it('matches my own Splits on every rule given', () => {
+    const { splits, problems } = splitsFrom([
+      { id: 'acme', name: 'Acme', from: ['@acme.com', 'boss@elsewhere.com'], newsletter: false, notify: true },
+      { id: 'home', name: 'Home', account: 'me@icloud.com' },
+      { id: 'clients', name: 'Clients', label: 'Clients' },
+      { id: 'vips', name: 'VIP lists', vip: true, newsletter: true },
+    ], accounts);
+    expect(problems).toEqual([]);
+    const by = (id: string) => splits.find((s) => s.id === id)!;
+    expect(by('acme').match(row({ tags: { sender: 'ana@acme.com' } }))).toBe(true);
+    expect(by('acme').match(row({ tags: { sender: 'boss@elsewhere.com' } }))).toBe(true);
+    expect(by('acme').match(row({ tags: { sender: 'ana@acme.com', newsletter: true } }))).toBe(false);
+    expect(by('acme').match(row({ tags: { sender: 'x@notacme.com' } }))).toBe(false);
+    expect(by('acme').notify).toBe(true);
+    expect(by('home').match(row({ accountId: 'icloud:me' }))).toBe(true);
+    expect(by('home').match(row())).toBe(false);
+    expect(by('clients').match(row({ tags: { labels: ['clients'] } }))).toBe(true);
+    expect(by('vips').match(row({ tags: { vip: true, newsletter: true } }))).toBe(true);
+    expect(by('vips').match(row({ tags: { vip: true } }))).toBe(false);
+  });
+
+  it('reports problems and skips just those entries', () => {
+    const { splits, problems } = splitsFrom([
+      { id: 'Bad Id' }, { id: 'nameless', from: '@x.com' }, { id: 'vip', from: '@x.com' }, { id: 'vip' },
+      { id: 'who', name: 'Who', account: 'nobody@nowhere' }, { id: 'odd', name: 'Odd', colour: 'red' }, 'nope',
+    ], accounts);
+    // Bad id, nameless, rules on a built-in, unknown Account, unknown setting, not an object. A broken Split is left out.
+    expect(problems).toHaveLength(6);
+    expect(splits.map((s) => s.id)).toEqual(['inbox', 'vip', 'odd']);
+    expect(splitsFrom([{ id: 'vip' }, { id: 'vip' }], accounts).problems).toEqual(['"vip" is listed twice; the first one is kept.']);
+    expect(splitsFrom({ not: 'a list' }, accounts).problems).toHaveLength(1);
   });
 });

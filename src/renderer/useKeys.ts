@@ -26,6 +26,16 @@ export function useKeymap() {
   return state;
 }
 
+/** splits.json as read (or why it couldn't be). Updates when the file changes. */
+export function useSplitsFile() {
+  const [state, setState] = useState<{ file?: unknown; error?: string }>({});
+  useEffect(() => {
+    void window.normie.splits().then(setState);
+    return window.normie.onSplitsChanged(setState);
+  }, []);
+  return state;
+}
+
 /** Snippets from snippets.json, plus any problems with it. Updates when the file changes. */
 export function useSnippets() {
   const [state, setState] = useState<{ snippets: Snippet[]; problems: string[] }>({ snippets: [], problems: [] });

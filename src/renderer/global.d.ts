@@ -25,6 +25,8 @@ declare global {
       keymap(): Promise<{ file?: unknown; error?: string }>;
       onKeymapChanged(fn: (k: { file?: unknown; error?: string }) => void): () => void;
       snippets(): Promise<{ file?: unknown; error?: string }>;
+      splits(): Promise<{ file?: unknown; error?: string }>;
+      onSplitsChanged(fn: (k: { file?: unknown; error?: string }) => void): () => void;
       onSnippetsChanged(fn: (k: { file?: unknown; error?: string }) => void): () => void;
       accounts: {
         list(): Promise<AccountRecord[]>;

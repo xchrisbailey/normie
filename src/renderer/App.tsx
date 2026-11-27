@@ -12,9 +12,9 @@ import type { FrameHandle } from './MailFrame';
 import { blockedMessages, Reader } from './Reader';
 import { SyncBadge } from './SyncBadge';
 import { ThreadCache } from './thread-cache';
-import { builtInSplits, splitCounts } from './splits';
+import { splitCounts, splitsFrom } from './splits';
 import { ThreadList } from './ThreadList';
-import { useKeymap, useKeys, useSnippets, type Handlers } from './useKeys';
+import { useKeymap, useKeys, useSnippets, useSplitsFile, type Handlers } from './useKeys';
 
 const PREFETCH = 3;
 
@@ -68,7 +68,13 @@ function Inbox({ core }: { core: CoreClient | null }) {
   );
   const accountName = useCallback((id: string) => accounts?.find((a) => a.id === id)?.email ?? id, [accounts]);
   // …split into tabs by local rules; the rows shown are the open Split's (Tab and Shift-Tab, 1–9 for an Account).
-  const splits = useMemo(() => builtInSplits(accountOrder.map((id) => ({ id, name: accountName(id) }))), [accountOrder, accountName]);
+  const splitsFile = useSplitsFile();
+  const { splits, problems: splitProblems } = useMemo(() => {
+    const parsed = splitsFrom(splitsFile.file, accountOrder.map((id) => ({ id, name: accountName(id) })));
+    const problems = splitsFile.error ? [splitsFile.error] : parsed.problems;
+    for (const p of problems) console.warn(`[splits] ${p}`);
+    return { splits: parsed.splits, problems };
+  }, [splitsFile, accountOrder, accountName]);
   const [splitId, setSplitId] = useState('inbox');
   const split = splits.find((s) => s.id === splitId) ?? splits[0]!;
   const filterOf = useCallback((list: ThreadRow[]) => (split.id === 'inbox' ? list : list.filter(split.match)), [split]);
@@ -496,6 +502,11 @@ function Inbox({ core }: { core: CoreClient | null }) {
         </nav>
         <SyncBadge core={core} />
         {note && <span className="sync-note">{note}</span>}
+        {splitProblems.length > 0 && (
+          <span className="keymap-note" title={splitProblems.join('\n')}>
+            splits.json: {splitProblems.length} {splitProblems.length === 1 ? 'problem' : 'problems'}
+          </span>
+        )}
         {snippetProblems.length > 0 && (
           <span className="keymap-note" title={snippetProblems.join('\n')}>
             snippets.json: {snippetProblems.length} {snippetProblems.length === 1 ? 'problem' : 'problems'}
