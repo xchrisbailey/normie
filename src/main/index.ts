@@ -37,7 +37,7 @@ const noRealAccounts = provider === 'fake' || provider === 'none';
 const launchedAt = performance.now();
 // Smoke runs never touch the real Accounts or mail database; benchmark runs can name their own folder.
 if (process.env.NORMIE_USER_DATA) {
-  app.setPath('userData', process.env.NORMIE_USER_DATA);
+  app.setPath('userData', path.resolve(process.env.NORMIE_USER_DATA));
 } else if (smoke) {
   app.setPath('userData', path.join(app.getPath('temp'), `normie-smoke-${process.pid}`));
 }
@@ -235,7 +235,13 @@ function createWindow() {
   if (!smoke && !bench && !coldStartRun) {
     showTimer = setTimeout(() => showWindow(w), 3000);
   }
-  void w.loadFile(path.join(__dirname, '../renderer/index.html'));
+  // npm run dev serves the window from Vite (hot reload); everything else, the packaged app included, loads the build.
+  const devUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL;
+  if (devUrl) {
+    void w.loadURL(devUrl);
+  } else {
+    void w.loadFile(path.join(__dirname, '../renderer/index.html'));
+  }
 }
 
 let quitting = false;
