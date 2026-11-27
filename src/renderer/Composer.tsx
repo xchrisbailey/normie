@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { formatAddresses, parseAddresses } from '../core/addresses';
 import { AddressField } from './AddressField';
+import { WhenPicker } from './WhenPicker';
 import { expandAt, insertAt, type Snippet } from './commands/snippets';
 import type { Address, DraftContent, OutgoingMessage } from '../core/types';
 
@@ -42,7 +43,8 @@ export interface ComposerHandle {
 export default function Composer({ start, identities, onSend, onClose, onSaveDraft, onDiscard, suggest, snippets, handle }: {
   start: ComposeStart;
   identities: Identity[];
-  onSend: (m: OutgoingMessage, draftId?: number) => void;
+  /** `sendAt` for Send Later. */
+  onSend: (m: OutgoingMessage, draftId?: number, sendAt?: number) => void;
   onClose: () => void;
   /** Save the draft; resolves with its id. */
   onSaveDraft: (draftId: number | null, content: DraftContent) => Promise<number>;
@@ -148,7 +150,8 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
     if (field === bodyField.current) bodyField.current?.setSelectionRange(0, 0);
   }, []);
 
-  const send = () => {
+  const [picking, setPicking] = useState(false);
+  const send = (sendAt?: number) => {
     const id = identities[identity];
     if (!id) return setError('Add an Account before sending.');
     const lists = [parseAddresses(to), parseAddresses(cc), parseAddresses(bcc)];
@@ -166,12 +169,16 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
       ...(attachments.length ? { attachments } : {}),
     };
     // Wait for a save in flight, so the draft it creates is the one removed.
-    if (saving.current) void saving.current.then((d) => onSend(message, d));
-    else onSend(message, draftId.current ?? undefined);
+    if (saving.current) void saving.current.then((d) => onSend(message, d, sendAt));
+    else onSend(message, draftId.current ?? undefined, sendAt);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+      // Send Later: choose when first.
+      e.preventDefault();
+      setPicking(true);
+    } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       send();
     } else if (e.key === 'Escape') {
@@ -250,15 +257,17 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
           ))}
         </ul>
       )}
+      {picking && <WhenPicker title="Send at" onClose={() => { setPicking(false); bodyField.current?.focus(); }} onPick={(at) => { setPicking(false); send(at); }} />}
       <input ref={picker} type="file" multiple hidden onChange={(e) => {
         attach(e.target.files);
         e.target.value = '';
       }} />
       <footer>
-        {error ? <span className="error">{error}</span> : <span className="hint">Markdown · ⌘↩ send · ⌘⇧A attach · Esc keeps a draft · ⌘⇧⌫ discard</span>}
+        {error ? <span className="error">{error}</span> : <span className="hint">Markdown · ⌘↩ send · ⌘⇧↩ send later · ⌘⇧A attach · Esc keeps a draft · ⌘⇧⌫ discard</span>}
         <span className="actions">
           <button type="button" className="quiet" onClick={discard}>Discard</button>
-          <button type="button" className="primary" onClick={send}>Send</button>
+          <button type="button" className="quiet" onClick={() => setPicking(true)}>Send Later…</button>
+          <button type="button" className="primary" onClick={() => send()}>Send</button>
         </span>
       </footer>
     </section>

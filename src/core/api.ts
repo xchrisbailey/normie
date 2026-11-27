@@ -1,6 +1,6 @@
 // The contract between the renderer and the core. No runtime dependencies, so the renderer can import it.
 import type { Original } from './reply';
-import type { Address, DraftContent, DraftSummary, LabelSet, OutgoingMessage, PendingStatus, SplitId, ThreadAction, ThreadMessage, ThreadRow } from './types';
+import type { Address, ScheduledSummary, DraftContent, DraftSummary, LabelSet, OutgoingMessage, PendingStatus, SplitId, ThreadAction, ThreadMessage, ThreadRow } from './types';
 
 /** What the renderer can ask of the core. Every method is async because it crosses a MessagePort in the app. */
 export interface CoreApi {
@@ -9,7 +9,9 @@ export interface CoreApi {
   /** A triage action on a Thread. The store changes at once; the server catches up. Returns the pending change ids. */
   act(key: string, action: ThreadAction): Promise<number[]>;
   /** Put a message in the Outbox; it goes out after the undo window. Returns its Outbox id. Its draft, if any, goes. */
-  send(message: OutgoingMessage, draftId?: number): Promise<number>;
+  send(message: OutgoingMessage, draftId?: number, sendAt?: number): Promise<number>;
+  /** Messages set to go out later (Send Later). */
+  scheduled(): Promise<ScheduledSummary[]>;
   /** Save a draft (new when `id` is null); kept here and synced to the Drafts mailbox. Returns its id. */
   saveDraft(id: number | null, content: DraftContent): Promise<number>;
   deleteDraft(id: number): Promise<void>;
@@ -35,4 +37,4 @@ export interface CoreApi {
   pending(): Promise<PendingStatus>;
 }
 
-export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment', 'send', 'cancelSend', 'original', 'saveDraft', 'deleteDraft', 'drafts', 'draft', 'contacts', 'setVip'] as const satisfies readonly (keyof CoreApi)[];
+export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment', 'send', 'cancelSend', 'original', 'saveDraft', 'deleteDraft', 'drafts', 'draft', 'contacts', 'setVip', 'scheduled'] as const satisfies readonly (keyof CoreApi)[];

@@ -5,7 +5,7 @@ import type { Original } from './reply';
 import { parseThreadKey } from './keys';
 import type { BodyInput, Store } from './store';
 import type {
-  AccountId, Address, AttachmentInfo, ChangeResult, ChangeSet, LabelSet, DraftContent, DraftSummary, DraftToSync, OutboxItem, OutgoingMessage, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
+  AccountId, Address, AttachmentInfo, ChangeResult, ChangeSet, ScheduledSummary, LabelSet, DraftContent, DraftSummary, DraftToSync, OutboxItem, OutgoingMessage, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
 } from './types';
 
 /** Reads stored messages (mailparser in the app). Injected, so the core can run without it. */
@@ -49,9 +49,11 @@ export class DataService {
   // --- Sending
 
   /** Put a message in the Outbox. It goes out after the undo window. Returns its Outbox id. Its draft, if any, goes. */
-  send(message: OutgoingMessage, draftId?: number): number {
+  send(message: OutgoingMessage, draftId?: number, sendAt?: number): number {
     if (draftId !== undefined) this.deleteDraft(draftId);
-    const id = this.store.queueSend(message, newMessageId(message.from), this.now() + this.undoSendMs, this.now());
+    // Send Later: at the time chosen. Otherwise after the undo window.
+    const at = sendAt !== undefined && sendAt > this.now() ? sendAt : this.now() + this.undoSendMs;
+    const id = this.store.queueSend(message, newMessageId(message.from), at, this.now());
     this.emitPending();
     this.outboxRequester?.(message.accountId);
     return id;
@@ -139,6 +141,11 @@ export class DataService {
     const m = this.store.cancelSend(id);
     this.emitPending();
     return m;
+  }
+
+  /** Messages scheduled with Send Later (beyond the undo window). */
+  scheduled(): ScheduledSummary[] {
+    return this.store.scheduled(this.now() + this.undoSendMs);
   }
 
   dueOutbox(accountId: AccountId): OutboxItem[] {

@@ -634,13 +634,34 @@ async function smokeKeys(w: BrowserWindow) {
   await press('Return');
   await new Promise((r) => setTimeout(r, 300));
   const snooze = pickerShows.startsWith('Tomorrow, 9') && (await tabCount('Inbox')) === inboxBefore - 1 && (await tabCount('Snoozed')) === 1;
+  // Send Later: Cmd-Shift-Enter, "tomorrow 9", Enter → scheduled; Cmd-K "scheduled" reopens it.
+  await press('c');
+  await new Promise((r) => setTimeout(r, 300));
+  await typeText('ada@example.com');
+  await press('Return', 1, ['meta', 'shift']);
+  await new Promise((r) => setTimeout(r, 200));
+  for (const ch of 'tomorrow 9') w.webContents.sendInputEvent({ type: 'char', keyCode: ch });
+  await new Promise((r) => setTimeout(r, 100));
+  await press('Return');
+  await new Promise((r) => setTimeout(r, 300));
+  const scheduledNote = (await w.webContents.executeJavaScript(`document.querySelector('.sync-note')?.textContent ?? ''`)) as string;
+  await press('K', 1, ['meta']);
+  await new Promise((r) => setTimeout(r, 300));
+  await typeText('scheduled');
+  const listed = (await w.webContents.executeJavaScript(`[...document.querySelectorAll('.palette li span')].map((s) => s.textContent).join('|')`)) as string;
+  await press('Return');
+  await new Promise((r) => setTimeout(r, 300));
+  const reopenedTo = (await w.webContents.executeJavaScript(`document.querySelector('.composer input:not([type=file])')?.value ?? ''`)) as string;
+  await press('Escape');
+  const sendLater = scheduledNote.startsWith('Scheduled for Tomorrow, 9') && listed.includes('Scheduled: ') && reopenedTo === 'ada@example.com';
+
   // Closing the window keeps Normie running: the window hides, the page still answers, the menu bar item stays.
   w.close();
   await new Promise((r) => setTimeout(r, 200));
   const stillAnswers = (await w.webContents.executeJavaScript('1 + 1').catch(() => 0)) === 2;
   const keepsRunning = !w.isDestroyed() && !w.isVisible() && stillAnswers && !!tray && !tray.isDestroyed();
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick && snooze && keepsRunning;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick, snooze, keepsRunning };
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick && snooze && keepsRunning && sendLater;
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick, snooze, keepsRunning, sendLater, scheduledNote };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };

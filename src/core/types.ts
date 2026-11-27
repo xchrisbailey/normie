@@ -153,6 +153,15 @@ export interface DraftToSync {
   content: DraftContent;
 }
 
+/** A message waiting in the Outbox for a later time (Send Later). */
+export interface ScheduledSummary {
+  id: number;
+  accountId: AccountId;
+  subject: string;
+  to: string;
+  sendAt: number;
+}
+
 /** A message in the Outbox, as the sync process sends it. */
 export interface OutboxItem {
   id: number;
