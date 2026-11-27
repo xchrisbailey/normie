@@ -1,4 +1,5 @@
 import type { ThreadRow } from '../core/types';
+import type { Appearance } from '../core/appearance';
 import type { ActiveTheme, ThemeChoice, ThemeList } from '../core/vscode-theme';
 
 export {};
@@ -39,6 +40,10 @@ declare global {
         choose(choice: ThemeChoice): Promise<ActiveTheme>;
         onChanged(fn: (t: ActiveTheme) => void): () => void;
         onListChanged(fn: (l: ThemeList) => void): () => void;
+      };
+      appearance: {
+        current(): Appearance;
+        set(a: Appearance): Promise<Appearance>;
       };
       toggleLoginItem(): Promise<{ on: boolean; packaged: boolean }>;
       loginItem(): Promise<{ on: boolean; packaged: boolean }>;

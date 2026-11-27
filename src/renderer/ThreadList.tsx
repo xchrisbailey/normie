@@ -5,12 +5,13 @@ import type { Range } from '@tanstack/react-virtual';
 import { Listbox, ListboxItem, createListboxController } from '@ui-sdk/react/listbox';
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
+import { ROW_HEIGHT } from '../core/appearance';
 import type { ThreadRow } from '../core/types';
 import { ActionTip } from './ActionTip';
+import { reducedMotion, useAppearance } from './appearance';
 import type { ActionRunner } from './ActionTip';
 import { DoneIcon, SnoozeIcon } from './icons';
 
-const ROW_HEIGHT = 44;
 const dateFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 
@@ -100,8 +101,6 @@ const RowFace = memo(function RowFace({ row, marker, actions }: { row: ThreadRow
   );
 });
 
-const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
 /** Memoized: opening the palette or an overlay shouldn't re-render the list. */
 export const ThreadList = memo(function ThreadList({
   rows,
@@ -136,8 +135,10 @@ export const ThreadList = memo(function ThreadList({
     const s = keep.current;
     return s < range.count && !indexes.includes(s) ? [...indexes, s].sort((a, b) => a - b) : indexes;
   }, []);
+  const rowHeight = ROW_HEIGHT[useAppearance().density];
   // oxlint-disable-next-line react/incompatible-library -- no React Compiler here: the list is memoized by hand and redraws when its props change
-  const v = useVirtualizer({ count: rows.length, getScrollElement: () => scroller.current, estimateSize: () => ROW_HEIGHT, overscan: 12, rangeExtractor });
+  const v = useVirtualizer({ count: rows.length, getScrollElement: () => scroller.current, estimateSize: () => rowHeight, overscan: 12, rangeExtractor });
+  useLayoutEffect(() => v.measure(), [v, rowHeight]);
 
   const value = rows[selected]?.key ?? null;
   // Keys move the selection through the app's keymap, so the highlight a screen reader follows is moved to match.

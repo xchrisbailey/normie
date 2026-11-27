@@ -5,6 +5,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { afterEach, beforeAll, expect, test, vi } from 'vitest';
+import type { Appearance } from '../src/core/appearance';
 import type { ActiveTheme, ThemeChoice, ThemeSummary } from '../src/core/vscode-theme';
 import { SettingsPanel } from '../src/renderer/SettingsPanel';
 
@@ -50,8 +51,14 @@ const named = () => agent.snapshot().filter((e) => !e.offPage && e.component !==
 test('an agent can find and change every setting', async () => {
   const setLoginItem = vi.fn(async (on: boolean) => ({ on, packaged: true }));
   const remove = vi.fn(async () => {});
+  const saveAppearance = vi.fn(async (a: Appearance) => a);
   Object.assign(window, {
-    normie: { loginItem: async () => ({ on: true, packaged: true }), setLoginItem, accounts: { remove, addGmail: async () => accounts[0] } },
+    normie: {
+      loginItem: async () => ({ on: true, packaged: true }),
+      setLoginItem,
+      accounts: { remove, addGmail: async () => accounts[0] },
+      appearance: { set: saveAppearance },
+    },
   });
   const chosen: Array<ThemeChoice> = [];
   const container = document.createElement('div');
@@ -88,6 +95,27 @@ test('an agent can find and change every setting', async () => {
   result = await act(async () => agent.act({ steps: [{ ref: 'Match the system’s light and dark', action: 'setChecked', args: [true] }] }));
   expect(result.ok, result.error?.message).toBe(true);
   expect(chosen).toContainEqual({ mode: 'system', light: 'normie-light', dark: 'normie-dark' });
+
+  // Text and layout take at once, on the page, and are saved.
+  for (const [ref, value] of [
+    ['Font', 'serif'],
+    ['Text size', '15'],
+    ['Row height', 'compact'],
+    ['Column width', 'wide'],
+  ] as const) {
+    result = await act(async () => agent.act({ steps: [{ ref, action: 'setValue', args: [value] }] }));
+    expect(result.ok, `${ref}: ${result.error?.message}`).toBe(true);
+  }
+  result = await act(async () => agent.act({ steps: [{ ref: 'Reduce motion', action: 'setChecked', args: [true] }] }));
+  expect(result.ok, result.error?.message).toBe(true);
+  const page = document.documentElement;
+  expect([page.dataset.font, page.dataset.motion, page.style.getPropertyValue('--column'), page.style.getPropertyValue('--row-h')]).toEqual([
+    'serif',
+    'reduced',
+    '900px',
+    '36px',
+  ]);
+  expect(saveAppearance).toHaveBeenLastCalledWith({ font: 'serif', size: 15, density: 'compact', width: 'wide', reduceMotion: true });
 
   result = await act(async () => agent.act({ steps: [{ ref: 'Settings', action: 'setValue', args: ['general'] }] }));
   expect(result.ok, result.error?.message).toBe(true);

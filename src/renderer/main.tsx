@@ -5,10 +5,12 @@ import { waitForCore } from './core-client';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import './styles.css';
+import { applyAppearance } from './appearance';
 import { applyTheme, launchTheme } from './theme';
 
-// The theme first, so the first frame is already in the right colours.
+// The theme and the rest of the appearance first, so the first frame is already right.
 applyTheme(launchTheme());
+applyAppearance(window.normie.appearance.current());
 // On a Mac the header row sits under the window's traffic lights, so it needs room above it.
 document.documentElement.dataset.platform = window.normie.platform;
 

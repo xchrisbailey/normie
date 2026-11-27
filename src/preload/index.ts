@@ -1,6 +1,7 @@
 // Preload: the only bridge between the sandboxed renderer and Electron.
 // It forwards the core's MessagePort into the page and exposes a tiny API. No Node APIs reach the page.
 import { contextBridge, ipcRenderer, webFrame } from 'electron';
+import type { Appearance } from '../core/appearance';
 import type { ActiveTheme, ThemeChoice, ThemeList } from '../core/vscode-theme';
 
 ipcRenderer.on('core-port', (e) => window.postMessage('normie:core-port', '*', e.ports));
@@ -53,6 +54,15 @@ contextBridge.exposeInMainWorld('normie', {
       ipcRenderer.on('themes:changed', handler);
       return () => void ipcRenderer.off('themes:changed', handler);
     },
+  },
+  appearance: {
+    /** Font, size, density, width and motion, read before the first frame like the theme. */
+    current: (): Appearance => {
+      const a: unknown = ipcRenderer.sendSync('appearance:current');
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- main answers with appearanceFrom(), typed there
+      return a as Appearance;
+    },
+    set: (a: Appearance): Promise<Appearance> => ipcRenderer.invoke('appearance:set', a),
   },
   /** The Inbox count, for the menu bar. */
   setInboxCount: (n: number) => ipcRenderer.send('inbox-count', n),
