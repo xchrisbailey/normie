@@ -1,7 +1,7 @@
 // The main process: windows, process wiring and (later) sign-in and secrets.
 import { app, BrowserWindow, ipcMain, Menu, MessageChannelMain, shell, utilityProcess, type MenuItemConstructorOptions, type UtilityProcess } from 'electron';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { mainPortChannel, serve } from '../core/rpc';
@@ -10,6 +10,7 @@ import { Accounts, type AccountRecord } from './auth/accounts';
 import { JsonAccountList, SafeStorageSecrets } from './auth/electron-stores';
 import { loadGoogleClient } from './auth/google-oauth';
 import { BUDGETS } from '../core/budgets';
+import { mergeKeymap } from '../renderer/commands/keymap';
 import { menuSections } from '../renderer/commands/menu';
 import { ACTIONS } from '../renderer/commands/registry';
 
@@ -333,8 +334,15 @@ async function smokeKeys(w: BrowserWindow) {
   const labelItems = (await w.webContents.executeJavaScript(`[...document.querySelectorAll('.palette li span')].map((s) => s.textContent)`)) as string[];
   await press('Escape');
   const label = labelItems.includes('Receipts');
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label;
-  return { ok, start, afterJ, afterK, afterGG, reader, done, undone, starred, palette, label };
+  // keymap.json is picked up without a restart: bind star to y, and y toggles the selected Thread's star.
+  const isStarred = () => w.webContents.executeJavaScript(`!!document.querySelector('.row.selected .star')`) as Promise<boolean>;
+  const starBefore = await isStarred();
+  writeFileSync(keymapPath(), JSON.stringify({ 'thread.star': 'y' }));
+  await new Promise((r) => setTimeout(r, 600));
+  await press('y');
+  const keymapOk = (await isStarred()) !== starBefore;
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk;
+  return { ok, start, afterJ, afterK, afterGG, reader, done, undone, starred, palette, label, keymap: keymapOk };
 }
 
 ipcMain.handle('accounts:list', () => accounts.list());
@@ -346,9 +354,44 @@ ipcMain.handle('accounts:add-gmail', async (_e, loginHint?: string): Promise<Acc
 });
 ipcMain.handle('accounts:remove', (_e, id: string) => accounts.remove(id));
 
-/** Native menus: the standard Mac menus plus Go, Thread and View built from the registry. */
+// --- Keymap: the user's key overrides, in keymap.json next to the store. Read at launch and whenever it changes.
+
+type KeymapFile = { file?: unknown; error?: string };
+const keymapPath = () => path.join(app.getPath('userData'), 'keymap.json');
+let keymap: KeymapFile = {};
+
+function readKeymap(): KeymapFile {
+  if (!existsSync(keymapPath())) return {};
+  try {
+    return { file: JSON.parse(readFileSync(keymapPath(), 'utf8')) as unknown };
+  } catch (e) {
+    return { error: `keymap.json isn't valid JSON: ${(e as Error).message}` };
+  }
+}
+
+function watchKeymap() {
+  keymap = readKeymap();
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    // Watch the folder, not the file: editors often save by replacing it.
+    watch(app.getPath('userData'), (_event, name) => {
+      if (name !== 'keymap.json') return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        keymap = readKeymap();
+        buildMenu();
+        win?.webContents.send('keymap:changed', keymap);
+      }, 100);
+    });
+  } catch (e) {
+    console.error(`[main] can't watch keymap.json: ${(e as Error).message}`);
+  }
+}
+ipcMain.handle('keymap:get', () => keymap);
+
+/** Native menus: the standard Mac menus plus Go, Thread and View built from the registry, with the user's keys. */
 function buildMenu() {
-  const fromRegistry: MenuItemConstructorOptions[] = menuSections(ACTIONS).map((s) => ({
+  const fromRegistry: MenuItemConstructorOptions[] = menuSections(mergeKeymap(ACTIONS, keymap.file).actions).map((s) => ({
     label: s.label,
     submenu: s.entries.map((e) => ({
       label: e.label,
@@ -367,6 +410,7 @@ function buildMenu() {
 }
 
 app.whenReady().then(() => {
+  watchKeymap();
   buildMenu();
   loadSnapshot();
   initAccounts();
