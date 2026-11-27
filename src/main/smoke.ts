@@ -26,13 +26,14 @@ export async function runSmoke(w: BrowserWindow, info: { rows: number; view: 'li
   const settings = info.view === 'list' ? await smokeSettings(w) : undefined;
   const list = info.view === 'list' ? await smokeList(w) : undefined;
   const quiet = info.view === 'list' ? await smokeQuiet(w) : undefined;
+  const allDone = info.view === 'list' ? await smokeAllDone(w) : undefined;
   const keys = info.view === 'list' ? await smokeKeys(w, ctx) : undefined;
   const empty = info.view === 'empty' ? await smokeEmpty(w) : undefined;
   const ok =
     info.view === 'list'
-      ? info.rows > 0 && !!keys?.ok && !!header?.ok && !!list?.ok && !!form?.ok && !!reauth?.ok && !!settings?.ok && !!quiet?.ok
+      ? info.rows > 0 && !!keys?.ok && !!header?.ok && !!list?.ok && !!form?.ok && !!reauth?.ok && !!settings?.ok && !!quiet?.ok && !!allDone?.ok
       : !ctx.noRealAccounts && info.view === 'empty' && !!empty?.ok;
-  return { ok, report: { ...info, msSinceLaunch, packaged: app.isPackaged, reauth, form, settings, quiet, keys, header, list, empty } };
+  return { ok, report: { ...info, msSinceLaunch, packaged: app.isPackaged, reauth, form, settings, quiet, allDone, keys, header, list, empty } };
 }
 
 /** "Sign in again" on an iCloud Account opens that Account's password form, filled in, not Google's sign-in. */
@@ -341,9 +342,42 @@ async function smokeQuiet(w: BrowserWindow) {
   return { ok, awake, faded, back };
 }
 
+/** Marking the last Newsletter Done leaves a calm "All done"; Undo brings it back. A search that finds nothing says so. */
+async function smokeAllDone(w: BrowserWindow) {
+  const d = drive(w);
+  const index = await d.js<number>(
+    `[...document.querySelectorAll('.splits .split')].findIndex((s) => s.querySelector('.split-name')?.textContent === 'Newsletters')`,
+  );
+  await d.clickAt(nthTab(index));
+  await sleep(500);
+  const rows = () => d.js<number>(`document.querySelectorAll('.row').length`);
+  const before = await rows();
+  await d.press('e', before);
+  await sleep(600);
+  const empty = await d.js<string>(`document.querySelector('.list-empty')?.textContent ?? ''`);
+  await d.shot('all-done');
+  await d.press('z');
+  await sleep(600);
+  const back = (await rows()) === before && (await d.js<boolean>(`!document.querySelector('.list-empty')`));
+  await d.press('0');
+  await sleep(300);
+  await d.press('/');
+  await sleep(200);
+  await d.type('qqzzxxnothing');
+  await sleep(400);
+  await d.press('Return');
+  await sleep(600);
+  const nothing = await d.js<string>(`document.querySelector('.list-empty')?.textContent ?? ''`);
+  await d.press('Escape');
+  await sleep(200);
+  const ok = before > 0 && empty.startsWith('All done') && empty.includes('Newsletters') && back && nothing.startsWith('Nothing matches');
+  return { ok, before, empty, back, nothing };
+}
+
 /** Smoke check with no Accounts: the iCloud form explains that the login must be the @icloud.com address. */
 async function smokeEmpty(w: BrowserWindow) {
   const d = drive(w);
+  const welcome = await d.js<string>(`document.querySelector('.empty .list-empty-title')?.textContent ?? ''`);
   await w.webContents.executeJavaScript(`document.querySelector('.or .link').click()`);
   await sleep(200);
   await drive(w).type('me@custom.example');
@@ -355,7 +389,7 @@ async function smokeEmpty(w: BrowserWindow) {
   await w.webContents.executeJavaScript(`document.querySelector('.sheet button[type=submit]').click()`);
   await sleep(300);
   const error = await d.js<string>(`document.querySelector('.sheet .account-error')?.textContent ?? ''`);
-  return { ok: /@icloud\.com address to sign in/.test(error), error: error.slice(0, 60) };
+  return { ok: welcome === 'Welcome to Normie' && /@icloud\.com address to sign in/.test(error), welcome, error: error.slice(0, 60) };
 }
 
 /** Smoke check: real key presses move the selection through the registry. */

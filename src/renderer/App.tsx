@@ -33,6 +33,7 @@ import { SettingsPanel } from './SettingsPanel';
 import type { SettingsTab } from './SettingsPanel';
 import { note, Toasts, useProblems } from './Toasts';
 import { ThreadList } from './ThreadList';
+import { ListEmpty } from './ListEmpty';
 import type { ActionRunner } from './ActionTip';
 import { useKeymap, useKeys, useSnippets, useSplitsFile } from './useKeys';
 import type { Handlers } from './useKeys';
@@ -936,6 +937,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
               onOpen={openKey}
               actions={runner}
             />
+            {!rows.length && (search ? !searchPanel && search.query.trim() !== '' : coreAnswered) && (
+              <ListEmpty split={split.name} {...(search ? { search: { query: search.query.trim(), server: search.server } } : {})} />
+            )}
           </div>
           {open && (
             <Reader

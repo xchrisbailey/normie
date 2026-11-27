@@ -919,8 +919,56 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  color: var(--subtext);
+  gap: 10px;
+  padding-bottom: 10vh;
+  text-align: center;
+  color: var(--fg2);
+}
+.empty .primary {
+  margin-top: 10px;
+}
+/* A Split with nothing left, or a search with nothing found: calm, centred over where the rows would be. */
+.list-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding-bottom: 12vh;
+  text-align: center;
+  pointer-events: none;
+  animation: list-empty-in 0.5s var(--ease) both;
+}
+@keyframes list-empty-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.done-mark {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 10px;
+  color: var(--accent);
+}
+.list-empty-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.list-empty-note {
+  margin: 0;
+  max-width: 44ch;
+  font-size: 13px;
+  color: var(--fg3);
+}
+@media (prefers-reduced-motion: reduce) {
+  .list-empty {
+    animation: none;
+  }
 }
 button.primary {
   font: inherit;

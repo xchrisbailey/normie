@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { errorMessage } from '../core/errors';
 import { AddPasswordAccount } from './AddAccount';
+import { DoneMark } from './icons';
 import type { PasswordProvider } from './AddAccount';
 
 export function useAccounts() {
@@ -62,11 +63,14 @@ export function EmptyState() {
   const [form, setForm] = useState<PasswordProvider | null>(null);
   return (
     <div className="empty">
-      <p>No Accounts yet.</p>
+      <DoneMark />
+      <h1 className="list-empty-title">Welcome to Normie</h1>
+      <p className="list-empty-note">Add an Account to start. Its mail is kept on this Mac, so the keys stay fast.</p>
       <button type="button" className="primary" disabled={busy} onClick={() => void add()}>
         {busy ? 'Waiting for Google in your browser…' : 'Add Gmail Account'}
       </button>
       <span className="or">
+        or{' '}
         <button type="button" className="link" onClick={() => setForm('icloud')}>
           Add iCloud
         </button>{' '}
