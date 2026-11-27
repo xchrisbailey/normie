@@ -35,6 +35,8 @@ const composeKey = (s: object) => composeKeys.get(s) ?? (composeKeys.set(s, ++ne
 const UNDO_SEND_WINDOW_MS = 4500;
 const LABEL_ITEM = 'label:';
 const DRAFT_ITEM = 'draft:';
+/** One color per Account, for the marker on each row. */
+const ACCOUNT_COLORS = ['#89b4fa', '#a6e3a1', '#fab387', '#f5c2e7', '#94e2d5', '#f9e2af', '#cba6f7', '#eba0ac', '#74c7ec'];
 const SNIPPET_ITEM = 'snippet:';
 
 /** Each Account's Labels, fetched once and again whenever the core says they changed. */
@@ -55,7 +57,12 @@ function useLabels(core: CoreClient | null) {
 
 function Inbox({ core }: { core: CoreClient | null }) {
   // The first frame draws the last Split from the snapshot; the core's rows replace it as soon as they arrive.
-  const [rows, setRows] = useState<ThreadRow[]>(() => window.normie.snapshot() ?? []);
+  // Every Account's Inbox Threads, interleaved by date (the Unified Inbox)…
+  const [allRows, setAllRows] = useState<ThreadRow[]>(() => window.normie.snapshot() ?? []);
+  // …and the ones shown: all of them, or one Account's (keys 1–9; 0 for all).
+  const [accountFilter, setAccountFilter] = useState<string | null>(null);
+  const filterOf = useCallback((list: ThreadRow[]) => (accountFilter ? list.filter((r) => r.accountId === accountFilter) : list), [accountFilter]);
+  const rows = useMemo(() => filterOf(allRows), [allRows, filterOf]);
   const fromSnapshot = useRef(true);
   const [coreAnswered, setCoreAnswered] = useState(false);
   const painted = useRef(false);
@@ -111,6 +118,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
   /** Recent triage actions, newest last, for z. */
   const undoStack = useRef<{ key: string; prev: ThreadRow; ids: Promise<number[]>; after?: ThreadAction }[]>([]);
   const loadRows = useRef<() => void>(() => {});
+  const filterRef = useRef<(r: ThreadRow[]) => ThreadRow[]>((r) => r);
+  filterRef.current = filterOf;
 
   // Rows for the visible Split live here, in renderer memory. Refreshed when the core says they changed.
   useEffect(() => {
@@ -122,10 +131,11 @@ function Inbox({ core }: { core: CoreClient | null }) {
         fromSnapshot.current = false;
         setCoreAnswered(true);
         r = withOverrides(r);
-        setRows(r);
+        setAllRows(r);
         // Keep the selection on the same Thread when rows above it change.
-        const i = selectedKey.current ? r.findIndex((x) => x.key === selectedKey.current) : -1;
-        setSelected((s) => (i >= 0 ? i : Math.min(s, Math.max(0, r.length - 1))));
+        const shown = filterRef.current(r);
+        const i = selectedKey.current ? shown.findIndex((x) => x.key === selectedKey.current) : -1;
+        setSelected((s) => (i >= 0 ? i : Math.min(s, Math.max(0, shown.length - 1))));
       });
     loadRows.current = () => void load();
     void load();
@@ -144,31 +154,31 @@ function Inbox({ core }: { core: CoreClient | null }) {
   // Keep the snapshot fresh for the next launch.
   useEffect(() => {
     if (fromSnapshot.current) return;
-    const t = setTimeout(() => window.normie.saveSnapshot(rows.slice(0, SNAPSHOT_ROWS)), 1000);
+    const t = setTimeout(() => window.normie.saveSnapshot(allRows.slice(0, SNAPSHOT_ROWS)), 1000);
     return () => clearTimeout(t);
-  }, [rows]);
+  }, [allRows]);
 
   useEffect(() => {
     selectedKey.current = rows[selected]?.key;
   }, [rows, selected]);
 
-  const empty = !window.normie.fake && core !== null && accounts !== null && accounts.length === 0 && rows.length === 0;
+  const empty = !window.normie.fake && core !== null && accounts !== null && accounts.length === 0 && allRows.length === 0;
 
   // The first useful frame: snapshot rows, or whatever the core first answered. Main shows the window and starts sync.
   useEffect(() => {
-    if (painted.current || (!rows.length && !coreAnswered)) return;
+    if (painted.current || (!allRows.length && !coreAnswered)) return;
     painted.current = true;
-    const info = { rows: rows.length, fromSnapshot: fromSnapshot.current };
+    const info = { rows: allRows.length, fromSnapshot: fromSnapshot.current };
     requestAnimationFrame(() => window.normie.firstPaint(info));
-  }, [rows, coreAnswered]);
+  }, [allRows, coreAnswered]);
 
   // Tell main the first useful screen is up (used by smoke runs and, later, the cold-start budget).
   useEffect(() => {
-    if (reported.current || (!rows.length && !empty)) return;
+    if (reported.current || (!allRows.length && !empty)) return;
     reported.current = true;
-    const info = { rows: rows.length, view: rows.length ? ('list' as const) : ('empty' as const), fromSnapshot: false };
+    const info = { rows: allRows.length, view: allRows.length ? ('list' as const) : ('empty' as const), fromSnapshot: false };
     requestAnimationFrame(() => window.normie.ready(info));
-  }, [rows, empty]);
+  }, [allRows, empty]);
 
   const clamp = useCallback((i: number) => Math.max(0, Math.min(rows.length - 1, i)), [rows.length]);
   const move = (to: (s: number) => number) => setSelected((s) => clamp(to(s)));
@@ -210,8 +220,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
     if (!row || !core) return;
     if (typeof action === 'function') action = action(row);
     overrides.current.set(row.key, change);
-    const next = withOverrides(rows);
-    setRows(next);
+    const nextAll = withOverrides(allRows);
+    setAllRows(nextAll);
+    const next = filterOf(nextAll);
     const removed = next.length < rows.length;
     if (removed) {
       const to = Math.min(i, next.length - 1);
@@ -239,7 +250,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
     if (!core) return;
     const change = (r: ThreadRow) => ({ ...r, unread: false });
     overrides.current.set(row.key, change);
-    setRows((rs) => rs.map((r) => (r.key === row.key ? change(r) : r)));
+    setAllRows((rs) => rs.map((r) => (r.key === row.key ? change(r) : r)));
     void core.act(row.key, { type: 'read', on: true }).finally(() => {
       if (overrides.current.get(row.key) === change) overrides.current.delete(row.key);
     });
@@ -252,8 +263,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
     const restore = () => entry.prev;
     overrides.current.set(entry.key, restore);
     inserts.current.set(entry.key, entry.prev);
-    const next = withOverrides(rows);
-    setRows(next);
+    const nextAll = withOverrides(allRows);
+    setAllRows(nextAll);
+    const next = filterOf(nextAll);
     const i = next.findIndex((r) => r.key === entry.key);
     if (i >= 0) {
       setSelected(i);
@@ -271,6 +283,26 @@ function Inbox({ core }: { core: CoreClient | null }) {
   };
 
   const context = compose ? 'composer' : open ? 'reader' : 'list';
+
+  /** Accounts in order, for 1–9 and the row markers: the Account list, else (fake, benchmark) those in the rows. */
+  const accountOrder = useMemo(
+    () => (accounts?.length ? accounts.map((a) => a.id) : [...new Set(allRows.map((r) => r.accountId))].sort()),
+    [accounts, allRows],
+  );
+  const markers = useMemo(
+    () => (accountOrder.length > 1 ? new Map(accountOrder.map((id, i) => [id, ACCOUNT_COLORS[i % ACCOUNT_COLORS.length]!])) : undefined),
+    [accountOrder],
+  );
+  /** Show one Account's Threads (n = 1–9), or all of them (n = 0). */
+  const filterAccount = (n: number) => {
+    const id = n === 0 ? null : accountOrder[n - 1];
+    if (id === undefined) return;
+    setAccountFilter(id);
+    setSelected(0);
+    selectedKey.current = undefined;
+    setOpen(null);
+  };
+  const accountName = (id: string) => accounts?.find((a) => a.id === id)?.email ?? id;
   const handlers: Handlers = {
     'list.down': () => move((s) => s + 1),
     'list.up': () => move((s) => s - 1),
@@ -297,6 +329,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
     undo,
     'dev.overlay': () => setOverlay((o) => !o),
     'palette.open': () => setPalette((p) => (p ? null : 'actions')),
+    'filter.all': () => filterAccount(0),
+    ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [`filter.${n}`, () => filterAccount(n)])),
     'compose.new': () => setCompose({ accountId: rows[clamp(selected)]?.accountId }),
     'send.undo': undoSend,
     'compose.reply': () => replyTo('reply'),
@@ -433,7 +467,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   return (
     <main className="app">
       <header className="split-bar">
-        <span className="split active">Inbox</span>
+        <span className="split active">Inbox{accountFilter && <span className="filter"> · {accountName(accountFilter)}</span>}</span>
         <span className="count">{rows.length}</span>
         <SyncBadge core={core} />
         {note && <span className="sync-note">{note}</span>}
@@ -453,7 +487,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
         <EmptyState />
       ) : (
         <div className={open || compose ? 'panes reading' : 'panes'}>
-          <ThreadList rows={rows} selected={selected} />
+          <ThreadList rows={rows} selected={selected} markers={markers} />
           {compose && (
             <Suspense fallback={<section className="composer" />}>
               <Composer

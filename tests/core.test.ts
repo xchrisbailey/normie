@@ -78,3 +78,24 @@ describe('Accounts in the store', () => {
     expect(notices).toContainEqual({ type: 'rows-changed', split: 'inbox' });
   });
 });
+
+describe('Unified Inbox', () => {
+  it('interleaves Accounts by date, keeps their Threads apart, and acts on each row’s own Account', async () => {
+    const provider = new FakeProvider();
+    provider.deliver({ subject: 'Work', threadId: 't-1', date: NOW - 3 * HOUR });
+    provider.deliver({ subject: 'Work again', threadId: 't-3', date: NOW - HOUR });
+    const c = await start(provider);
+    await c.engine.syncOnce();
+    // A second Account in the same store, with a message sharing a thread id.
+    c.data.upsertAccount('icloud:me', 'imap', 'me@icloud.com');
+    c.data.setMailboxes('icloud:me', [{ path: 'INBOX', role: 'inbox' }]);
+    c.data.applyChanges('icloud:me', 'INBOX', { headers: [
+      { uid: 1, remoteId: 'INBOX:1', threadId: 't-1', messageId: '<p@x>', subject: 'Personal', to: [], date: NOW - 2 * HOUR, flags: [], labels: ['INBOX'] },
+    ] });
+    const rows = await c.rows('inbox');
+    expect(rows.map((r) => [r.subject, r.accountId])).toEqual([['Work again', 'acct-1'], ['Personal', 'icloud:me'], ['Work', 'acct-1']]);
+    await c.act(rows[1]!.key, { type: 'star', on: true });
+    expect(c.data.pendingChanges('icloud:me')).toMatchObject([{ accountId: 'icloud:me', mailbox: 'INBOX', uids: [1] }]);
+    expect(c.data.pendingChanges('acct-1')).toEqual([]);
+  });
+});

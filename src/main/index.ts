@@ -239,6 +239,12 @@ async function runBench(w: BrowserWindow, info: { rows: number }) {
   await new Promise((r) => setTimeout(r, 200));
   for (let i = 0; i < 50; i++) await press('e');
   await new Promise((r) => setTimeout(r, 200));
+  // Switching the Account filter (1, then 0 for all) redraws the list from memory.
+  for (let i = 0; i < 20; i++) {
+    await press('1');
+    await press('0');
+  }
+  await new Promise((r) => setTimeout(r, 200));
   // The palette: open with Cmd-K, close with Escape.
   for (let i = 0; i < 40; i++) {
     await press('K', ['meta']);
@@ -256,6 +262,8 @@ async function runBench(w: BrowserWindow, info: { rows: number }) {
   const dones = sorted(samples.filter((s) => s.action === 'thread.done'));
   const donePct = pctOf(dones);
   const palettes = sorted(samples.filter((s) => s.action === 'palette.open'));
+  const switches = sorted(samples.filter((s) => s.action.startsWith('filter.')));
+  const switchPct = pctOf(switches);
   const palettePct = pctOf(palettes);
   // Memory is a steady-state budget: Chromium caches raster tiles while scrolling and frees them once idle
   // (measured: 444 MB right after 300 rapid presses, 271 MB about 7 s later). Report the peak, judge the settled value.
@@ -266,10 +274,11 @@ async function runBench(w: BrowserWindow, info: { rows: number }) {
     { budget: 'keyMoveMs', value: pct(95), limit: budgets.keyMoveMs, detail: `p50 ${pct(50).toFixed(1)}, p95 ${pct(95).toFixed(1)}, max ${(ms.at(-1) ?? 0).toFixed(1)} ms over ${ms.length} presses` },
     { budget: 'openCachedMs', value: openPct(95), limit: budgets.openCachedMs, detail: `p50 ${openPct(50).toFixed(1)}, p95 ${openPct(95).toFixed(1)}, max ${(opens.at(-1) ?? 0).toFixed(1)} ms over ${opens.length} opens` },
     { budget: 'triageMs', value: donePct(95), limit: budgets.triageMs, detail: `Done: p50 ${donePct(50).toFixed(1)}, p95 ${donePct(95).toFixed(1)}, max ${(dones.at(-1) ?? 0).toFixed(1)} ms over ${dones.length} Threads` },
+    { budget: 'switchMs', value: switchPct(95), limit: budgets.switchMs, detail: `Account filter: p50 ${switchPct(50).toFixed(1)}, p95 ${switchPct(95).toFixed(1)}, max ${(switches.at(-1) ?? 0).toFixed(1)} ms over ${switches.length} switches` },
     { budget: 'paletteMs', value: palettePct(95), limit: budgets.paletteMs, detail: `Cmd-K: p50 ${palettePct(50).toFixed(1)}, p95 ${palettePct(95).toFixed(1)}, max ${(palettes.at(-1) ?? 0).toFixed(1)} ms over ${palettes.length} opens` },
     { budget: 'memoryMb', value: memory.mb, limit: budgets.memoryMb, detail: `settled; ${memory.detail}; peak while scrolling ${peak.mb.toFixed(0)}` },
   ];
-  const pressesOk = ms.length === 300 && opens.length === 31 && dones.length === 50 && palettes.length === 40;
+  const pressesOk = ms.length === 300 && opens.length === 31 && dones.length === 50 && palettes.length === 40 && switches.length === 40;
   console.log(`\n[bench] fixture: ${info.rows} Inbox rows in the renderer`);
   for (const r of results) console.log(`[bench] ${r.value <= r.limit ? 'ok  ' : 'FAIL'} ${r.budget.padEnd(12)} ${r.value.toFixed(1).padStart(7)} / ${r.limit}   ${r.detail}`);
   if (!pressesOk) console.log(`[bench] FAIL expected 300 moves, 31 opens, 50 Dones and 40 palettes, got ${ms.length}, ${opens.length}, ${dones.length} and ${palettes.length}`);
