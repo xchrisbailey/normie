@@ -73,7 +73,7 @@ function syncAccounts(): AccountConfig[] {
   if (provider === 'none') return [];
   if (useFake) {
     const seed = Number(process.env.NORMIE_FAKE_SEED) || undefined;
-    return [{ kind: 'fake', accountId: 'fake-1', email: 'me@example.com', seed }];
+    return [{ kind: 'fake', accountId: 'fake:me@example.com', email: 'me@example.com', seed }];
   }
   return accounts.list().map((a): AccountConfig => {
     const identities = identitiesOf(a).map((i) => i.address);
