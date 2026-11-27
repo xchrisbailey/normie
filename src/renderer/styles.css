@@ -110,6 +110,11 @@ body {
 }
 .top-row > * {
   -webkit-app-region: no-drag;
+  transition: opacity 0.6s ease;
+}
+/* Reading or triaging with keys: the header steps back until the mouse moves. */
+:root[data-quiet] .top-row > * {
+  opacity: 0.15;
 }
 .search-bar {
   display: flex;
@@ -948,8 +953,7 @@ button.primary:disabled {
   position: fixed;
   inset: 0;
   -webkit-app-region: no-drag;
-  background: color-mix(in srgb, var(--ground) 55%, transparent);
-  backdrop-filter: blur(2px);
+  background: color-mix(in srgb, var(--ground) 70%, transparent);
   transition: opacity 0.2s;
 }
 .panel-backdrop[data-starting-style] {
@@ -1037,7 +1041,8 @@ button.primary:disabled {
 }
 @media (prefers-reduced-motion: reduce) {
   .panel,
-  .panel-backdrop {
+  .panel-backdrop,
+  .top-row > * {
     transition: none;
   }
 }

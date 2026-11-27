@@ -25,13 +25,14 @@ export async function runSmoke(w: BrowserWindow, info: { rows: number; view: 'li
   const header = info.view === 'list' ? await smokeHeader(w) : undefined;
   const settings = info.view === 'list' ? await smokeSettings(w) : undefined;
   const list = info.view === 'list' ? await smokeList(w) : undefined;
+  const quiet = info.view === 'list' ? await smokeQuiet(w) : undefined;
   const keys = info.view === 'list' ? await smokeKeys(w, ctx) : undefined;
   const empty = info.view === 'empty' ? await smokeEmpty(w) : undefined;
   const ok =
     info.view === 'list'
-      ? info.rows > 0 && !!keys?.ok && !!header?.ok && !!list?.ok && !!form?.ok && !!reauth?.ok && !!settings?.ok
+      ? info.rows > 0 && !!keys?.ok && !!header?.ok && !!list?.ok && !!form?.ok && !!reauth?.ok && !!settings?.ok && !!quiet?.ok
       : !ctx.noRealAccounts && info.view === 'empty' && !!empty?.ok;
-  return { ok, report: { ...info, msSinceLaunch, packaged: app.isPackaged, reauth, form, settings, keys, header, list, empty } };
+  return { ok, report: { ...info, msSinceLaunch, packaged: app.isPackaged, reauth, form, settings, quiet, keys, header, list, empty } };
 }
 
 /** "Sign in again" on an iCloud Account opens that Account's password form, filled in, not Google's sign-in. */
@@ -316,6 +317,28 @@ async function smokeSettings(w: BrowserWindow) {
   await sleep(200);
   const ok = opened && picked && restored && login && closed && byIcon && !(await d.js<boolean>(`!!document.querySelector('.settings-panel')`));
   return { ok, opened, accounts: accounts.length, themes: { before, clicked, arrowed, restored }, login, closed, byIcon };
+}
+
+/** Moving through the list with keys fades the header; moving the mouse brings it back. */
+async function smokeQuiet(w: BrowserWindow) {
+  const d = drive(w);
+  const header = () =>
+    d.js<{ quiet: boolean; opacity: number }>(
+      `({ quiet: 'quiet' in document.documentElement.dataset, opacity: Number(getComputedStyle(document.querySelector('.top-row .tools')).opacity) })`,
+    );
+  w.webContents.sendInputEvent({ type: 'mouseMove', x: 700, y: 400 });
+  await sleep(100);
+  const awake = await header();
+  await d.press('j');
+  await sleep(900);
+  const faded = await header();
+  await d.shot('quiet');
+  w.webContents.sendInputEvent({ type: 'mouseMove', x: 720, y: 420 });
+  await sleep(900);
+  const back = await header();
+  await d.press('k');
+  const ok = !awake.quiet && faded.quiet && faded.opacity < 0.3 && !back.quiet && back.opacity > 0.9;
+  return { ok, awake, faded, back };
 }
 
 /** Smoke check with no Accounts: the iCloud form explains that the login must be the @icloud.com address. */
