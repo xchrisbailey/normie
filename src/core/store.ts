@@ -229,7 +229,14 @@ const MIGRATIONS: string[] = [
     where m.account_id = threads.account_id and m.thread_key = threads.thread_key and substr(j.value, 1, 1) != '\\'), '[]')
   where exists (select 1 from mailboxes mb where mb.account_id = threads.account_id and mb.role = 'all');
   `,
+  // When each mailbox was last checked: mail dated before it isn't news.
+  `
+  alter table mailboxes add column checked_at integer;
+  `,
 ];
+
+/** Mail dated a little before the last check still counts as news (clocks differ; servers deliver late). */
+const NEWS_SLACK_MS = 10 * 60_000;
 
 /** How long a delete waits before it's sent, so it can still be undone. */
 export const DELETE_HOLD_MS = 10_000;
@@ -382,6 +389,8 @@ export class Store {
   readonly db: Database.Database;
   /** Accounts with changes queued by the store itself (Done on new mail in a muted Thread), waiting to be replayed. */
   readonly replayNeeded = new Set<AccountId>();
+  /** Thread keys that just got news, gathered by applyChanges for the caller to announce and clear. */
+  readonly arrivals = new Set<string>();
   private mine?: Set<string>;
 
   constructor(path: string) {
@@ -501,10 +510,15 @@ export class Store {
     accountId: AccountId,
     mailbox: string,
     batch: { state?: SyncState; reset?: boolean; headers?: RemoteHeader[]; flagChanges?: FlagChange[]; vanished?: number[] },
+    now = Date.now(),
   ): boolean {
     const touched = new Set<string>();
     /** Threads that got a message not seen before. */
     const arrived = new Set<string>();
+    /** Of those, the ones with news: mail from someone else, dated after the last check, in a mailbox already synced once. */
+    const news = new Set<string>();
+    const checkedAt = this.db.prepare('select checked_at from mailboxes where account_id = ? and path = ?').pluck().get(accountId, mailbox) as number | null | undefined;
+    const mine = this.myAddresses();
     let inboxChanged = false;
     // On folder servers, being in the Inbox mailbox is what puts a message in the Inbox; on Gmail it's the \Inbox label.
     const isInboxMailbox = this.db.prepare('select role from mailboxes where account_id = ? and path = ?').pluck().get(accountId, mailbox) === 'inbox';
@@ -543,6 +557,7 @@ export class Store {
         if (!old) {
           arrived.add(threadKey);
           this.noteContacts(h.from, h.to, h.date);
+          if (!batch.reset && checkedAt && h.date >= checkedAt - NEWS_SLACK_MS && !(h.from && mine.has(h.from.address.toLowerCase()))) news.add(threadKey);
         }
         touched.add(threadKey);
         insert.run({
@@ -583,11 +598,16 @@ export class Store {
         }
       }
       if (batch.state) {
+        this.db.prepare('update mailboxes set checked_at = ? where account_id = ? and path = ?').run(now, accountId, mailbox);
         this.db
           .prepare('update mailboxes set uid_validity = ?, uid_next = ?, highest_modseq = ? where account_id = ? and path = ?')
           .run(batch.state.uidValidity, batch.state.uidNext, batch.state.highestModseq ?? null, accountId, mailbox);
       }
       for (const key of touched) if (this.refreshThread(accountId, key)) inboxChanged = true;
+      // News, if the Thread is (still) in the Inbox; muted Threads are handled next and never notify.
+      const inInboxNow = this.db.prepare('select in_inbox from threads where account_id = ? and thread_key = ?').pluck();
+      const muted0 = this.db.prepare('select 1 from muted_threads where account_id = ? and thread_key = ?').pluck();
+      for (const key of news) if (inInboxNow.get(accountId, key) === 1 && !muted0.get(accountId, key)) this.arrivals.add(threadRowKey(accountId, key));
       // New mail in a muted Thread is marked Done straight away, so it never shows in the Inbox.
       const muted = this.db.prepare('select 1 from muted_threads where account_id = ? and thread_key = ?').pluck();
       for (const key of arrived) {

@@ -303,5 +303,7 @@ export type CoreNotice =
   | { type: 'labels-changed'; accountId: AccountId }
   /** A change the server kept refusing was undone locally. */
   | { type: 'change-failed'; subject: string; error: string }
+  /** New mail just arrived in these Inbox Threads (not on a first sync, not old mail, not mine). */
+  | { type: 'arrived'; keys: string[] }
   /** A message couldn't be sent and was taken out of the Outbox; the renderer reopens it. */
   | { type: 'send-failed'; id: number; error: string };

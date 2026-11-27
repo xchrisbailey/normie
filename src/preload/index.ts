@@ -20,6 +20,14 @@ contextBridge.exposeInMainWorld('normie', {
   openLink: (url: string) => ipcRenderer.send('open-link', url),
   openAttachment: (file: { filename: string; content: Uint8Array }): Promise<{ ok: boolean; reason?: string }> => ipcRenderer.invoke('attachment:open', file),
   saveAttachment: (file: { filename: string; content: Uint8Array }): Promise<{ ok: boolean; path?: string }> => ipcRenderer.invoke('attachment:save', file),
+  /** Show a notification for new mail. */
+  notify: (n: { key: string; title: string; body: string }) => ipcRenderer.send('notify', n),
+  /** A notification was clicked: open that Thread. */
+  onOpenThread: (fn: (key: string) => void) => {
+    const handler = (_e: unknown, key: string) => fn(key);
+    ipcRenderer.on('open-thread', handler);
+    return () => void ipcRenderer.off('open-thread', handler);
+  },
   /** A native menu item was chosen: the registry action ids it stands for. */
   onMenuAction: (fn: (ids: string[]) => void) => {
     const handler = (_e: unknown, ids: string[]) => fn(ids);

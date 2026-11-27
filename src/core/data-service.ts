@@ -320,7 +320,12 @@ export class DataService {
   }
 
   applyChanges(accountId: AccountId, mailbox: string, cs: Partial<ChangeSet>) {
-    if (this.store.applyChanges(accountId, mailbox, cs)) this.emit({ type: 'rows-changed', split: 'inbox' });
+    if (this.store.applyChanges(accountId, mailbox, cs, this.now())) this.emit({ type: 'rows-changed', split: 'inbox' });
+    if (this.store.arrivals.size) {
+      const keys = [...this.store.arrivals];
+      this.store.arrivals.clear();
+      this.emit({ type: 'arrived', keys });
+    }
     if (this.store.replayNeeded.size) {
       const accounts = [...this.store.replayNeeded];
       this.store.replayNeeded.clear();
