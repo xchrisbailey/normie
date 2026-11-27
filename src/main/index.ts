@@ -10,6 +10,8 @@ import { isJsonObject, parseJson } from '../core/json';
 import type { JsonValue } from '../core/json';
 import { appearanceFrom } from '../core/appearance';
 import type { Appearance } from '../core/appearance';
+import { prefsFrom } from '../core/prefs';
+import type { Prefs } from '../core/prefs';
 import { choiceFrom, legacyChoice } from '../core/vscode-theme';
 import type { ResolvedTheme } from '../core/vscode-theme';
 import { log, logError } from '../core/log';
@@ -319,7 +321,7 @@ function updateTray() {
 
 // --- Start at login: on by default for the installed app (never for a dev build, which would register Electron).
 
-type Settings = { openAtLogin?: boolean; theme?: JsonValue; appearance?: Appearance };
+type Settings = { openAtLogin?: boolean; theme?: JsonValue; appearance?: Appearance; prefs?: Prefs };
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 function readSettings(): Settings {
   try {
@@ -336,6 +338,9 @@ function readSettings(): Settings {
     }
     if (v.appearance !== undefined) {
       out.appearance = appearanceFrom(v.appearance);
+    }
+    if (v.prefs !== undefined) {
+      out.prefs = prefsFrom(v.prefs);
     }
     return out;
   } catch {
@@ -401,6 +406,14 @@ ipcMain.handle('appearance:set', (_e, v: unknown) => {
   const appearance = appearanceFrom(v);
   writeSettings({ appearance });
   return appearance;
+});
+ipcMain.on('prefs:current', (e) => {
+  e.returnValue = prefsFrom(readSettings().prefs);
+});
+ipcMain.handle('prefs:set', (_e, v: unknown) => {
+  const prefs = prefsFrom(v);
+  writeSettings({ prefs });
+  return prefs;
 });
 ipcMain.handle('theme:choose', (_e, v: unknown) => {
   const choice = choiceFrom(v);

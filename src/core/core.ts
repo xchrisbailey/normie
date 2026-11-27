@@ -21,7 +21,7 @@ export function coreApiOf(ds: DataService): CoreApi {
     labels: async (accountId) => ds.labels(accountId),
     allowImagesFrom: async (address) => ds.allowImagesFrom(address),
     attachment: (messageId, index) => ds.attachment(messageId, index),
-    send: async (m, draftId, sendAt) => ds.send(m, draftId, sendAt),
+    send: async (m, draftId, sendAt, holdMs) => ds.send(m, draftId, sendAt, holdMs),
     scheduled: async () => ds.scheduled(),
     search: async (q, limit) => ds.search(q, limit),
     searchServer: (q, limit) => ds.searchServer(q, limit),

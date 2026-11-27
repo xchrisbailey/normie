@@ -174,18 +174,21 @@ export function splitsFrom(file: unknown, accounts: Array<{ id: string; name: st
 export interface SplitSummary {
   count: number;
   unread: boolean;
+  /** How many of its Threads are unread. */
+  unreadCount: number;
   newest: Array<ThreadRow>;
 }
 
 /** Each Split's summary, in one pass over the rows (newest first, as the list keeps them). */
 export function splitSummaries(splits: Array<SplitDef>, rows: Array<ThreadRow>, peek = 3): Map<string, SplitSummary> {
-  const out = new Map(splits.map((s): [string, SplitSummary] => [s.id, { count: 0, unread: false, newest: [] }]));
+  const out = new Map(splits.map((s): [string, SplitSummary] => [s.id, { count: 0, unread: false, unreadCount: 0, newest: [] }]));
   for (const r of rows) {
     for (const s of splits) {
       const sum = out.get(s.id);
       if (sum && s.match(r)) {
         sum.count++;
         sum.unread ||= r.unread;
+        sum.unreadCount += r.unread ? 1 : 0;
         if (sum.newest.length < peek) {
           sum.newest.push(r);
         }

@@ -33,6 +33,8 @@ import { SettingsPanel } from './SettingsPanel';
 import type { SettingsTab } from './SettingsPanel';
 import { note, Toasts, useProblems } from './Toasts';
 import { ThreadList } from './ThreadList';
+import { hour12, prefsNow, usePrefs } from './prefs';
+import { MARK_READ_DELAY_MS } from '../core/prefs';
 import { ListEmpty } from './ListEmpty';
 import type { ActionRunner } from './ActionTip';
 import { useKeymap, useKeys, useSnippets, useSplitsFile } from './useKeys';
@@ -65,8 +67,6 @@ const composeKeys = new WeakMap<ComposeStart, number>();
 let nextComposeKey = 0;
 const composeKey = (s: ComposeStart) => composeKeys.get(s) ?? (composeKeys.set(s, ++nextComposeKey), nextComposeKey);
 
-/** How long Cmd-Z can take a sent message back (the Outbox waits 5 s; a little slack for the round trip). */
-const UNDO_SEND_WINDOW_MS = 4500;
 const LABEL_ITEM = 'label:';
 const DRAFT_ITEM = 'draft:';
 /** One color per Account, for the marker on each row. */
@@ -144,14 +144,20 @@ function Inbox({ core }: { core: CoreClient | null }) {
   // Overrides (triage) lay over search results too; recomputed whenever the rows change.
   const rows = useMemo(() => (search ? overrides.apply(search.results) : filterOf(allRows)), [allRows, filterOf, search, overrides]);
   const summaries = useMemo(() => splitSummaries(splits, allRows), [splits, allRows]);
-  // The menu bar shows the Inbox count.
-  const inboxCount = summaries.get('inbox')?.count ?? 0;
-  useEffect(() => window.normie.setInboxCount(inboxCount), [inboxCount]);
+  // The menu bar shows the Inbox count, its unread count, or nothing, as Settings says.
+  const prefs = usePrefs();
+  const inbox = summaries.get('inbox');
+  const menuCount = prefs.menuCount === 'off' ? 0 : prefs.menuCount === 'unread' ? (inbox?.unreadCount ?? 0) : (inbox?.count ?? 0);
+  useEffect(() => window.normie.setInboxCount(menuCount), [menuCount]);
   const fromSnapshot = useRef(true);
   const [coreAnswered, setCoreAnswered] = useState(false);
   const painted = useRef(false);
   const [selected, setSelected] = useState(0);
   const [open, setOpen] = useState<{ key: string; subject: string; messages?: Array<ThreadMessage> } | null>(null);
+  const openKeyRef = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    openKeyRef.current = open?.key;
+  });
   const selectedKey = useRef<string | undefined>(undefined);
   const reported = useRef(false);
   const [overlay, setOverlay] = useState(false);
@@ -180,7 +186,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const [compose, setCompose] = useState<ComposeStart | null>(null);
   const composer = useRef<ComposerHandle | null>(null);
   const { snippets, problems: snippetProblems } = useSnippets();
-  const lastSent = useRef<{ id: number; at: number } | null>(null);
+  const lastSent = useRef<{ id: number; at: number; window: number } | null>(null);
   const labels = useLabels(core);
   const cache = useMemo(() => (core ? new ThreadCache(core) : null), [core]);
   /** Recent triage actions, newest last, for z. */
@@ -291,7 +297,13 @@ function Inbox({ core }: { core: CoreClient | null }) {
     }
     setSelected(i);
     if (row.unread) {
-      markRead(row);
+      const when = prefsNow().markRead;
+      if (when === 'open') {
+        markRead(row);
+      } else if (when === 'delay') {
+        // Read only if it's still open a moment later: skimming past doesn't count.
+        setTimeout(() => openKeyRef.current === row.key && markRead(row), MARK_READ_DELAY_MS);
+      }
     }
     cache.prefetch(list.slice(i + 1, i + 1 + PREFETCH).map((r) => r.key));
     const hit = cache.get(row.key);
@@ -333,11 +345,12 @@ function Inbox({ core }: { core: CoreClient | null }) {
     const next = searchRef.current ? overrides.apply(searchRef.current.results) : filterOf(nextAll);
     const removed = next.length < rows.length;
     if (removed) {
-      const to = Math.min(i, next.length - 1);
-      setSelected(Math.max(0, to));
+      const after = prefsNow().afterTriage;
+      const to = Math.max(0, Math.min(after === 'previous' ? i - 1 : i, next.length - 1));
+      setSelected(to);
       selectedKey.current = next[to]?.key;
       if (open) {
-        if (next[to]) {
+        if (after !== 'list' && next[to]) {
           openRow(next[to], to, next)?.catch(logError);
         } else {
           setOpen(null);
@@ -590,12 +603,20 @@ function Inbox({ core }: { core: CoreClient | null }) {
     };
   }, [keymap.actions, runAction]);
 
+  // Settings can load remote images without asking: always, or when the open Thread's sender is someone you know.
+  const openRowInfo = open ? (rows.find((r) => r.key === open.key) ?? allRows.find((r) => r.key === open.key)) : undefined;
+  const autoImages = prefs.remoteImages === 'always' || (prefs.remoteImages === 'known' && !!(openRowInfo?.tags?.known || openRowInfo?.tags?.vip));
+  const shownImages = useMemo(
+    () => (autoImages && open?.messages ? new Set([...imagesAllowed, ...open.messages.map((m) => m.id)]) : imagesAllowed),
+    [autoImages, open?.messages, imagesAllowed],
+  );
+
   /** Show the open Thread's hidden images; `always` also remembers each sender. */
   function loadImages(always: boolean) {
     if (!open?.messages) {
       return;
     }
-    const blocked = blockedMessages(open.messages, imagesAllowed);
+    const blocked = blockedMessages(open.messages, shownImages);
     if (!blocked.length) {
       return;
     }
@@ -645,12 +666,14 @@ function Inbox({ core }: { core: CoreClient | null }) {
     }
     setCompose(null);
     if (sendAt !== undefined) {
-      void core.send(m, draftId, sendAt).then(() => setNote(`Scheduled for ${describeWhen(new Date(sendAt), new Date())}`));
+      void core.send(m, draftId, sendAt).then(() => setNote(`Scheduled for ${describeWhen(new Date(sendAt), new Date(), hour12())}`));
       return;
     }
-    void core.send(m, draftId).then((id) => {
-      lastSent.current = { id, at: performance.now() };
-      setNote('Sending… ⌘Z to undo');
+    const hold = prefsNow().undoSend * 1000;
+    void core.send(m, draftId, undefined, hold).then((id) => {
+      // A little less than the hold, for the round trip to the core.
+      lastSent.current = hold ? { id, at: performance.now(), window: hold - 500 } : null;
+      setNote(hold ? 'Sending… ⌘Z to undo' : 'Sending…');
     });
   };
 
@@ -680,7 +703,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   /** Cmd-Z after sending: take the message back from the Outbox and reopen it. */
   function undoSend() {
     const sent = lastSent.current;
-    if (!core || !sent || performance.now() - sent.at > UNDO_SEND_WINDOW_MS) {
+    if (!core || !sent || performance.now() - sent.at > sent.window) {
       return;
     }
     lastSent.current = null;
@@ -707,7 +730,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
           return;
         }
         void core.rows('inbox').then((r) => {
-          const notices = toNotify(n.keys, r, splitsRef.current, notified.current, Date.now());
+          const notices = toNotify(n.keys, r, splitsRef.current, notified.current, Date.now(), prefsNow().notify);
           if (document.hasFocus()) {
             return;
           }
@@ -820,7 +843,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
       id: SCHEDULED_ITEM + s.id,
       name: `Scheduled: ${s.subject || '(no subject)'}`,
       keywords: `scheduled later ${s.to}`,
-      hint: describeWhen(new Date(s.sendAt), new Date()),
+      hint: describeWhen(new Date(s.sendAt), new Date(), hour12()),
     }));
     const draftItems = drafts.map((d) => {
       const item: PaletteItem = { id: DRAFT_ITEM + d.id, name: `Draft: ${d.subject || '(no subject)'}`, keywords: `draft ${d.to}` };
@@ -942,7 +965,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
               threadKey={open.key}
               subject={open.subject}
               messages={open.messages}
-              allowed={imagesAllowed}
+              allowed={shownImages}
               frame={frame}
               onLoadImages={() => loadImages(false)}
               onAlwaysLoadImages={() => loadImages(true)}

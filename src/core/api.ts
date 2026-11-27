@@ -26,8 +26,11 @@ export interface CoreApi {
   thread(key: string): Promise<Array<ThreadMessage>>;
   /** A triage action on a Thread. The store changes at once; the server catches up. Returns the pending change ids. */
   act(key: string, action: ThreadAction): Promise<Array<number>>;
-  /** Put a message in the Outbox; it goes out after the undo window. Returns its Outbox id. Its draft, if any, goes. */
-  send(message: OutgoingMessage, draftId?: number, sendAt?: number): Promise<number>;
+  /**
+   * Put a message in the Outbox; it goes out after the undo window (`holdMs`, the default when left out), or at
+   * `sendAt`. Returns its Outbox id. Its draft, if any, goes.
+   */
+  send(message: OutgoingMessage, draftId?: number, sendAt?: number, holdMs?: number): Promise<number>;
   /** Threads with a message matching the query (words, "phrases", from:, to:, subject:), newest first. */
   search(query: string, limit?: number): Promise<Array<ThreadRow>>;
   /** The same search, asking the servers too for mail that isn't stored here. Slower: seconds, not milliseconds. */

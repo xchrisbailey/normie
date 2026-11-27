@@ -6,8 +6,9 @@ import { memo, useLayoutEffect, useRef } from 'react';
 import type { Address, ThreadMessage } from '../core/types';
 import { isElement, isHtmlElement } from './dom';
 import { sanitized } from './sanitize-cache';
+import { hour12 } from './prefs';
 
-const full = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+const full = () => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', hour12: hour12() });
 const who = (a?: Address) => (a ? (a.name ? `${a.name} <${a.address}>` : a.address) : 'Unknown sender');
 
 const csp = (remote: boolean) =>
@@ -61,7 +62,7 @@ function render(doc: Document, messages: Array<ThreadMessage>, allow: (m: Thread
     from.className = 'from';
     from.textContent = who(m.from);
     const time = doc.createElement('time');
-    time.textContent = full.format(m.date);
+    time.textContent = full().format(m.date);
     const to = doc.createElement('div');
     to.className = 'to';
     to.textContent = `To: ${m.to.map(who).join(', ') || '—'}`;

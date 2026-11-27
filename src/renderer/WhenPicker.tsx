@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { describeWhen, parseWhen, suggestions } from '../core/when';
 import { moveHighlight, paletteKeys } from './Palette';
 import { Panel } from './Panel';
+import { hour12 } from './prefs';
 
 export function WhenPicker({ title, onPick, onClose }: { title: string; onPick: (at: number) => void; onClose: () => void }) {
   const [text, setText] = useState('');
@@ -14,9 +15,9 @@ export function WhenPicker({ title, onPick, onClose }: { title: string; onPick: 
   const typed = text.trim() ? parseWhen(text, now) : null;
   const choices = text.trim()
     ? typed
-      ? [{ label: describeWhen(typed, now), at: typed }]
+      ? [{ label: describeWhen(typed, now, hour12()), at: typed }]
       : []
-    : suggestions(now).map((s) => ({ label: `${s.label} · ${describeWhen(s.at, now)}`, at: s.at }));
+    : suggestions(now).map((s) => ({ label: `${s.label} · ${describeWhen(s.at, now, hour12())}`, at: s.at }));
   const values = choices.map((c) => String(c.at.getTime()));
 
   return (

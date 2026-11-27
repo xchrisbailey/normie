@@ -1555,6 +1555,11 @@ button.primary:disabled {
   flex-wrap: wrap;
   gap: 8px 16px;
 }
+/* The label and its note take what the control leaves, so a long note wraps beside it rather than below. */
+.settings-row > span:first-child {
+  flex: 1 1 200px;
+  min-width: 0;
+}
 /* A row of choices with a pill that slides to the one picked. */
 .segmented {
   position: relative;
@@ -1624,6 +1629,41 @@ button.primary:disabled {
 }
 .size-glyph[data-size='16'] {
   font-size: 19px;
+}
+.select-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  font: inherit;
+  color: var(--fg);
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  outline: none;
+}
+.select-trigger::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  margin: -3px 2px 0;
+  border-right: 1.5px solid var(--fg3);
+  border-bottom: 1.5px solid var(--fg3);
+  rotate: 45deg;
+}
+.select-trigger:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.select-menu {
+  min-width: var(--anchor-width);
+  max-height: var(--available-height);
+  overflow-y: auto;
+}
+.select-menu .menu-item[data-selected] {
+  color: var(--accent);
 }
 .settings-switch {
   display: flex;

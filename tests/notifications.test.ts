@@ -83,6 +83,12 @@ describe('what notifies', () => {
     expect(toNotify(['known', 'stranger'], rows, splits, new Map(), NOW).map((n) => n.key)).toEqual(['stranger']);
   });
 
+  it('everything, or nothing, as Settings says', () => {
+    const keys = ['known', 'stranger', 'news'];
+    expect(toNotify(keys, rows, builtInSplits([]), new Map(), NOW, 'all').map((n) => n.key)).toEqual(keys);
+    expect(toNotify(keys, rows, builtInSplits([]), new Map(), NOW, 'off')).toEqual([]);
+  });
+
   it('once per Thread in a burst', () => {
     const recent = new Map<string, number>();
     const splits = builtInSplits([]);

@@ -42,6 +42,8 @@ export const MAX_REJECTIONS = 3;
 
 /** How long a sent message waits in the Outbox, so Cmd-Z can still take it back. */
 export const UNDO_SEND_MS = 5000;
+/** The longest undo window Settings offers: Outbox messages due sooner than this aren't listed as scheduled. */
+const MAX_UNDO_SEND_MS = 30_000;
 
 export type NoticeListener = (n: CoreNotice) => void;
 
@@ -73,13 +75,17 @@ export class DataService {
 
   // --- Sending
 
-  /** Put a message in the Outbox. It goes out after the undo window. Returns its Outbox id. Its draft, if any, goes. */
-  send(message: OutgoingMessage, draftId?: number, sendAt?: number): number {
+  /**
+   * Put a message in the Outbox. It goes out after the undo window (`holdMs`, or the default), or at `sendAt`.
+   * Returns its Outbox id. Its draft, if any, goes.
+   */
+  send(message: OutgoingMessage, draftId?: number, sendAt?: number, holdMs?: number): number {
     if (draftId !== undefined) {
       this.deleteDraft(draftId);
     }
     // Send Later: at the time chosen. Otherwise after the undo window.
-    const at = sendAt !== undefined && sendAt > this.now() ? sendAt : this.now() + this.undoSendMs;
+    const hold = holdMs !== undefined && holdMs >= 0 && holdMs <= MAX_UNDO_SEND_MS ? holdMs : this.undoSendMs;
+    const at = sendAt !== undefined && sendAt > this.now() ? sendAt : this.now() + hold;
     const messageId = newMessageId(message.from);
     const id = this.store.queueSend(message, messageId, at, this.now());
     if (message.remindAt !== undefined) {
@@ -190,9 +196,9 @@ export class DataService {
     return m;
   }
 
-  /** Messages scheduled with Send Later (beyond the undo window). */
+  /** Messages scheduled with Send Later (beyond the longest undo window). */
   scheduled(): Array<ScheduledSummary> {
-    return this.store.scheduled(this.now() + this.undoSendMs);
+    return this.store.scheduled(this.now() + Math.max(this.undoSendMs, MAX_UNDO_SEND_MS));
   }
 
   dueOutbox(accountId: AccountId): Array<OutboxItem> {

@@ -81,8 +81,13 @@ describe('Splits', () => {
     const rows = await c.rows('inbox');
     const sums = splitSummaries(builtInSplits([]), rows, 1);
     const news = rows.filter((r) => r.tags?.newsletter);
-    expect(sums.get('newsletters')).toEqual({ count: news.length, unread: news.some((r) => r.unread), newest: news.slice(0, 1) });
-    expect(sums.get('vip')).toEqual({ count: 0, unread: false, newest: [] });
+    expect(sums.get('newsletters')).toEqual({
+      count: news.length,
+      unread: news.some((r) => r.unread),
+      unreadCount: news.filter((r) => r.unread).length,
+      newest: news.slice(0, 1),
+    });
+    expect(sums.get('vip')).toEqual({ count: 0, unread: false, unreadCount: 0, newest: [] });
   });
 
   it('read list headers', () => {
