@@ -34,6 +34,14 @@ body { background: var(--base); color: var(--text); overflow: hidden; -webkit-fo
 .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--subtext); }
 button.primary { font: inherit; padding: 8px 16px; border-radius: 8px; border: 0; background: var(--blue); color: var(--base); font-weight: 600; cursor: pointer; }
 button.primary:disabled { opacity: 0.6; cursor: default; }
+.palette-backdrop { position: fixed; inset: 0; display: flex; justify-content: center; align-items: flex-start; padding-top: 14vh; background: rgb(17 17 27 / 0.5); }
+.palette { width: min(560px, calc(100vw - 32px)); background: var(--mantle); border: 1px solid var(--surface0); border-radius: 10px; overflow: hidden; box-shadow: 0 16px 48px rgb(0 0 0 / 0.4); }
+.palette input { width: 100%; box-sizing: border-box; padding: 12px 16px; font: inherit; font-size: 15px; color: var(--text); background: transparent; border: 0; border-bottom: 1px solid var(--surface0); outline: none; }
+.palette ul { list-style: none; margin: 0; padding: 4px; max-height: 50vh; overflow-y: auto; }
+.palette li { display: flex; justify-content: space-between; align-items: center; padding: 7px 12px; border-radius: 6px; color: var(--subtext); cursor: default; }
+.palette li.selected { background: var(--surface0); color: var(--text); }
+.palette li.none { color: var(--subtext); font-style: italic; }
+.palette kbd { font: 12px ui-monospace, Menlo, monospace; color: var(--subtext); }
 .dev-overlay { position: fixed; right: 12px; bottom: 12px; padding: 6px 10px; border-radius: 6px; background: var(--crust); color: var(--subtext); font: 12px ui-monospace, Menlo, monospace; pointer-events: none; }
 .dev-overlay b { color: #a6e3a1; }
 .dev-overlay.over b { color: #f38ba8; }

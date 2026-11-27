@@ -18,11 +18,11 @@ const Message = memo(function Message({ m }: { m: ThreadMessage }) {
   );
 });
 
-export function Reader({ subject, messages }: { subject: string; messages: ThreadMessage[] | undefined }) {
+export const Reader = memo(function Reader({ subject, messages }: { subject: string; messages: ThreadMessage[] | undefined }) {
   return (
     <section className="reader" aria-label="Reader">
       <h1>{subject || '(no subject)'}</h1>
       {messages ? messages.map((m) => <Message key={m.id} m={m} />) : <p className="pending">Loading…</p>}
     </section>
   );
-}
+});

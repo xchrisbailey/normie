@@ -16,6 +16,7 @@ declare global {
       saveSnapshot(rows: import('../core/types').ThreadRow[]): void;
       platform: string;
       fake: boolean;
+      onMenuAction(fn: (ids: string[]) => void): () => void;
       accounts: {
         list(): Promise<AccountRecord[]>;
         addGmail(loginHint?: string): Promise<AccountRecord>;

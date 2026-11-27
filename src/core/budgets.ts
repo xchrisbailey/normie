@@ -4,6 +4,8 @@ export const BUDGETS = {
   keyMoveMs: 16,
   /** Triage (Done, star, Snooze): keydown to the frame with the list updated. Checked at p95. */
   triageMs: 16,
+  /** Open the command palette (Cmd-K): keydown to the frame that shows it. Checked at p95. */
+  paletteMs: 16,
   /** Launch to a usable inbox (first frame with rows) on Apple silicon, with a store and snapshot from before. Median of 5. */
   coldStartMs: 1500,
   /** Open a cached (prefetched) Thread: keydown to the frame that shows it. Checked at p95. */

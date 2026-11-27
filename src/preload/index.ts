@@ -16,6 +16,12 @@ contextBridge.exposeInMainWorld('normie', {
   platform: process.platform,
   /** Running against the fake provider: there are no real Accounts to add. */
   fake: process.argv.includes('--normie-fake'),
+  /** A native menu item was chosen: the registry action ids it stands for. */
+  onMenuAction: (fn: (ids: string[]) => void) => {
+    const handler = (_e: unknown, ids: string[]) => fn(ids);
+    ipcRenderer.on('menu:action', handler);
+    return () => void ipcRenderer.off('menu:action', handler);
+  },
   accounts: {
     list: (): Promise<AccountRecord[]> => ipcRenderer.invoke('accounts:list'),
     addGmail: (loginHint?: string): Promise<AccountRecord> => ipcRenderer.invoke('accounts:add-gmail', loginHint),
