@@ -22,6 +22,15 @@ export type ComposeStart = Partial<OutgoingMessage> & {
 
 /** How long typing pauses before the draft is saved. */
 const DRAFT_SAVE_MS = 800;
+/** Gmail's limit for a message's attachments, all told. */
+const ATTACHMENT_LIMIT = 25 * 1024 * 1024;
+
+type Attachment = NonNullable<OutgoingMessage['attachments']>[number];
+const sizeOf = (n: number) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
+
+async function readFiles(files: FileList | File[]): Promise<Attachment[]> {
+  return Promise.all([...files].map(async (f) => ({ filename: f.name, contentType: f.type || 'application/octet-stream', content: new Uint8Array(await f.arrayBuffer()) })));
+}
 
 export default function Composer({ start, identities, onSend, onClose, onSaveDraft, onDiscard }: {
   start: ComposeStart;
@@ -43,6 +52,12 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
   const [subject, setSubject] = useState(start.subject ?? '');
   const [body, setBody] = useState(start.body ?? '');
   const [error, setError] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<Attachment[]>(start.attachments ?? []);
+  const [dragging, setDragging] = useState(false);
+  const picker = useRef<HTMLInputElement>(null);
+  const attach = (files: FileList | File[] | null) => {
+    if (files?.length) void readFiles(files).then((list) => setAttachments((a) => [...a, ...list]));
+  };
   const toField = useRef<HTMLInputElement>(null);
   const bodyField = useRef<HTMLTextAreaElement>(null);
 
@@ -56,7 +71,7 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
     return {
       accountId: id?.accountId ?? start.accountId ?? '', ...(id ? { from: id.from } : {}), to, cc, bcc, subject, body,
       ...(start.inReplyTo ? { inReplyTo: start.inReplyTo } : {}), ...(start.references ? { references: start.references } : {}),
-      ...(start.attachments?.length ? { attachments: start.attachments } : {}),
+      ...(attachments.length ? { attachments } : {}),
     };
   };
   const latestContent = useRef(content);
@@ -74,7 +89,7 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
     dirty.current = true;
     clearTimeout(timer.current);
     timer.current = setTimeout(saveNow, DRAFT_SAVE_MS);
-  }, [to, cc, bcc, subject, body, identity]);
+  }, [to, cc, bcc, subject, body, identity, attachments]);
   const close = () => {
     saveNow();
     onClose();
@@ -100,13 +115,15 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
     const invalid = lists.flatMap((l) => l.invalid);
     if (invalid.length) return setError(`Not an address: ${invalid.join(', ')}`);
     if (!lists.some((l) => l.addresses.length)) return setError('Add at least one recipient.');
+    const total = attachments.reduce((n, a) => n + a.content.length, 0);
+    if (total > ATTACHMENT_LIMIT) return setError(`Attachments come to ${sizeOf(total)}; the limit is 25 MB.`);
     clearTimeout(timer.current);
     dirty.current = false;
     const message: OutgoingMessage = {
       accountId: id.accountId, from: id.from, to: lists[0]!.addresses, cc: lists[1]!.addresses, bcc: lists[2]!.addresses, subject, body,
       ...(start.inReplyTo ? { inReplyTo: start.inReplyTo } : {}),
       ...(start.references?.length ? { references: start.references } : {}),
-      ...(start.attachments?.length ? { attachments: start.attachments } : {}),
+      ...(attachments.length ? { attachments } : {}),
     };
     // Wait for a save in flight, so the draft it creates is the one removed.
     if (saving.current) void saving.current.then((d) => onSend(message, d));
@@ -120,6 +137,9 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
     } else if (e.key === 'Escape') {
       e.preventDefault();
       close();
+    } else if (e.key.toLowerCase() === 'a' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      picker.current?.click();
     } else if (e.key === 'Backspace' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       discard();
@@ -127,7 +147,22 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
   };
 
   return (
-    <section className="composer" aria-label="Compose" onKeyDown={onKeyDown}>
+    <section
+      className={dragging ? 'composer dragging' : 'composer'}
+      aria-label="Compose"
+      onKeyDown={onKeyDown}
+      onDragOver={(e) => {
+        if (![...e.dataTransfer.types].includes('Files')) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragging(false);
+        attach(e.dataTransfer.files);
+      }}
+    >
       <div className="fields">
         {identities.length > 1 ? (
           <label>
@@ -156,8 +191,23 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
         <label><span>Subject</span><input value={subject} onChange={(e) => setSubject(e.target.value)} /></label>
       </div>
       <textarea ref={bodyField} className="body" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Write in Markdown" />
+      {attachments.length > 0 && (
+        <ul className="attachments" aria-label="Attachments">
+          {attachments.map((a, i) => (
+            <li key={`${a.filename}:${i}`}>
+              <span>{a.filename}</span>
+              <span className="size">{sizeOf(a.content.length)}</span>
+              <button type="button" aria-label={`Remove ${a.filename}`} onClick={() => setAttachments((list) => list.filter((_, n) => n !== i))}>×</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <input ref={picker} type="file" multiple hidden onChange={(e) => {
+        attach(e.target.files);
+        e.target.value = '';
+      }} />
       <footer>
-        {error ? <span className="error">{error}</span> : <span className="hint">Markdown · ⌘↩ send · Esc keeps a draft · ⌘⇧⌫ discard</span>}
+        {error ? <span className="error">{error}</span> : <span className="hint">Markdown · ⌘↩ send · ⌘⇧A attach · Esc keeps a draft · ⌘⇧⌫ discard</span>}
         <span className="actions">
           <button type="button" className="quiet" onClick={discard}>Discard</button>
           <button type="button" className="primary" onClick={send}>Send</button>

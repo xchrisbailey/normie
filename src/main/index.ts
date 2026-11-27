@@ -383,7 +383,7 @@ async function smokeKeys(w: BrowserWindow) {
   await press('Z', 1, ['meta']);
   await new Promise((r) => setTimeout(r, 300));
   const reopened = (await w.webContents.executeJavaScript(
-    `(() => { const c = document.querySelector('.composer'); if (!c) return ''; return [...c.querySelectorAll('input')].map((i) => i.value).join('|') + '|' + c.querySelector('textarea').value; })()`,
+    `(() => { const c = document.querySelector('.composer'); if (!c) return ''; return [...c.querySelectorAll('input:not([type=file])')].map((i) => i.value).join('|') + '|' + c.querySelector('textarea').value; })()`,
   )) as string;
   await press('Escape');
   const compose = composerOpen && sentClosed && reopened === 'ada@example.com|Smoke test|Hello **there**'
@@ -392,7 +392,7 @@ async function smokeKeys(w: BrowserWindow) {
   await press('r');
   await new Promise((r) => setTimeout(r, 500));
   const replyFields = (await w.webContents.executeJavaScript(
-    `(() => { const c = document.querySelector('.composer'); if (!c) return null; const i = [...c.querySelectorAll('input')].map((x) => x.value); return { to: i[0], subject: i[i.length - 1], body: c.querySelector('textarea').value, focused: document.activeElement === c.querySelector('textarea') }; })()`,
+    `(() => { const c = document.querySelector('.composer'); if (!c) return null; const i = [...c.querySelectorAll('input:not([type=file])')].map((x) => x.value); return { to: i[0], subject: i[i.length - 1], body: c.querySelector('textarea').value, focused: document.activeElement === c.querySelector('textarea') }; })()`,
   )) as { to: string; subject: string; body: string; focused: boolean } | null;
   await press('Escape');
   const reply = !!replyFields && /@/.test(replyFields.to) && replyFields.subject.startsWith('Re: ') && /^\n\nOn .* wrote:\n> /.test(replyFields.body) && replyFields.focused;
@@ -418,8 +418,28 @@ async function smokeKeys(w: BrowserWindow) {
   const draftGone = !((await w.webContents.executeJavaScript(`[...document.querySelectorAll('.palette li span')].some((s) => s.textContent.startsWith('Draft:'))`)) as boolean);
   await press('Escape');
   const drafts = draftListed && draftTo === 'grace@example.com' && draftGone;
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, draftListed, draftTo, draftGone };
+  // Attach by dropping a file on the composer; it goes with the message and comes back with Undo Send.
+  await press('c');
+  await new Promise((r) => setTimeout(r, 300));
+  await w.webContents.executeJavaScript(`(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(['bring snacks'], 'plan.txt', { type: 'text/plain' }));
+    const c = document.querySelector('.composer');
+    c.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    c.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  })()`);
+  await new Promise((r) => setTimeout(r, 200));
+  const chip = () => w.webContents.executeJavaScript(`[...document.querySelectorAll('.composer .attachments li')].map((l) => l.textContent).join('|')`) as Promise<string>;
+  const dropped = await chip();
+  await typeText('ada@example.com');
+  await press('Return', 1, ['meta']);
+  await press('Z', 1, ['meta']);
+  await new Promise((r) => setTimeout(r, 300));
+  const keptOnUndo = await chip();
+  await press('Escape');
+  const attachments = dropped.startsWith('plan.txt') && keptOnUndo.startsWith('plan.txt');
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments;
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, dropped };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };
