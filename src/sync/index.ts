@@ -2,7 +2,7 @@
 // Main tells it which Accounts exist; it keeps one SyncEngine per Account in step with that list.
 import type { MessagePortMain } from 'electron';
 import { DATA_PORT_METHODS } from '../core/data-service';
-import type { DataPort } from '../core/data-service';
+import type { DataPort, SyncEvents } from '../core/data-service';
 import { FakeProvider, FakeTransport, seedDemo, seedNewsletter } from '../core/fake-provider';
 import { connect, mainPortChannel, proxy } from '../core/rpc';
 import type { Client } from '../core/rpc';
@@ -27,7 +27,7 @@ type Message =
 
 const log = (m: string) => console.log(`[sync] ${m}`);
 let data: DataPort | undefined;
-let dataClient: Client | undefined;
+let dataClient: Client<SyncEvents> | undefined;
 let mainClient: Client | undefined;
 let wanted: Array<AccountConfig> | undefined;
 const engines = new Map<string, SyncEngine>();
@@ -120,7 +120,7 @@ process.parentPort.on('message', (e) => {
   if (msg.type === 'poll') {return void engines.forEach((engine) => engine.pollNow());}
   if (msg.type === 'accounts') {wanted = msg.accounts;}
   else if (msg.type === 'data-port' && e.ports[0]) {
-    dataClient = connect(mainPortChannel(e.ports[0]));
+    dataClient = connect<SyncEvents>(mainPortChannel(e.ports[0]));
     data = proxy<DataPort>(dataClient, DATA_PORT_METHODS);
     dataClient.on('fetch-body', (payload) => {
       const loc = payload as { accountId: string; mailbox: string; uid: number };

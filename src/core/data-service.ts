@@ -455,6 +455,15 @@ export const DATA_PORT_METHODS = [
   'draftsToSync', 'draftSynced', 'draftDeletions', 'draftDeleted',
 ] as const satisfies ReadonlyArray<keyof DataPort>;
 
+/** What the data process tells sync over the same port: event name → payload. */
+export interface SyncEvents {
+  'fetch-body': { accountId: AccountId; mailbox: string; uid: number };
+  replay: { accountId: AccountId };
+  outbox: { accountId: AccountId };
+  drafts: { accountId: AccountId };
+  'search-server': { id: number; query: ServerQuery };
+}
+
 /** Adapts an in-process DataService to the async DataPort. */
 export function localDataPort(ds: DataService): DataPort {
   const port = {} as Record<string, unknown>;

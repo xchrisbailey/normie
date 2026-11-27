@@ -506,8 +506,11 @@ export class Store {
     this.db.pragma('shrink_memory');
   }
 
-  /** A prepared statement for this SQL, made once. Returned in its default mode; callers may .pluck() it. */
-  private sql(text: string): Database.Statement {
+  /**
+   * A prepared statement for this SQL, made once. Returned in its default mode; callers may .pluck() it.
+   * `Row` is what the SQL selects: a row object, or the one column's value for a plucked statement.
+   */
+  private sql<Row = unknown>(text: string): Database.Statement<Array<unknown>, Row> {
     let st = this.statements.get(text);
     if (!st) {
       // SQL built from parts (IN lists of varying length) can't grow this without bound.
@@ -515,7 +518,10 @@ export class Store {
       st = this.db.prepare(text);
       this.statements.set(text, st);
     }
-    return st.reader ? st.pluck(false) : st;
+    // The cache holds statements of every row type; this one was prepared from `text`, which selects `Row`.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the row type is the SQL's, given by the caller
+    const typed = st as Database.Statement<Array<unknown>, Row>;
+    return typed.reader ? typed.pluck(false) : typed;
   }
 
   // --- Accounts and mailboxes

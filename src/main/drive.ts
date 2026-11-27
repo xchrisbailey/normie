@@ -13,7 +13,15 @@ const KEY_CODE: Record<string, string> = { ' ': 'Space' };
 export function drive(w: BrowserWindow) {
   const wc = w.webContents;
   const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  const js = <T>(code: string) => wc.executeJavaScript(code) as Promise<T>;
+  /**
+   * Run code in the page and get its result. `T` is what that code returns: the checks read it and assert on it,
+   * so a wrong guess fails the check rather than hiding.
+   */
+  const js = async <T>(code: string): Promise<T> => {
+    const value: unknown = await wc.executeJavaScript(code);
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the page code is written beside its T; checks assert on it
+    return value as T;
+  };
 
   return {
     pause,

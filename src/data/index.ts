@@ -1,8 +1,11 @@
 // The data process: owns the SQLite file. Serves the renderer's queries and sync's writes.
 import type { MessagePortMain } from 'electron';
 import { CORE_API_METHODS, coreApiOf } from '../core/core';
+import type { CoreEvents } from '../core/api';
 import { DATA_PORT_METHODS, DataService } from '../core/data-service';
+import type { SyncEvents } from '../core/data-service';
 import { mainPortChannel, serve } from '../core/rpc';
+import type { Emitter } from '../core/rpc';
 import { attachmentContent, readMessage, readOriginal } from '../core/mime';
 import { Store } from '../core/store';
 
@@ -13,7 +16,7 @@ type InitMessage =
 
 let data: DataService | undefined;
 const pendingPorts: Array<{ kind: 'renderer-port' | 'sync-port'; port: MessagePortMain }> = [];
-let emitToSync: ((name: string, payload: unknown) => void) | undefined;
+let emitToSync: Emitter<SyncEvents> | undefined;
 const pendingSearches = new Map<number, () => void>();
 let nextSearch = 0;
 
@@ -32,13 +35,13 @@ function attach(kind: 'renderer-port' | 'sync-port', port: MessagePortMain) {
   if (kind === 'renderer-port') {
     const api = coreApiOf(ds);
     const handlers = Object.fromEntries(CORE_API_METHODS.map((m) => [m, api[m]]));
-    const emit = serve(ch, handlers);
+    const emit = serve<CoreEvents>(ch, handlers);
     const off = ds.onNotice((n) => emit('notice', n));
     port.on('close', () => off());
   } else {
     const handlers = Object.fromEntries(DATA_PORT_METHODS.map((m) => [m, (...a: Array<unknown>) => (ds[m] as (...x: Array<unknown>) => unknown)(...a)]));
     // Sync answers a server search by calling back with its id once the hits are stored.
-    emitToSync = serve(ch, { ...handlers, serverSearchDone: (id: number) => void pendingSearches.get(id)?.() });
+    emitToSync = serve<SyncEvents>(ch, { ...handlers, serverSearchDone: (id: number) => void pendingSearches.get(id)?.() });
   }
 }
 

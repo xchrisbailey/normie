@@ -1,6 +1,11 @@
 // The contract between the renderer and the core. No runtime dependencies, so the renderer can import it.
 import type { Original } from './reply';
-import type { Address, ScheduledSummary, DraftContent, DraftSummary, LabelSet, OutgoingMessage, PendingStatus, SplitId, ThreadAction, ThreadMessage, ThreadRow } from './types';
+import type { Address, CoreNotice, ScheduledSummary, DraftContent, DraftSummary, LabelSet, OutgoingMessage, PendingStatus, SplitId, ThreadAction, ThreadMessage, ThreadRow } from './types';
+
+/** What the core tells the renderer: event name → payload. */
+export interface CoreEvents {
+  notice: CoreNotice;
+}
 
 /** What the renderer can ask of the core. Every method is async because it crosses a MessagePort in the app. */
 export interface CoreApi {

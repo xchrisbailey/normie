@@ -10,11 +10,11 @@ function pair() {
 describe('rpc over a MessagePort', () => {
   it('returns values, rejects errors and delivers events', async () => {
     const { server, client, close } = pair();
-    const emit = serve(server, {
+    const emit = serve<{ notice: { type: string } }>(server, {
       add: (a: number, b: number) => a + b,
       boom: () => { throw new Error('nope'); },
     });
-    const c = connect(client);
+    const c = connect<{ notice: { type: string } }>(client);
     const events: Array<unknown> = [];
     c.on('notice', (p) => events.push(p));
 
