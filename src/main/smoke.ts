@@ -23,13 +23,14 @@ export async function runSmoke(w: BrowserWindow, info: { rows: number; view: 'li
   const reauth = info.view === 'list' ? await smokeReauth(w) : undefined;
   const form = info.view === 'list' ? await smokeAddAccountForm(w) : undefined;
   const header = info.view === 'list' ? await smokeHeader(w) : undefined;
+  const list = info.view === 'list' ? await smokeList(w) : undefined;
   const keys = info.view === 'list' ? await smokeKeys(w, ctx) : undefined;
   const empty = info.view === 'empty' ? await smokeEmpty(w) : undefined;
   const ok =
     info.view === 'list'
-      ? info.rows > 0 && !!keys?.ok && !!header?.ok && !!form?.ok && !!reauth?.ok
+      ? info.rows > 0 && !!keys?.ok && !!header?.ok && !!list?.ok && !!form?.ok && !!reauth?.ok
       : !ctx.noRealAccounts && info.view === 'empty' && !!empty?.ok;
-  return { ok, report: { ...info, msSinceLaunch, packaged: app.isPackaged, reauth, form, keys, header, empty } };
+  return { ok, report: { ...info, msSinceLaunch, packaged: app.isPackaged, reauth, form, keys, header, list, empty } };
 }
 
 /** "Sign in again" on an iCloud Account opens that Account's password form, filled in, not Google's sign-in. */
@@ -88,9 +89,13 @@ async function smokeHeader(w: BrowserWindow) {
   // The Search icon opens the search, typing in it; Esc closes it.
   const searchIcon = await d.clickAt('.tool[aria-label="Search"]');
   await sleep(200);
-  const searchFocused = await d.js<boolean>(`document.activeElement === document.querySelector('.search-bar input')`);
+  const searchFocus = await d.js<string>(`(() => {
+    const a = document.activeElement;
+    return a === document.querySelector('.search-bar input') ? 'input' : a ? a.tagName + '.' + a.className : 'none';
+  })()`);
   await d.press('Escape');
-  const icons = searchIcon.hit && searchFocused && !(await d.js<boolean>(`!!document.querySelector('.search-bar')`));
+  const searchClosed = !(await d.js<boolean>(`!!document.querySelector('.search-bar')`));
+  const icons = searchIcon.hit && searchFocus === 'input' && searchClosed;
   // A narrow window: the last tabs move into More, and choosing one from it opens that Split.
   const [width, height] = w.getSize();
   w.setSize(420, height ?? 820);
@@ -119,7 +124,71 @@ async function smokeHeader(w: BrowserWindow) {
   await d.clickAt('.tool[aria-label="Inbox"]');
   w.webContents.sendInputEvent({ type: 'mouseMove', x: 4, y: 400 });
   await sleep(300);
-  return { ok: clickOpens && inkUnder && peek && icons && more, names, clickOpens, inkUnder, peekCards, icons, shownNarrow, items, opened, more };
+  return {
+    ok: clickOpens && inkUnder && peek && icons && more,
+    names,
+    clickOpens,
+    inkUnder,
+    peekCards,
+    icons,
+    search: { hit: searchIcon.hit, focus: searchFocus, closed: searchClosed },
+    shownNarrow,
+    items,
+    opened,
+    more,
+  };
+}
+
+/**
+ * The list: a click selects a row and gives the list the keys, j then moves one row (the list's own arrows don't add
+ * a second move), and the selected row's Done and Snooze buttons take its Thread out of the Inbox. z brings each back.
+ */
+async function smokeList(w: BrowserWindow) {
+  const d = drive(w);
+  const selectedKey = () => d.js<string>(`document.querySelector('.row[data-selected]')?.dataset.key ?? ''`);
+  const inbox = () => d.js<number>(`Number(document.querySelector('.split[data-selected] .count')?.textContent)`);
+  const third = await d.js<string>(`document.querySelectorAll('.row')[2]?.dataset.key ?? ''`);
+  const clicked = await d.clickAt('.row:nth-child(3) .subject');
+  const clickSelects = clicked.hit && (await selectedKey()) === third;
+  const fourth = await d.js<string>(`document.querySelectorAll('.row')[3]?.dataset.key ?? ''`);
+  await d.press('j');
+  const follows = await d.js<{ focused: boolean; active: boolean }>(`(() => {
+    const list = document.querySelector('.thread-list');
+    const sel = document.querySelector('.row[data-selected]');
+    return { focused: document.activeElement === list, active: !!sel && list.getAttribute('aria-activedescendant') === sel.id };
+  })()`);
+  const oneStep = (await selectedKey()) === fourth && follows.focused && follows.active;
+  // Only the selected row shows its snippet and buttons, in place of the date.
+  const face = await d.js<{ acts: number; snippets: number; selectedDate: boolean }>(`({
+    acts: document.querySelectorAll('.row .acts').length,
+    snippets: [...document.querySelectorAll('.row .snippet')].filter((s) => s.offsetWidth > 0).length,
+    selectedDate: !!document.querySelector('.row[data-selected] .date'),
+  })`);
+  await d.shot('list');
+  const quiet = face.acts === 1 && face.snippets <= 1 && !face.selectedDate;
+  const before = await inbox();
+  const doneClick = await d.clickAt('.row[data-selected] .act[data-act="thread.done"]');
+  await sleep(200);
+  const left = await d.js<boolean>(`!document.querySelector('.row[data-key="${fourth}"]')`);
+  const done = doneClick.hit && left && (await inbox()) === before - 1;
+  await d.press('z');
+  await sleep(200);
+  const doneBack = (await inbox()) === before;
+  const snoozing = await selectedKey();
+  const snoozeClick = await d.clickAt('.row[data-selected] .act[data-act="thread.snooze"]');
+  await sleep(200);
+  await d.type('tomorrow 9');
+  await d.press('Return');
+  await sleep(300);
+  const snoozed = snoozeClick.hit && (await inbox()) === before - 1 && (await d.js<boolean>(`!document.querySelector('.row[data-key="${snoozing}"]')`));
+  await d.press('z');
+  await sleep(300);
+  const snoozeBack = (await inbox()) === before;
+  // Back to the top, for the key checks after this.
+  await d.press('g');
+  await d.press('g');
+  const ok = clickSelects && oneStep && quiet && done && doneBack && snoozed && snoozeBack;
+  return { ok, clickSelects, oneStep, follows, face, done, doneBack, snoozed, snoozeBack };
 }
 
 /** Smoke check with no Accounts: the iCloud form explains that the login must be the @icloud.com address. */
@@ -142,7 +211,7 @@ async function smokeAddAccountForm(w: BrowserWindow) {
   for (const type of ['mouseDown', 'mouseUp'] as const) {
     w.webContents.sendInputEvent({ type, x: Math.round(field.x), y: Math.round(field.y), button: 'left', clickCount: 1 });
   }
-  const selectedBefore = await d.js<string>(`document.querySelector('.row.selected')?.dataset.key ?? ''`);
+  const selectedBefore = await d.js<string>(`document.querySelector('.row[data-selected]')?.dataset.key ?? ''`);
   const countBefore = await d.js<number>(`Number(document.querySelector('.split[data-selected] .count')?.textContent)`);
   // A menu command arriving while typing in the form (as a key equivalent would, when the page answers slowly) is ignored.
   await drive(w).menuAction('thread.done');
@@ -151,7 +220,7 @@ async function smokeAddAccountForm(w: BrowserWindow) {
   await drive(w).type(fast);
   await sleep(300);
   const typed = await d.js<string>(`document.querySelector('.sheet input')?.value ?? '(no form)'`);
-  const selectedAfter = await d.js<string>(`document.querySelector('.row.selected')?.dataset.key ?? ''`);
+  const selectedAfter = await d.js<string>(`document.querySelector('.row[data-selected]')?.dataset.key ?? ''`);
   await w.webContents.executeJavaScript(`document.querySelector('.sheet .quiet').click()`);
   await sleep(100);
   const countAfter = await d.js<number>(`Number(document.querySelector('.split[data-selected] .count')?.textContent)`);
@@ -184,7 +253,7 @@ async function smokeEmpty(w: BrowserWindow) {
 /** Smoke check: real key presses move the selection through the registry. */
 async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   const selectedIndex = () =>
-    d.js<number>(`(() => { const s = document.querySelector('.row.selected'); return s ? Math.round(s.offsetTop / s.offsetHeight) : -1; })()`);
+    d.js<number>(`(() => { const s = document.querySelector('.row[data-selected]'); return s ? Math.round(s.offsetTop / s.offsetHeight) : -1; })()`);
   const d = drive(w);
   const press = d.press;
   const start = await selectedIndex();
@@ -236,7 +305,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   const undone = (await count()) === before;
   // s stars the selected Thread.
   await press('s');
-  const starred = await d.js<boolean>(`!!document.querySelector('.row.selected .star')`);
+  const starred = await d.js<boolean>(`!!document.querySelector('.row[data-selected] .star')`);
   // Cmd-K, type "done", Enter: the palette runs Mark Done and closes.
   const beforePalette = await count();
   await press('K', 1, ['meta']);
@@ -252,7 +321,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   await press('Escape');
   const label = labelItems.includes('Receipts');
   // keymap.json is picked up without a restart: bind star to y, and y toggles the selected Thread's star.
-  const isStarred = () => d.js<boolean>(`!!document.querySelector('.row.selected .star')`);
+  const isStarred = () => d.js<boolean>(`!!document.querySelector('.row[data-selected] .star')`);
   const starBefore = await isStarred();
   writeFileSync(ctx.userFile('keymap.json'), JSON.stringify({ 'thread.star': 'y' }));
   await sleep(600);
