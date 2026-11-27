@@ -17,7 +17,13 @@ export class DataService {
   /** Called when an Account has new pending changes for the server. Set by whoever wires up sync. */
   replayRequester?: (accountId: AccountId) => void;
 
-  constructor(readonly store: Store) {}
+  private readonly now: () => number;
+  private readonly deleteHoldMs?: number;
+
+  constructor(readonly store: Store, opts: { now?: () => number; deleteHoldMs?: number } = {}) {
+    this.now = opts.now ?? Date.now;
+    this.deleteHoldMs = opts.deleteHoldMs;
+  }
 
   onNotice(fn: NoticeListener) {
     this.listeners.add(fn);
@@ -53,7 +59,7 @@ export class DataService {
    * per key press costs memory for nothing.
    */
   act(key: string, action: ThreadAction): number[] {
-    const { changes } = this.store.recordAction(key, action);
+    const { changes } = this.store.recordAction(key, action, this.now(), this.deleteHoldMs);
     if (changes.length) this.emitPending();
     const accounts = new Set(changes.map((c) => c.accountId));
     for (const a of accounts) this.replayRequester?.(a);
@@ -62,8 +68,14 @@ export class DataService {
 
   // --- Writes (sync)
 
+  /** Changes ready to send now, oldest first. */
   pendingChanges(accountId: AccountId): PendingChange[] {
-    return this.store.pendingChanges(accountId);
+    return this.store.pendingChanges(accountId, this.now());
+  }
+
+  /** When a held change (a fresh delete) may be sent. */
+  nextSendAt(accountId: AccountId): number | undefined {
+    return this.store.nextSendAt(accountId);
   }
 
   pending(): PendingStatus {
@@ -160,13 +172,14 @@ export interface DataPort {
   applyChanges(accountId: AccountId, mailbox: string, cs: Partial<ChangeSet>): Promise<void>;
   putBodies(accountId: AccountId, mailbox: string, bodies: BodyInput[]): Promise<void>;
   pendingChanges(accountId: AccountId): Promise<PendingChange[]>;
+  nextSendAt(accountId: AccountId): Promise<number | undefined>;
   changeApplied(id: number): Promise<void>;
   changeFailed(id: number, error: string, rejected: boolean): Promise<boolean>;
 }
 
 export const DATA_PORT_METHODS = [
   'upsertAccount', 'setMailboxes', 'removeAccount', 'mailboxState', 'knownUids', 'uidsNeedingBodies', 'applyChanges', 'putBodies',
-  'pendingChanges', 'changeApplied', 'changeFailed',
+  'pendingChanges', 'nextSendAt', 'changeApplied', 'changeFailed',
 ] as const satisfies readonly (keyof DataPort)[];
 
 /** Adapts an in-process DataService to the async DataPort. */

@@ -19,7 +19,10 @@ const Row = memo(function Row({ row, selected, top }: { row: ThreadRow; selected
       role="option"
       aria-selected={selected}
     >
-      <span className="from">{row.from}</span>
+      <span className="from">
+        {row.starred && <span className="star" aria-label="Starred">★</span>}
+        {row.from}
+      </span>
       <span className="subject">
         {row.subject}
         {row.count > 1 && <span className="n">{row.count}</span>}

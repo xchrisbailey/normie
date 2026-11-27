@@ -128,6 +128,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   function openRow(row: ThreadRow, i: number, list: ThreadRow[]): Promise<unknown> | void {
     if (!cache) return;
     setSelected(i);
+    if (row.unread) markRead(row);
     cache.prefetch(list.slice(i + 1, i + 1 + PREFETCH).map((r) => r.key));
     const hit = cache.get(row.key);
     setOpen({ key: row.key, subject: row.subject, messages: hit });
@@ -143,10 +144,11 @@ function Inbox({ core }: { core: CoreClient | null }) {
    * A triage action on the selected Thread: the row changes in this frame, then the core records it.
    * When the change removes the row, the selection stays put and lands on the next Thread (opened, in the reader).
    */
-  const triage = (action: ThreadAction, change: (r: ThreadRow) => ThreadRow | null) => {
+  const triage = (action: ThreadAction | ((r: ThreadRow) => ThreadAction), change: (r: ThreadRow) => ThreadRow | null) => {
     const i = clamp(selected);
     const row = rows[i];
     if (!row || !core) return;
+    if (typeof action === 'function') action = action(row);
     overrides.current.set(row.key, change);
     const next = withOverrides(rows);
     setRows(next);
@@ -171,6 +173,17 @@ function Inbox({ core }: { core: CoreClient | null }) {
     // When nothing changed in the store, no notice will come: reload to drop the override.
     void ids.then((x) => settle(!x.length), () => settle(true));
   };
+
+  /** Opening a Thread marks it read. Not an undoable action: u marks it unread again. */
+  function markRead(row: ThreadRow) {
+    if (!core) return;
+    const change = (r: ThreadRow) => ({ ...r, unread: false });
+    overrides.current.set(row.key, change);
+    setRows((rs) => rs.map((r) => (r.key === row.key ? change(r) : r)));
+    void core.act(row.key, { type: 'read', on: true }).finally(() => {
+      if (overrides.current.get(row.key) === change) overrides.current.delete(row.key);
+    });
+  }
 
   /** Undo the last triage action: the row comes back as it was in this frame, then the core reverts it. */
   const undo = () => {
@@ -210,6 +223,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
       move(() => 0);
     },
     'thread.done': () => triage({ type: 'done' }, () => null),
+    'thread.delete': () => triage({ type: 'delete' }, () => null),
+    'thread.star': () => triage((r) => ({ type: 'star', on: !r.starred }), (r) => ({ ...r, starred: !r.starred })),
+    'thread.toggleRead': () => triage((r) => ({ type: 'read', on: r.unread }), (r) => ({ ...r, unread: !r.unread })),
     undo,
     'dev.overlay': () => setOverlay((o) => !o),
   });
