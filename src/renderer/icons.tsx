@@ -34,6 +34,17 @@ export const MoreIcon = () => (
     <path d="M6 12h.01M12 12h.01M18 12h.01" {...S} strokeWidth={2.6} />
   </Icon>
 );
+export const DoneIcon = () => (
+  <Icon>
+    <path d="M5 12.5l4.5 4.5L19 7.5" {...S} strokeWidth={1.8} />
+  </Icon>
+);
+export const SnoozeIcon = () => (
+  <Icon>
+    <circle cx="12" cy="13" r="7.5" {...S} />
+    <path d="M12 9v4.5l3 2" {...S} />
+  </Icon>
+);
 
 const AllIcon = () => (
   <Icon>

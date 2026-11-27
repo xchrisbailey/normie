@@ -10,7 +10,7 @@ import type { CoreClient } from './core-client';
 import { DevOverlay } from './DevOverlay';
 import { isHtmlElement } from './dom';
 import { RowOverrides } from './row-overrides';
-import { actionItems } from './commands/palette';
+import { actionItems, keyLabel } from './commands/palette';
 import type { PaletteItem } from './commands/palette';
 import { ACTIONS, isActionId } from './commands/registry';
 import { Palette } from './Palette';
@@ -28,6 +28,7 @@ import { splitSummaries, splitsFrom } from './splits';
 import { Header } from './Header';
 import { note, Toasts, useProblems } from './Toasts';
 import { ThreadList } from './ThreadList';
+import type { RowActions } from './ThreadList';
 import { useKeymap, useKeys, useSnippets, useSplitsFile } from './useKeys';
 import type { Handlers } from './useKeys';
 
@@ -248,6 +249,17 @@ function Inbox({ core }: { core: CoreClient | null }) {
   }, [allRows, empty]);
 
   const clamp = useCallback((i: number) => Math.max(0, Math.min(rows.length - 1, i)), [rows.length]);
+  const rowsNow = useRef(rows);
+  useLayoutEffect(() => {
+    rowsNow.current = rows;
+  });
+  /** A row chosen with the pointer. */
+  const selectKey = useCallback((key: string) => {
+    const i = rowsNow.current.findIndex((r) => r.key === key);
+    if (i >= 0) {
+      setSelected(i);
+    }
+  }, []);
   const move = (to: (s: number) => number) => setSelected((s) => clamp(to(s)));
 
   /** Open the Thread at index i. Instant from the cache; otherwise resolves once its messages are shown. */
@@ -546,6 +558,13 @@ function Inbox({ core }: { core: CoreClient | null }) {
     }
   }, []);
   useEffect(() => window.normie.onMenuAction((ids) => runAction(ids, true)), [runAction]);
+  const rowActions = useMemo((): RowActions => {
+    const keyOf = (id: string) => {
+      const key = keymap.actions.find((a) => a.id === id)?.keys[0];
+      return key && keyLabel(key);
+    };
+    return { run: (id) => runAction([id]), keys: { 'thread.done': keyOf('thread.done'), 'thread.snooze': keyOf('thread.snooze') } };
+  }, [keymap.actions, runAction]);
 
   /** Show the open Thread's hidden images; `always` also remembers each sender. */
   function loadImages(always: boolean) {
@@ -907,7 +926,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
         <EmptyState />
       ) : (
         <div className={open || compose ? 'panes reading' : 'panes'}>
-          <ThreadList rows={rows} selected={selected} markers={markers} />
+          <ThreadList rows={rows} selected={selected} markers={markers} view={search ? 'search' : split.id} onSelect={selectKey} actions={rowActions} />
           {compose && (
             <Suspense fallback={<section className="composer" />}>
               <Composer

@@ -490,47 +490,78 @@ body {
   overflow-y: auto;
   flex: 1;
   contain: strict;
+  outline: none;
 }
+.rows {
+  position: relative;
+}
+/* Unread is a dot and darker ink, not bold. The snippet and the actions show only on the selected row. */
 .row {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   display: grid;
-  grid-template-columns: 180px 1fr 64px;
-  gap: 12px;
+  grid-template-columns: 150px 1fr 72px;
+  gap: 14px;
   align-items: center;
-  height: 36px;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--mantle);
-  color: var(--subtext);
+  height: 44px;
+  padding: 0 12px 0 22px;
+  border-radius: 8px;
+  color: var(--fg3);
   white-space: nowrap;
+  cursor: default;
+}
+.row::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
 }
 .row.unread {
-  color: var(--text);
+  color: var(--fg);
 }
-.row.unread .from,
-.row.unread .subject {
-  font-weight: 600;
+.row.unread::before {
+  opacity: 1;
+}
+.row:hover {
+  background: var(--well);
+}
+.row[data-selected] {
+  background: var(--sel);
+  color: var(--fg);
 }
 .from,
 .subject {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.row .from {
+  font-weight: 500;
+}
 .subject .n {
   margin-left: 6px;
-  color: var(--overlay);
-  font-weight: 400;
+  color: var(--fg3);
+  font-size: 12px;
 }
 .snippet {
+  display: none;
   margin-left: 10px;
-  color: var(--overlay);
-  font-weight: 400;
+  color: var(--fg3);
+}
+.row[data-selected] .snippet {
+  display: inline;
 }
 .date {
   text-align: right;
-  color: var(--overlay);
+  color: var(--fg3);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 .row .acct {
@@ -542,7 +573,14 @@ body {
   vertical-align: middle;
 }
 .row .date.reminder {
-  color: var(--yellow);
+  color: var(--ansi-yellow);
+}
+.row .date.snoozed {
+  color: var(--ansi-blue);
+}
+.row .star {
+  color: var(--ansi-yellow);
+  margin-right: 6px;
 }
 .composer .reminder-line {
   display: flex;
@@ -553,16 +591,35 @@ body {
   color: var(--subtext);
   border-top: 1px solid var(--surface0);
 }
-.row .date.snoozed {
-  color: var(--blue);
+.acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
 }
-.row .star {
-  color: var(--yellow);
-  margin-right: 6px;
+.act {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--fg2);
+  background: none;
 }
-.row.selected {
-  background: var(--sel);
-  box-shadow: inset 2px 0 0 var(--blue);
+.act .icon {
+  width: 17px;
+  height: 17px;
+}
+.act:hover {
+  color: var(--fg);
+  background: var(--paper);
+}
+.act[data-act='thread.done']:hover {
+  color: var(--ansi-green);
+}
+.act[data-act='thread.snooze']:hover {
+  color: var(--ansi-blue);
 }
 .accounts {
   margin-left: auto;
@@ -1060,7 +1117,7 @@ button.primary:disabled {
   border-right: 1px solid var(--surface0);
 }
 .panes.reading .row {
-  grid-template-columns: 120px 1fr 56px;
+  grid-template-columns: 120px 1fr 64px;
 }
 .panes.reading .snippet {
   display: none;
