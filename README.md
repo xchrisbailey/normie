@@ -28,7 +28,7 @@ The development build (`npm start`) and the installed app share that folder, so 
 
 ## Keys
 
-`Cmd-K` opens the palette, which lists every action with its key.
+`?` shows every key on one sheet; `Cmd-K` opens the palette, which lists every action with its key.
 
 | | |
 |---|---|

@@ -49,6 +49,14 @@ let accounts: Accounts;
 
 function initAccounts() {
   const dir = app.getPath('userData');
+  // The fake smoke run has an iCloud Account whose password stopped working, to check "Sign in again" opens its own form.
+  if (smoke && useFake) {
+    writeFileSync(path.join(dir, 'accounts.json'), JSON.stringify([{
+      id: 'icloud:smoke@icloud.com@imap.mail.me.com', kind: 'imap', email: 'smoke@icloud.com', status: 'needs-sign-in',
+      settings: { provider: 'icloud', email: 'smoke@icloud.com', user: 'smoke@icloud.com', savesSent: false,
+        imap: { host: 'imap.mail.me.com', port: 993, security: 'tls' }, smtp: { host: 'smtp.mail.me.com', port: 587, security: 'starttls' } },
+    }]));
+  }
   accounts = new Accounts({
     secrets: new SafeStorageSecrets(path.join(dir, 'secrets')),
     list: new JsonAccountList(path.join(dir, 'accounts.json')),
@@ -285,12 +293,13 @@ ipcMain.on('renderer-ready', async (_e, info: { rows: number; view: 'list' | 'em
   if (bench && win) return void runBench(win, info);
   if (!smoke || !win) return;
   const msSinceLaunch = Math.round(performance.now() - launchedAt);
+  const reauth = info.view === 'list' ? await smokeReauth(win) : undefined;
   const form = info.view === 'list' ? await smokeAddAccountForm(win) : undefined;
   const keys = info.view === 'list' ? await smokeKeys(win) : undefined;
   const empty = info.view === 'empty' ? await smokeEmpty(win) : undefined;
-  console.log(`[smoke] ${JSON.stringify({ ...info, msSinceLaunch, packaged: app.isPackaged, form, keys, empty })}`);
+  console.log(`[smoke] ${JSON.stringify({ ...info, msSinceLaunch, packaged: app.isPackaged, reauth, form, keys, empty })}`);
   quitting = true;
-  const ok = info.view === 'list' ? info.rows > 0 && keys!.ok && form!.ok : !noRealAccounts && info.view === 'empty' && empty!.ok;
+  const ok = info.view === 'list' ? info.rows > 0 && keys!.ok && form!.ok && reauth!.ok : !noRealAccounts && info.view === 'empty' && empty!.ok;
   app.exit(ok ? 0 : 1);
 });
 
@@ -405,6 +414,19 @@ function measureMemory(): { mb: number; detail: string } {
     }
   }
   return { mb: metrics.reduce((a, m) => a + m.memory.workingSetSize, 0) / 1024, detail: `working set over ${metrics.length} processes` };
+}
+
+/** "Sign in again" on an iCloud Account opens that Account's password form, filled in, not Google's sign-in. */
+async function smokeReauth(w: BrowserWindow) {
+  await w.webContents.executeJavaScript(`document.querySelector('.account.needs-sign-in').click()`);
+  await new Promise((r) => setTimeout(r, 200));
+  const form = (await w.webContents.executeJavaScript(`(() => {
+    const s = document.querySelector('.sheet');
+    return s ? { title: s.querySelector('h2').textContent, email: s.querySelector('input').value, focused: document.activeElement?.type } : null;
+  })()`)) as { title: string; email: string; focused: string } | null;
+  await w.webContents.executeJavaScript(`document.querySelector('.sheet .quiet').click()`);
+  await new Promise((r) => setTimeout(r, 100));
+  return { ok: form?.title === 'Sign in to smoke@icloud.com again' && form.email === 'smoke@icloud.com' && form.focused === 'password', form };
 }
 
 /** Smoke check with no Accounts: the iCloud form explains that the login must be the @icloud.com address. */
@@ -735,13 +757,21 @@ async function smokeKeys(w: BrowserWindow) {
   const mochaBody = await bg();
   const themes = latteBody === 'rgb(239, 241, 245)' && latteFrame === 'rgb(239, 241, 245)' && mochaBody === 'rgb(30, 30, 46)';
 
+  // ? lists the keys (Snooze among them); Esc closes it.
+  await press('?');
+  await new Promise((r) => setTimeout(r, 300));
+  await shot('key-help');
+  const helpText = (await w.webContents.executeJavaScript(`document.querySelector('.key-help')?.textContent ?? ''`)) as string;
+  await press('Escape');
+  const keyHelp = helpText.includes('Snooze') && helpText.includes('Composer') && !((await w.webContents.executeJavaScript(`!!document.querySelector('.key-help')`)) as boolean);
+
   // Closing the window keeps Normie running: the window hides, the page still answers, the menu bar item stays.
   w.close();
   await new Promise((r) => setTimeout(r, 200));
   const stillAnswers = (await w.webContents.executeJavaScript('1 + 1').catch(() => 0)) === 2;
   const keepsRunning = !w.isDestroyed() && !w.isVisible() && stillAnswers && !!tray && !tray.isDestroyed();
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick && snooze && keepsRunning && sendLater && reminder && search && themes;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick, snooze, keepsRunning, sendLater, reminder, search, themes, latteBody, latteFrame, mochaBody };
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick && snooze && keepsRunning && sendLater && reminder && search && themes && keyHelp;
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick, snooze, keepsRunning, sendLater, reminder, search, themes, keyHelp };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };

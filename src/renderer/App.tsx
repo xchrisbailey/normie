@@ -13,6 +13,7 @@ import { blockedMessages, Reader } from './Reader';
 import { SyncBadge } from './SyncBadge';
 import { ThreadCache } from './thread-cache';
 import { toNotify } from './notify';
+import { KeyHelp } from './KeyHelp';
 import { applyTheme, currentTheme, type Theme } from './theme';
 import { WhenPicker } from './WhenPicker';
 import { describeWhen } from '../core/when';
@@ -102,6 +103,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const selectedKey = useRef<string | undefined>(undefined);
   const reported = useRef(false);
   const [overlay, setOverlay] = useState(false);
+  const [keyHelp, setKeyHelp] = useState(false);
   const [theme, setThemeState] = useState<Theme>(currentTheme);
   const setTheme = (t: Theme) => {
     applyTheme(t);
@@ -376,6 +378,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
     undo,
     'dev.overlay': () => setOverlay((o) => !o),
     'palette.open': () => setPalette((p) => (p ? null : 'actions')),
+    'help.keys': () => setKeyHelp(true),
     'filter.all': () => filterAccount(0),
     'split.next': () => stepSplit(1),
     'split.prev': () => stepSplit(-1),
@@ -706,6 +709,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
         </div>
       )}
       {overlay && <DevOverlay />}
+      {keyHelp && <KeyHelp actions={keymap.actions} onClose={() => setKeyHelp(false)} />}
       {picker === 'snooze' && (
         <WhenPicker
           title="Snooze until"

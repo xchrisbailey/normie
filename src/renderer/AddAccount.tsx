@@ -5,21 +5,29 @@ import { createPortal } from 'react-dom';
 type Security = 'tls' | 'starttls' | 'none';
 export type PasswordProvider = 'icloud' | 'imap';
 
-export function AddPasswordAccount({ provider, onDone }: { provider: PasswordProvider; onDone: () => void }) {
-  const [email, setEmail] = useState('');
-  const [user, setUser] = useState('');
+export function AddPasswordAccount({ provider, onDone, existing }: {
+  provider: PasswordProvider;
+  onDone: () => void;
+  /** Signing in again to an Account that has these settings: everything but the password is filled in. */
+  existing?: AccountRecord;
+}) {
+  const s = existing?.settings;
+  const [email, setEmail] = useState(s?.email ?? existing?.email ?? '');
+  const [user, setUser] = useState(s && s.user !== s.email ? s.user : '');
   const [password, setPassword] = useState('');
-  const [imapHost, setImapHost] = useState('');
-  const [imapPort, setImapPort] = useState('993');
-  const [imapSecurity, setImapSecurity] = useState<Security>('tls');
-  const [smtpHost, setSmtpHost] = useState('');
-  const [smtpPort, setSmtpPort] = useState('587');
-  const [smtpSecurity, setSmtpSecurity] = useState<Security>('starttls');
-  const [savesSent, setSavesSent] = useState(false);
+  const [imapHost, setImapHost] = useState(s?.imap.host ?? '');
+  const [imapPort, setImapPort] = useState(String(s?.imap.port ?? 993));
+  const [imapSecurity, setImapSecurity] = useState<Security>(s?.imap.security ?? 'tls');
+  const [smtpHost, setSmtpHost] = useState(s?.smtp.host ?? '');
+  const [smtpPort, setSmtpPort] = useState(String(s?.smtp.port ?? 587));
+  const [smtpSecurity, setSmtpSecurity] = useState<Security>(s?.smtp.security ?? 'starttls');
+  const [savesSent, setSavesSent] = useState(s?.savesSent ?? false);
+  const passwordField = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; field?: string } | null>(null);
   const first = useRef<HTMLInputElement>(null);
-  useLayoutEffect(() => first.current?.focus(), []);
+  // Signing in again: straight to the password.
+  useLayoutEffect(() => (existing ? passwordField.current : first.current)?.focus(), []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,13 +57,13 @@ export function AddPasswordAccount({ provider, onDone }: { provider: PasswordPro
   return (
     createPortal(<div className="palette-backdrop" onMouseDown={() => !busy && onDone()}>
       <form className="sheet" onSubmit={(e) => void submit(e)} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && !busy && onDone()}>
-        <h2>{provider === 'icloud' ? 'Add iCloud Account' : 'Add IMAP Account'}</h2>
+        <h2>{existing ? `Sign in to ${existing.email} again` : provider === 'icloud' ? 'Add iCloud Account' : 'Add IMAP Account'}</h2>
         {provider === 'icloud' && (
           <p className="help">Sign in with your <b>@icloud.com</b> address and an <b>app-specific password</b> from account.apple.com → Sign-In and Security → App-Specific Passwords. You can send from your own domain afterwards.</p>
         )}
         <label><span>Email</span><input ref={first} className={bad('email')} value={email} onChange={(e) => setEmail(e.target.value)} placeholder={provider === 'icloud' ? 'you@icloud.com' : 'you@example.com'} autoComplete="off" spellCheck={false} /></label>
         {provider === 'imap' && <label><span>Username</span><input value={user} onChange={(e) => setUser(e.target.value)} placeholder="Same as email" autoComplete="off" spellCheck={false} /></label>}
-        <label><span>Password</span><input className={bad('password')} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={provider === 'icloud' ? 'abcd-efgh-ijkl-mnop' : ''} /></label>
+        <label><span>Password</span><input ref={passwordField} className={bad('password')} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={provider === 'icloud' ? 'abcd-efgh-ijkl-mnop' : ''} /></label>
         {provider === 'imap' && (
           <>
             <label><span>IMAP</span><input className={bad('imap.host')} value={imapHost} onChange={(e) => setImapHost(e.target.value)} placeholder="imap.example.com" spellCheck={false} />
@@ -68,7 +76,7 @@ export function AddPasswordAccount({ provider, onDone }: { provider: PasswordPro
         {error && <p className="account-error">{error.message}</p>}
         <footer>
           <button type="button" className="quiet" onClick={onDone} disabled={busy}>Cancel</button>
-          <button type="submit" className="primary" disabled={busy}>{busy ? 'Checking…' : 'Add Account'}</button>
+          <button type="submit" className="primary" disabled={busy}>{busy ? 'Checking…' : existing ? 'Sign In' : 'Add Account'}</button>
         </footer>
       </form>
     </div>, document.body)

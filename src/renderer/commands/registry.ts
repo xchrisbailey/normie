@@ -46,6 +46,7 @@ export const ACTIONS = [
   { id: 'filter.8', name: 'Show Account 8', keys: ['8'], contexts: ['list', 'reader'] },
   { id: 'filter.9', name: 'Show Account 9', keys: ['9'], contexts: ['list', 'reader'] },
   { id: 'go.inbox', name: 'Go to Inbox', keys: ['g i'], contexts: ['list', 'reader'] },
+  { id: 'help.keys', name: 'Show Keyboard Shortcuts', keys: ['?'], contexts: ['list', 'reader'] },
   { id: 'palette.open', name: 'Command Palette', keys: ['Cmd-K'], contexts: ['list', 'reader', 'composer'] },
   { id: 'theme.mocha', name: 'Theme: Mocha (Dark)', keys: [], contexts: ['list', 'reader'] },
   { id: 'theme.latte', name: 'Theme: Latte (Light)', keys: [], contexts: ['list', 'reader'] },
