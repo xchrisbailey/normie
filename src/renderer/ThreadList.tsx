@@ -11,7 +11,7 @@ function when(ms: number) {
   return d.toDateString() === new Date().toDateString() ? timeFmt.format(d) : dateFmt.format(d);
 }
 
-const Row = memo(function Row({ row, selected, top }: { row: ThreadRow; selected: boolean; top: number }) {
+const Row = memo(function Row({ row, selected, top, marker }: { row: ThreadRow; selected: boolean; top: number; marker?: string }) {
   return (
     <div
       className={`row${row.unread ? ' unread' : ''}${selected ? ' selected' : ''}`}
@@ -20,6 +20,7 @@ const Row = memo(function Row({ row, selected, top }: { row: ThreadRow; selected
       aria-selected={selected}
     >
       <span className="from">
+        {marker && <span className="acct" style={{ background: marker }} />}
         {row.starred && <span className="star" aria-label="Starred">★</span>}
         {row.from}
       </span>
@@ -34,7 +35,12 @@ const Row = memo(function Row({ row, selected, top }: { row: ThreadRow; selected
 });
 
 /** Memoized: opening the palette or an overlay shouldn't re-render the list. */
-export const ThreadList = memo(function ThreadList({ rows, selected }: { rows: ThreadRow[]; selected: number }) {
+export const ThreadList = memo(function ThreadList({ rows, selected, markers }: {
+  rows: ThreadRow[];
+  selected: number;
+  /** A color per Account, when there's more than one. */
+  markers?: Map<string, string>;
+}) {
   const scroller = useRef<HTMLDivElement>(null);
   const v = useVirtualizer({ count: rows.length, getScrollElement: () => scroller.current, estimateSize: () => ROW_HEIGHT, overscan: 12 });
 
@@ -46,7 +52,7 @@ export const ThreadList = memo(function ThreadList({ rows, selected }: { rows: T
     <div ref={scroller} className="thread-list" role="listbox" aria-label="Threads">
       <div style={{ height: v.getTotalSize(), position: 'relative' }}>
         {v.getVirtualItems().map((item) => (
-          <Row key={rows[item.index]!.key} row={rows[item.index]!} selected={item.index === selected} top={item.start} />
+          <Row key={rows[item.index]!.key} row={rows[item.index]!} selected={item.index === selected} top={item.start} marker={markers?.get(rows[item.index]!.accountId)} />
         ))}
       </div>
     </div>

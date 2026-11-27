@@ -2,6 +2,8 @@
 export const BUDGETS = {
   /** Move in the list (j, k) and switch Split: one frame. Checked at p95 over many presses. */
   keyMoveMs: 16,
+  /** Switch Split or Account filter: keydown to the frame with the new list. Checked at p95. */
+  switchMs: 16,
   /** Triage (Done, star, Snooze): keydown to the frame with the list updated. Checked at p95. */
   triageMs: 16,
   /** Open the command palette (Cmd-K): keydown to the frame that shows it. Checked at p95. */
