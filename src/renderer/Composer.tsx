@@ -2,6 +2,7 @@
 // Loaded lazily, so it costs nothing at launch.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { formatAddresses, parseAddresses } from '../core/addresses';
+import { AddressField } from './AddressField';
 import type { Address, DraftContent, OutgoingMessage } from '../core/types';
 
 export interface Identity {
@@ -32,7 +33,7 @@ async function readFiles(files: FileList | File[]): Promise<Attachment[]> {
   return Promise.all([...files].map(async (f) => ({ filename: f.name, contentType: f.type || 'application/octet-stream', content: new Uint8Array(await f.arrayBuffer()) })));
 }
 
-export default function Composer({ start, identities, onSend, onClose, onSaveDraft, onDiscard }: {
+export default function Composer({ start, identities, onSend, onClose, onSaveDraft, onDiscard, suggest }: {
   start: ComposeStart;
   identities: Identity[];
   onSend: (m: OutgoingMessage, draftId?: number) => void;
@@ -40,6 +41,8 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
   /** Save the draft; resolves with its id. */
   onSaveDraft: (draftId: number | null, content: DraftContent) => Promise<number>;
   onDiscard: (draftId: number | null) => void;
+  /** People to suggest in address fields. */
+  suggest: (query: string) => Promise<Address[]>;
 }) {
   const same = (a?: Address, b?: Address) => !!a && !!b && a.address.toLowerCase() === b.address.toLowerCase();
   const first = identities.find((i) => i.accountId === start.accountId && same(i.from, start.from))
@@ -179,13 +182,13 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
         )}
         <label>
           <span>To</span>
-          <input ref={toField} value={to} onChange={(e) => setTo(e.target.value)} spellCheck={false} />
+          <AddressField ref={toField} value={to} onChange={setTo} suggest={suggest} />
           {!showCopies && <button type="button" className="link" onClick={() => setShowCopies(true)} tabIndex={-1}>Cc Bcc</button>}
         </label>
         {showCopies && (
           <>
-            <label><span>Cc</span><input value={cc} onChange={(e) => setCc(e.target.value)} spellCheck={false} /></label>
-            <label><span>Bcc</span><input value={bcc} onChange={(e) => setBcc(e.target.value)} spellCheck={false} /></label>
+            <label><span>Cc</span><AddressField value={cc} onChange={setCc} suggest={suggest} /></label>
+            <label><span>Bcc</span><AddressField value={bcc} onChange={setBcc} suggest={suggest} /></label>
           </>
         )}
         <label><span>Subject</span><input value={subject} onChange={(e) => setSubject(e.target.value)} /></label>

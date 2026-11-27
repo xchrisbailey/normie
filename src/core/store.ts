@@ -7,6 +7,24 @@ import type {
 
 const INBOX_LABEL = '\\Inbox';
 
+/**
+ * Contacts from every stored message: senders, and the people on mail I sent (counted as sent-to) or received
+ * (counted as seen). My own addresses are left out.
+ */
+const REBUILD_CONTACTS = `
+  delete from contacts;
+  insert into contacts(address, name, sent_count, seen_count, last_at)
+  select address, max(name), sum(sent), sum(1 - sent), max(date) from (
+    select lower(json_extract(m.from_json, '$.address')) address, nullif(json_extract(m.from_json, '$.name'), '') name, 0 sent, m.date date
+      from messages m where m.from_json is not null
+    union all
+    select lower(json_extract(t.value, '$.address')), nullif(json_extract(t.value, '$.name'), ''),
+      (lower(json_extract(m.from_json, '$.address')) in (select lower(email) from accounts)), m.date
+      from messages m, json_each(m.to_json) t
+  ) where address is not null and address like '%@%' and address not in (select lower(email) from accounts)
+  group by address;
+`;
+
 const MIGRATIONS: string[] = [
   `
   create table accounts (
@@ -143,6 +161,17 @@ const MIGRATIONS: string[] = [
     uid integer not null
   );
   `,
+  // People to suggest in address fields, built from the mail already here and kept up to date by sync.
+  `
+  create table contacts (
+    address text primary key,
+    name text,
+    sent_count integer not null default 0,
+    seen_count integer not null default 0,
+    last_at integer not null default 0
+  );
+  `,
+  REBUILD_CONTACTS,
 ];
 
 /** How long a delete waits before it's sent, so it can still be undone. */
@@ -263,6 +292,7 @@ export class Store {
   readonly db: Database.Database;
   /** Accounts with changes queued by the store itself (Done on new mail in a muted Thread), waiting to be replayed. */
   readonly replayNeeded = new Set<AccountId>();
+  private mine?: Set<string>;
 
   constructor(path: string) {
     this.db = new Database(path);
@@ -291,6 +321,7 @@ export class Store {
   // --- Accounts and mailboxes
 
   upsertAccount(id: AccountId, kind: string, email: string) {
+    this.mine = undefined;
     this.db
       .prepare('insert into accounts(id, kind, email) values (?, ?, ?) on conflict(id) do update set kind = excluded.kind, email = excluded.email')
       .run(id, kind, email);
@@ -408,7 +439,10 @@ export class Store {
           continue;
         }
         const threadKey = h.threadId ?? h.messageId ?? h.remoteId;
-        if (!old) arrived.add(threadKey);
+        if (!old) {
+          arrived.add(threadKey);
+          this.noteContacts(h.from, h.to, h.date);
+        }
         touched.add(threadKey);
         insert.run({
           accountId, mailbox, uid: h.uid, remoteId: h.remoteId, threadKey, messageId: h.messageId ?? null,
@@ -657,6 +691,53 @@ export class Store {
     const r = this.db.prepare(`select count(*) count, count(last_error) waiting from pending_changes where state = 'pending'`).get() as { count: number; waiting: number };
     const o = this.db.prepare(`select count(*) count, count(last_error) waiting from outbox where state in ('queued', 'sending')`).get() as { count: number; waiting: number };
     return { count: r.count + o.count, waiting: r.waiting + o.waiting };
+  }
+
+  // --- Contacts
+
+  /** My own addresses: never suggested, and what makes a message "sent". */
+  private myAddresses(): Set<string> {
+    this.mine ??= new Set((this.db.prepare('select lower(email) from accounts').pluck().all() as string[]));
+    return this.mine;
+  }
+
+  /** Count the people on a newly stored message. */
+  private noteContacts(from: Address | undefined, to: Address[], date: number) {
+    const mine = this.myAddresses();
+    const sent = !!from && mine.has(from.address.toLowerCase());
+    const up = this.db.prepare(`insert into contacts(address, name, sent_count, seen_count, last_at) values (?, ?, ?, ?, ?)
+      on conflict(address) do update set name = coalesce(excluded.name, name), sent_count = sent_count + excluded.sent_count,
+        seen_count = seen_count + excluded.seen_count, last_at = max(last_at, excluded.last_at)`);
+    const note = (a: Address, isSent: boolean) => {
+      const address = a.address.toLowerCase();
+      if (!address.includes('@') || mine.has(address)) return;
+      up.run(address, a.name || null, isSent ? 1 : 0, isSent ? 0 : 1, date);
+    };
+    if (from) note(from, false);
+    for (const a of to) note(a, sent);
+  }
+
+  /** Rebuild the contacts from every stored message. */
+  rebuildContacts() {
+    this.mine = undefined;
+    this.db.exec(REBUILD_CONTACTS);
+  }
+
+  /**
+   * People matching what's typed (the start of the address, or of any word of the name): people I've written to
+   * first, then by how often and how recently they come up.
+   */
+  contacts(query: string, limit = 8, now = Date.now()): Address[] {
+    const q = query.trim().toLowerCase().replace(/[%_\\]/g, '');
+    if (!q) return [];
+    return (this.db
+      .prepare(`select address, name from contacts
+                where address like ? || '%' or lower(name) like ? || '%' or lower(name) like '% ' || ? || '%'
+                order by (sent_count > 0) desc,
+                  (sent_count * 4 + seen_count) * (1.0 / (1 + (? - last_at) / 2592000000.0)) desc, last_at desc
+                limit ?`)
+      .all(q, q, q, now, limit) as { address: string; name: string | null }[])
+      .map((r) => (r.name ? { name: r.name, address: r.address } : { address: r.address }));
   }
 
   // --- Drafts

@@ -438,8 +438,18 @@ async function smokeKeys(w: BrowserWindow) {
   const keptOnUndo = await chip();
   await press('Escape');
   const attachments = dropped.startsWith('plan.txt') && keptOnUndo.startsWith('plan.txt');
-  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, dropped };
+  // Address suggestions: "gra", Tab → Grace Hopper.
+  await press('c');
+  await new Promise((r) => setTimeout(r, 300));
+  await typeText('gra');
+  await new Promise((r) => setTimeout(r, 200));
+  const suggested = (await w.webContents.executeJavaScript(`[...document.querySelectorAll('.suggestions li')].map((l) => l.textContent).join('|')`)) as string;
+  await press('Tab');
+  const picked = (await w.webContents.executeJavaScript(`document.querySelector('.composer input:not([type=file])').value`)) as string;
+  await press('Escape');
+  const autocomplete = suggested.startsWith('Grace Hopper') && picked === 'Grace Hopper <grace@example.com>, ';
+  const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete;
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, picked };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };
