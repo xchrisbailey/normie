@@ -247,6 +247,18 @@ const MIGRATIONS: string[] = [
   alter table threads add column woke_at integer;
   create index threads_woke on threads (woke_at) where woke_at is not null;
   `,
+  // Reminders: a message of mine, and when to bring its Thread back if nobody has answered. Fired ones mark the Thread.
+  `
+  create table reminders (
+    id integer primary key,
+    account_id text not null,
+    message_id text not null,
+    due_at integer not null
+  );
+  create index reminders_due on reminders (due_at);
+  alter table threads add column reminded_at integer;
+  create index threads_reminded on threads (reminded_at) where reminded_at is not null;
+  `,
 ];
 
 /** Mail dated a little before the last check still counts as news (clocks differ; servers deliver late). */
@@ -465,7 +477,7 @@ export class Store {
   removeAccount(id: AccountId) {
     this.db.transaction(() => {
       this.sql('delete from bodies where message_id in (select id from messages where account_id = ?)').run(id);
-      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes', 'muted_threads', 'outbox', 'drafts', 'draft_deletions', 'thread_refs', 'identities', 'snoozes']) this.sql(`delete from ${t} where account_id = ?`).run(id);
+      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes', 'muted_threads', 'outbox', 'drafts', 'draft_deletions', 'thread_refs', 'identities', 'snoozes', 'reminders']) this.sql(`delete from ${t} where account_id = ?`).run(id);
       this.sql('delete from accounts where id = ?').run(id);
     })();
   }
@@ -686,6 +698,10 @@ export class Store {
           changes.push({ id, accountId, threadKey, mailbox, uids, edit, attempts: 0 });
           for (const k of this.editMessages(accountId, mailbox, uids, edit)) if (this.refreshThread(accountId, k)) inboxChanged = true;
         }
+      }
+      // Dealing with a Thread that came back on a Reminder (Done, delete, Snooze, a move) settles it.
+      if (['done', 'delete', 'snooze', 'mute', 'label'].includes(action.type)) {
+        this.sql('update threads set reminded_at = null where account_id = ? and thread_key = ? and reminded_at is not null').run(accountId, threadKey);
       }
       if (action.type === 'snooze' && changes.length) {
         this.sql('insert or replace into snoozes(account_id, thread_key, wake_at, change_ids_json) values (?, ?, ?, ?)')
@@ -1063,11 +1079,52 @@ export class Store {
 
   /** Take a message back out of the Outbox, if it isn't on its way already. */
   cancelSend(id: number): OutgoingMessage | null {
-    const r = this.sql(`select message_json from outbox where id = ? and state in ('queued', 'failed')`).pluck().get(id) as string | undefined;
+    const r = this.sql(`select message_json, message_id from outbox where id = ? and state in ('queued', 'failed')`).get(id) as { message_json: string; message_id: string } | undefined;
     if (!r) return null;
     this.sql('delete from outbox where id = ?').run(id);
-    return decodeMessage(r);
+    // Its Reminder goes with it; it comes back with the message if it's sent again.
+    this.sql('delete from reminders where message_id = ?').run(r.message_id);
+    return decodeMessage(r.message_json);
   }
+
+  // --- Reminders
+
+  addReminder(accountId: AccountId, messageId: string, dueAt: number) {
+    this.sql('insert into reminders(account_id, message_id, due_at) values (?, ?, ?)').run(accountId, messageId, dueAt);
+  }
+
+  nextReminderAt(): number | undefined {
+    return (this.sql('select min(due_at) from reminders').pluck().get() as number | null) ?? undefined;
+  }
+
+  /**
+   * Fire Reminders that are due. A Thread where someone other than me wrote after my message has had its reply:
+   * the Reminder just goes. Otherwise the Thread comes back to the top of the Inbox, marked. A message not synced
+   * back yet waits a little. Returns whether anything changed on screen.
+   */
+  fireReminders(now: number): boolean {
+    const due = this.sql('select id, account_id, message_id from reminders where due_at <= ?').all(now) as { id: number; account_id: string; message_id: string }[];
+    const mine = this.myAddresses();
+    let changed = false;
+    for (const r of due) {
+      const mineMsg = this.sql('select thread_key, date from messages where account_id = ? and message_id = ? order by date limit 1').get(r.account_id, r.message_id) as
+        | { thread_key: string; date: number } | undefined;
+      if (!mineMsg) {
+        // Still on its way (offline, or not synced back): look again in ten minutes.
+        this.sql('update reminders set due_at = ? where id = ?').run(now + 10 * 60_000, r.id);
+        continue;
+      }
+      this.sql('delete from reminders where id = ?').run(r.id);
+      const senders = this.sql('select from_json from messages where account_id = ? and thread_key = ? and date > ? and from_json is not null')
+        .pluck().all(r.account_id, mineMsg.thread_key, mineMsg.date) as string[];
+      const answered = senders.some((j) => !mine.has((JSON.parse(j) as Address).address.toLowerCase()));
+      if (answered) continue;
+      this.sql('update threads set reminded_at = ?, woke_at = ? where account_id = ? and thread_key = ?').run(now, now, r.account_id, mineMsg.thread_key);
+      changed = true;
+    }
+    return changed;
+  }
+
 
   /** Messages due now for an Account, marked as on their way. */
   dueOutbox(accountId: AccountId, now: number): OutboxItem[] {
@@ -1210,15 +1267,16 @@ export class Store {
     type Row = {
       account_id: string; thread_key: string; subject: string; from_label: string; last_date: number; snippet: string;
       unread: number; starred: number; count: number; is_list: number; sender: string | null; labels_json: string; woke_at: number | null;
-      vip: number | null; known: number | null; wake_at?: number;
+      vip: number | null; known: number | null; wake_at?: number; reminded?: number;
     };
     // The Inbox, newest first; woken Threads (rare) are fetched apart, since waking puts an old Thread on top.
     const inbox = this.sql(`select ${cols} from threads t where t.in_inbox = 1 order by t.last_date desc limit ?`).all(limit) as Row[];
     const woken = this.sql(`select ${cols} from threads t where t.woke_at is not null and t.woke_at > t.last_date and t.in_inbox = 1`).all() as Row[];
     const snoozed = this.sql(`select ${cols}, s.wake_at from snoozes s join threads t on t.account_id = s.account_id and t.thread_key = s.thread_key`).all() as Row[];
+    const reminded = this.sql(`select ${cols}, 1 reminded from threads t where t.reminded_at is not null`).all() as Row[];
     const seen = new Set<string>();
     const all: (Row & { sort: number })[] = [];
-    for (const r of [...snoozed, ...woken, ...inbox]) {
+    for (const r of [...snoozed, ...reminded, ...woken, ...inbox]) {
       const k = `${r.account_id}\u0000${r.thread_key}`;
       if (seen.has(k)) continue;
       seen.add(k);
@@ -1230,6 +1288,7 @@ export class Store {
       date: r.sort, snippet: r.snippet, unread: r.unread === 1, starred: r.starred === 1, count: r.count,
       tags: {
         ...(r.wake_at !== undefined ? { snoozedUntil: r.wake_at } : {}),
+        ...(r.reminded ? { reminder: true } : {}),
         newsletter: r.is_list === 1, vip: r.vip === 1, known: r.known === 1, ...(r.sender ? { sender: r.sender } : {}),
         ...(r.labels_json !== '[]' ? { labels: JSON.parse(r.labels_json) as string[] } : {}),
       },

@@ -38,7 +38,7 @@ A keyboard-first desktop mail client for Gmail, iCloud and any IMAP/SMTP server.
 | `c`, `r`, `Shift-R`, `f` | Compose, reply, reply all, forward |
 | `Cmd-Z` | Undo Send (for 5 s after sending) |
 
-In the composer: `Cmd-Enter` sends, `Cmd-Shift-Enter` sends later (at a time in plain words; scheduled messages are in `Cmd-K`), `Esc` closes and keeps a draft, `Cmd-Shift-Backspace` discards it, `Cmd-Shift-A` attaches files (or drop them on it), and `Cmd-K` inserts a snippet. Drafts reopen from `Cmd-K`.
+In the composer: `Cmd-Enter` sends, `Cmd-Shift-Enter` sends later (at a time in plain words; scheduled messages are in `Cmd-K`), `Cmd-Shift-H` sets a Reminder (the Thread comes back if nobody but you writes by then), `Esc` closes and keeps a draft, `Cmd-Shift-Backspace` discards it, `Cmd-Shift-A` attaches files (or drop them on it), and `Cmd-K` inserts a snippet. Drafts reopen from `Cmd-K`.
 
 ### Your own keys
 

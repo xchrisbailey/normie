@@ -53,7 +53,12 @@ export class DataService {
     if (draftId !== undefined) this.deleteDraft(draftId);
     // Send Later: at the time chosen. Otherwise after the undo window.
     const at = sendAt !== undefined && sendAt > this.now() ? sendAt : this.now() + this.undoSendMs;
-    const id = this.store.queueSend(message, newMessageId(message.from), at, this.now());
+    const messageId = newMessageId(message.from);
+    const id = this.store.queueSend(message, messageId, at, this.now());
+    if (message.remindAt !== undefined) {
+      this.store.addReminder(message.accountId, messageId, message.remindAt);
+      this.armScheduler();
+    }
     this.emitPending();
     this.outboxRequester?.(message.accountId);
     return id;
@@ -77,15 +82,18 @@ export class DataService {
   runDue(): number {
     const due = this.store.dueSnoozes(this.now());
     for (const d of due) this.wake(d.accountId, d.threadKey);
+    const reminded = this.store.fireReminders(this.now());
+    if (reminded) this.emit({ type: 'rows-changed', split: 'inbox' });
     this.armScheduler();
-    return due.length;
+    return due.length + (reminded ? 1 : 0);
   }
 
   /** Wait for the next wake-up. At most a minute at a time, so a Mac waking from sleep catches up promptly. */
   private armScheduler() {
     clearTimeout(this.timer);
-    const next = this.store.nextWakeAt();
-    if (next === undefined) return;
+    const times = [this.store.nextWakeAt(), this.store.nextReminderAt()].filter((t): t is number => t !== undefined);
+    if (!times.length) return;
+    const next = Math.min(...times);
     this.timer = setTimeout(() => this.runDue(), Math.min(60_000, Math.max(0, next - this.now())));
   }
 
