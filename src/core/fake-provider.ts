@@ -1,5 +1,6 @@
 // An in-memory MailProvider that plays a scripted mailbox. Used by core tests,
 // the performance fixture and `npm run start:fake`.
+import type { ServerQuery } from './search-query';
 import { ServerRejectedError } from './types';
 import type {
   Address, Caps, ChangeSet, ChangesOptions, FlagChange, Mailbox, MailEvent, MailProvider, MailTransport, MessageEdit, RawMessage, RemoteHeader, SyncState,
@@ -287,6 +288,21 @@ export class FakeProvider implements MailProvider {
     const messageId = /^Message-ID: (.*)$/im.exec(text)?.[1]?.trim();
     const uid = this.deliver({ subject, flags, ...(messageId ? { messageId } : {}), raw: text, labels: this.caps.labels ? [flags.includes('\\Draft') ? '\\Draft' : '\\Sent'] : [path] }, path);
     return { uid };
+  }
+
+  /** Searches as a server would: every term in the field it names (or anywhere), case-insensitive. */
+  async search(path: string, query: ServerQuery) {
+    this.check('search');
+    const b = this.box(path);
+    const has = (hay: string, needle: string) => hay.toLowerCase().includes(needle.toLowerCase());
+    const addr = (a?: Address) => (a ? `${a.name ?? ''} ${a.address}` : '');
+    return [...b.messages.values()].filter((m) => query.terms.every((t) => {
+      const h = m.header;
+      if (t.field === 'from') return has(addr(h.from), t.text);
+      if (t.field === 'to') return has(h.to.map(addr).join(' '), t.text);
+      if (t.field === 'subject') return has(h.subject, t.text);
+      return has(`${h.subject} ${addr(h.from)} ${h.to.map(addr).join(' ')} ${m.text}`, t.text);
+    })).map((m) => m.header.uid);
   }
 
   /** Moves the core made, in order, and how (MOVE, or copy + delete + expunge without it). */

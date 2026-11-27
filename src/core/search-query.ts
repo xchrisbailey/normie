@@ -26,3 +26,22 @@ export function ftsQuery(input: string): string | null {
   }
   return parts.length ? parts.join(' AND ') : null;
 }
+
+/** A search as servers take it: the text as typed (Gmail's X-GM-RAW reads the same operators), and its terms. */
+export interface ServerQuery {
+  raw: string;
+  terms: { field?: 'from' | 'to' | 'subject'; text: string }[];
+}
+
+export function serverQuery(input: string): ServerQuery | null {
+  const terms: ServerQuery['terms'] = [];
+  for (const m of input.matchAll(/(\w+):(?:"([^"]*)"|(\S+))|"([^"]*)"|(\S+)/g)) {
+    const [, field, fieldPhrase, fieldWord, phrase, word] = m;
+    const f = field?.toLowerCase();
+    const known = f === 'from' || f === 'to' || f === 'subject' ? f : f === 'cc' ? 'to' : undefined;
+    const text = (known ? (fieldPhrase ?? fieldWord) : field ? m[0] : (phrase ?? word))?.trim();
+    if (!text) continue;
+    terms.push(known ? { field: known, text } : { text });
+  }
+  return terms.length ? { raw: input.trim(), terms } : null;
+}

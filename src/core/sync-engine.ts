@@ -3,6 +3,7 @@
 import type { DataPort } from './data-service';
 import { parseAddresses } from './addresses';
 import { buildMime } from './compose';
+import type { ServerQuery } from './search-query';
 import { ServerRejectedError, SNOOZED, type AccountId, type Mailbox, type MailProvider, type MailTransport } from './types';
 
 export type TextExtractor = (raw: Uint8Array) => Promise<string>;
@@ -225,6 +226,27 @@ export class SyncEngine {
     await this.replay();
     await this.syncAll();
     for (const m of this.syncedMailboxes) await this.backfillHeaders(m);
+  }
+
+  // --- Search
+
+  /**
+   * Search the server for mail that isn't stored: Gmail's All Mail, or every folder of a folder server (including
+   * ones not kept in sync). Up to 200 of the newest hits per mailbox are stored as headers; opening one downloads it.
+   */
+  async searchServer(query: ServerQuery) {
+    const { provider, data, accountId } = this.o;
+    const boxes = provider.caps.labels
+      ? this.syncedMailboxes
+      : this.mailboxes.filter((m) => m.role !== 'junk' && m.role !== 'drafts').map((m) => m.path);
+    for (const mailbox of boxes) {
+      const hits = await this.serial(() => provider.search(mailbox, query));
+      const known = new Set(await data.knownUids(accountId, mailbox));
+      const missing = hits.filter((u) => !known.has(u)).sort((a, b) => b - a).slice(0, 200);
+      if (!missing.length) continue;
+      const headers = await this.serial(() => provider.headers(mailbox, missing));
+      await data.applyChanges(accountId, mailbox, { headers });
+    }
   }
 
   // --- Drafts

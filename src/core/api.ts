@@ -12,6 +12,8 @@ export interface CoreApi {
   send(message: OutgoingMessage, draftId?: number, sendAt?: number): Promise<number>;
   /** Threads with a message matching the query (words, "phrases", from:, to:, subject:), newest first. */
   search(query: string, limit?: number): Promise<ThreadRow[]>;
+  /** The same search, asking the servers too for mail that isn't stored here. Slower: seconds, not milliseconds. */
+  searchServer(query: string, limit?: number): Promise<ThreadRow[]>;
   /** Messages set to go out later (Send Later). */
   scheduled(): Promise<ScheduledSummary[]>;
   /** Save a draft (new when `id` is null); kept here and synced to the Drafts mailbox. Returns its id. */
@@ -39,4 +41,4 @@ export interface CoreApi {
   pending(): Promise<PendingStatus>;
 }
 
-export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment', 'send', 'cancelSend', 'original', 'saveDraft', 'deleteDraft', 'drafts', 'draft', 'contacts', 'setVip', 'scheduled', 'search'] as const satisfies readonly (keyof CoreApi)[];
+export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment', 'send', 'cancelSend', 'original', 'saveDraft', 'deleteDraft', 'drafts', 'draft', 'contacts', 'setVip', 'scheduled', 'search', 'searchServer'] as const satisfies readonly (keyof CoreApi)[];

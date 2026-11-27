@@ -84,7 +84,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const filterOf = useCallback((list: ThreadRow[]) => list.filter(split.match), [split]);
   const withOverridesRef = useRef<(r: ThreadRow[]) => ThreadRow[]>((r) => r);
   /** Search: the query and its results; while it's open, the list shows the results instead of a Split. */
-  const [search, setSearch] = useState<{ query: string; results: ThreadRow[] } | null>(null);
+  const [search, setSearch] = useState<{ query: string; results: ThreadRow[]; server?: 'searching' | 'done' } | null>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const searchRef = useRef(search);
   searchRef.current = search;
@@ -531,9 +531,20 @@ function Inbox({ core }: { core: CoreClient | null }) {
         setSearch({ query, results });
         setSelected(0);
         selectedKey.current = undefined;
+        // Nothing here: ask the servers by themselves.
+        if (!results.length && query.trim().length >= 2) searchServer(query);
       });
     }, 60);
   };
+  /** Search the servers for mail that isn't stored here (older than what's synced, or in folders not synced). */
+  function searchServer(query = searchRef.current?.query ?? '') {
+    if (!core || !query.trim()) return;
+    setSearch((s) => (s && s.query === query ? { ...s, server: 'searching' } : s));
+    void core.searchServer(query).then((results) => {
+      if (searchRef.current?.query !== query) return;
+      setSearch({ query, results, server: 'done' });
+    });
+  }
   function closeSearch() {
     clearTimeout(searchTimer.current);
     setSearch(null);
@@ -605,9 +616,17 @@ function Inbox({ core }: { core: CoreClient | null }) {
                   e.preventDefault();
                   closeSearch();
                 }
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) searchServer();
               }}
             />
             <span className="count">{search.results.length}</span>
+            {search.server === 'searching' ? (
+              <span className="sync-note">Searching the server…</span>
+            ) : search.server === 'done' ? (
+              <span className="sync-note">Server searched</span>
+            ) : search.query.trim() ? (
+              <button className="quiet search-server" onClick={() => searchServer()} tabIndex={-1} title="Also search mail that isn't stored on this Mac (⌘↩)">Search the server</button>
+            ) : null}
           </span>
         ) : (
         <nav className="splits" aria-label="Splits">

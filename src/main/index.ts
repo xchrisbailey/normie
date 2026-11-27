@@ -695,7 +695,14 @@ async function smokeKeys(w: BrowserWindow) {
   await press('Escape');
   await press('Escape');
   const searchClosed = (await w.webContents.executeJavaScript(`!document.querySelector('.search-bar') && !!document.querySelector('.splits')`)) as boolean;
-  const search = results.length > 0 && results.every((r) => /budget/i.test(r)) && /budget/i.test(resultOpened) && searchClosed;
+  // Nothing local: the server is asked by itself (the fake server has nothing more either).
+  await press('/');
+  await new Promise((r) => setTimeout(r, 200));
+  for (const ch of 'zebra') w.webContents.sendInputEvent({ type: 'char', keyCode: ch });
+  await new Promise((r) => setTimeout(r, 800));
+  const serverStatus = (await w.webContents.executeJavaScript(`document.querySelector('.search-bar .sync-note')?.textContent ?? ''`)) as string;
+  await press('Escape');
+  const search = results.length > 0 && results.every((r) => /budget/i.test(r)) && /budget/i.test(resultOpened) && searchClosed && serverStatus === 'Server searched';
 
   // Closing the window keeps Normie running: the window hides, the page still answers, the menu bar item stays.
   w.close();
@@ -703,7 +710,7 @@ async function smokeKeys(w: BrowserWindow) {
   const stillAnswers = (await w.webContents.executeJavaScript('1 + 1').catch(() => 0)) === 2;
   const keepsRunning = !w.isDestroyed() && !w.isVisible() && stillAnswers && !!tray && !tray.isDestroyed();
   const ok = start === 0 && afterJ === 5 && afterK === 3 && afterGG === 0 && reader && done && undone && starred && palette && label && keymapOk && compose && reply && drafts && attachments && autocomplete && snippet && splits && notifyClick && snooze && keepsRunning && sendLater && reminder && search;
-  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick, snooze, keepsRunning, sendLater, reminder, search, results: results.length };
+  return { ok, start, afterJ, afterK, afterGG, reader, html, focusedFrame, readerClosed, riskyRefused, done, undone, starred, palette, label, keymap: keymapOk, compose, reopened, reply, drafts, attachments, autocomplete, snippet, splits, notifyClick, snooze, keepsRunning, sendLater, reminder, search, results: results.length, serverStatus };
 }
 
 type AttachmentFile = { filename: string; content: Uint8Array };
