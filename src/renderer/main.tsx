@@ -2,11 +2,13 @@ import { createRoot } from 'react-dom/client';
 import { expected } from '../core/errors';
 import { App } from './App';
 import { waitForCore } from './core-client';
+import '@fontsource-variable/geist';
+import '@fontsource-variable/geist-mono';
 import './styles.css';
-import { applyTheme, currentTheme } from './theme';
+import { applyTheme, launchTheme } from './theme';
 
 // The theme first, so the first frame is already in the right colours.
-applyTheme(currentTheme());
+applyTheme(launchTheme());
 
 // A file dropped anywhere but the composer is ignored, never opened in the window.
 for (const type of ['dragover', 'drop'] as const) {

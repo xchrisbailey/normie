@@ -1,83 +1,65 @@
-/* Catppuccin: Mocha by default, Latte as an option, or following the system (data-theme on <html>). */
+@layer ui-sdk;
+
+/*
+ * Colors come from the theme on screen (theme.ts sets these variables on the root from a VS Code color theme, before
+ * the first frame). The values here are Normie Dark's, for the moment before that.
+ */
 :root {
-  --base: #1e1e2e;
-  --mantle: #181825;
-  --crust: #11111b;
-  --surface0: #313244;
-  --surface1: #45475a;
-  --text: #cdd6f4;
-  --subtext: #a6adc8;
-  --overlay: #7f849c;
-  --blue: #89b4fa;
-  --lavender: #b4befe;
-  --yellow: #f9e2af;
-  --red: #f38ba8;
-  --green: #a6e3a1;
-  --peach: #fab387;
-  --pink: #f5c2e7;
-  --teal: #94e2d5;
-  --mauve: #cba6f7;
-  --maroon: #eba0ac;
-  --sapphire: #74c7ec;
-  --shadow: rgb(0 0 0 / 0.4);
-  --scrim: rgb(17 17 27 / 0.5);
+  --ground: #1a1725;
+  --paper: #221e30;
+  --well: #221e30;
+  --sel: #2b2545;
+  --line: #2c2740;
+  --line2: #3b3554;
+  --fg: #ece9f7;
+  --fg2: #aaa3c4;
+  --fg3: #857ea3;
+  --accent: #b49bff;
+  --accent-fg: #1a1725;
+  --shadow: #00000080;
+  --scrim: #1a17258c;
+  --ansi-black: #0f0d16;
+  --ansi-red: #ff9a85;
+  --ansi-green: #4fdc9c;
+  --ansi-yellow: #ffd166;
+  --ansi-blue: #7fcfff;
+  --ansi-magenta: #b49bff;
+  --ansi-cyan: #7ee0e0;
+  --ansi-white: #aaa3c4;
+  --ansi-bright-black: #4f4870;
+  --ansi-bright-red: #ffb3a3;
+  --ansi-bright-green: #7fe8b8;
+  --ansi-bright-yellow: #ffe099;
+  --ansi-bright-blue: #a6ddff;
+  --ansi-bright-magenta: #cdbbff;
+  --ansi-bright-cyan: #a8eded;
+  --ansi-bright-white: #ece9f7;
+
+  /* The names the stylesheet used before themes were files, until the zen layout replaces the rules that use them. */
+  --base: var(--ground);
+  --mantle: var(--paper);
+  --crust: var(--well);
+  --surface0: var(--line);
+  --surface1: var(--line2);
+  --text: var(--fg);
+  --subtext: var(--fg2);
+  --overlay: var(--fg3);
+  --blue: var(--ansi-blue);
+  --lavender: var(--ansi-bright-blue);
+  --yellow: var(--ansi-yellow);
+  --red: var(--ansi-red);
+  --green: var(--ansi-green);
+  --peach: var(--ansi-bright-red);
+  --pink: var(--ansi-bright-magenta);
+  --teal: var(--ansi-cyan);
+  --mauve: var(--ansi-magenta);
+  --maroon: var(--ansi-red);
+  --sapphire: var(--ansi-bright-cyan);
+
+  --font-sans: 'Geist Variable', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
   color-scheme: dark;
-  font:
-    13px/1.4 -apple-system,
-    BlinkMacSystemFont,
-    'Inter',
-    system-ui,
-    sans-serif;
-}
-:root[data-theme='latte'] {
-  --base: #eff1f5;
-  --mantle: #e6e9ef;
-  --crust: #dce0e8;
-  --surface0: #ccd0da;
-  --surface1: #bcc0cc;
-  --text: #4c4f69;
-  --subtext: #5c5f77;
-  --overlay: #8c8fa1;
-  --blue: #1e66f5;
-  --lavender: #7287fd;
-  --yellow: #df8e1d;
-  --red: #d20f39;
-  --green: #40a02b;
-  --peach: #fe640b;
-  --pink: #ea76cb;
-  --teal: #179299;
-  --mauve: #8839ef;
-  --maroon: #e64553;
-  --sapphire: #209fb5;
-  --shadow: rgb(76 79 105 / 0.18);
-  --scrim: rgb(220 224 232 / 0.55);
-  color-scheme: light;
-}
-@media (prefers-color-scheme: light) {
-  :root[data-theme='system'] {
-    --base: #eff1f5;
-    --mantle: #e6e9ef;
-    --crust: #dce0e8;
-    --surface0: #ccd0da;
-    --surface1: #bcc0cc;
-    --text: #4c4f69;
-    --subtext: #5c5f77;
-    --overlay: #8c8fa1;
-    --blue: #1e66f5;
-    --lavender: #7287fd;
-    --yellow: #df8e1d;
-    --red: #d20f39;
-    --green: #40a02b;
-    --peach: #fe640b;
-    --pink: #ea76cb;
-    --teal: #179299;
-    --mauve: #8839ef;
-    --maroon: #e64553;
-    --sapphire: #209fb5;
-    --shadow: rgb(76 79 105 / 0.18);
-    --scrim: rgb(220 224 232 / 0.55);
-    color-scheme: light;
-  }
+  font: 13px/1.4 var(--font-sans);
 }
 * {
   box-sizing: border-box;
@@ -245,7 +227,7 @@ body {
   margin-right: 6px;
 }
 .row.selected {
-  background: var(--surface0);
+  background: var(--sel);
   box-shadow: inset 2px 0 0 var(--blue);
 }
 .accounts {
@@ -446,10 +428,7 @@ body {
   justify-content: flex-end;
 }
 .key-help kbd {
-  font:
-    11px ui-monospace,
-    Menlo,
-    monospace;
+  font: 11px var(--font-mono);
   color: var(--text);
   background: var(--surface0);
   border-radius: 4px;
@@ -566,10 +545,7 @@ button.primary:disabled {
   font-style: italic;
 }
 .palette kbd {
-  font:
-    12px ui-monospace,
-    Menlo,
-    monospace;
+  font: 12px var(--font-mono);
   color: var(--subtext);
 }
 .composer {
@@ -733,10 +709,7 @@ button.primary:disabled {
   border-radius: 6px;
   background: var(--crust);
   color: var(--subtext);
-  font:
-    12px ui-monospace,
-    Menlo,
-    monospace;
+  font: 12px var(--font-mono);
   pointer-events: none;
 }
 .dev-overlay b {
@@ -800,10 +773,7 @@ button.primary:disabled {
   cursor: pointer;
 }
 .images-bar kbd {
-  font:
-    11px ui-monospace,
-    Menlo,
-    monospace;
+  font: 11px var(--font-mono);
   color: var(--subtext);
   margin-left: 4px;
 }

@@ -1,6 +1,7 @@
 // Preload: the only bridge between the sandboxed renderer and Electron.
 // It forwards the core's MessagePort into the page and exposes a tiny API. No Node APIs reach the page.
 import { contextBridge, ipcRenderer, webFrame } from 'electron';
+import type { ActiveTheme, ThemeChoice, ThemeList } from '../core/vscode-theme';
 
 ipcRenderer.on('core-port', (e) => window.postMessage('normie:core-port', '*', e.ports));
 
@@ -31,8 +32,28 @@ contextBridge.exposeInMainWorld('normie', {
   openLink: (url: string) => ipcRenderer.send('open-link', url),
   openAttachment: (file: { filename: string; content: Uint8Array }): Promise<{ ok: boolean; reason?: string }> => ipcRenderer.invoke('attachment:open', file),
   saveAttachment: (file: { filename: string; content: Uint8Array }): Promise<{ ok: boolean; path?: string }> => ipcRenderer.invoke('attachment:save', file),
-  /** The theme, for the parts main draws (menus, the window's background). */
-  setTheme: (t: 'mocha' | 'latte' | 'system') => ipcRenderer.send('theme', t),
+  themes: {
+    /** The theme to show now, read before the first frame. `legacy`: the choice kept in the window's storage before themes were files. */
+    current: (legacy: string | null): ActiveTheme => {
+      const t: unknown = ipcRenderer.sendSync('theme:current', legacy);
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- main answers with activeTheme(), typed there
+      return t as ActiveTheme;
+    },
+    list: (): Promise<ThemeList> => ipcRenderer.invoke('themes:list'),
+    choose: (choice: ThemeChoice): Promise<ActiveTheme> => ipcRenderer.invoke('theme:choose', choice),
+    /** The theme on screen changed: a new choice, the system's appearance, or the file was edited. */
+    onChanged: (fn: (t: ActiveTheme) => void) => {
+      const handler = (_e: unknown, t: ActiveTheme) => fn(t);
+      ipcRenderer.on('theme:changed', handler);
+      return () => void ipcRenderer.off('theme:changed', handler);
+    },
+    /** A file in the themes folder was added, changed or removed. */
+    onListChanged: (fn: (l: ThemeList) => void) => {
+      const handler = (_e: unknown, l: ThemeList) => fn(l);
+      ipcRenderer.on('themes:changed', handler);
+      return () => void ipcRenderer.off('themes:changed', handler);
+    },
+  },
   /** The Inbox count, for the menu bar. */
   setInboxCount: (n: number) => ipcRenderer.send('inbox-count', n),
   toggleLoginItem: (): Promise<{ on: boolean; packaged: boolean }> => ipcRenderer.invoke('login-item:toggle'),
