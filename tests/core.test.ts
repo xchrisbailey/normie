@@ -1,7 +1,7 @@
 // Tests at the core's command and query seam, over the fake MailProvider.
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCore, type TestCore } from '../src/core/core';
-import { FakeProvider, fakeExtractText } from '../src/core/fake-provider';
+import { FakeProvider, fakeExtractText, seedDemo } from '../src/core/fake-provider';
 
 const NOW = Date.UTC(2026, 10, 26, 12);
 const HOUR = 3_600_000;
@@ -55,5 +55,26 @@ describe('Inbox Split', () => {
     const c = await start(p);
     await c.engine.syncOnce();
     expect(c.notices).toContainEqual({ type: 'rows-changed', split: 'inbox' });
+  });
+});
+
+describe('Accounts in the store', () => {
+  it('drops local mail for Accounts that are no longer signed in, and keeps the rest', async () => {
+    const provider = new FakeProvider();
+    seedDemo(provider, 4, NOW);
+    const c = await start(provider);
+    await c.engine.syncOnce();
+    const before = await c.rows('inbox');
+    expect(before.length).toBeGreaterThan(0);
+    c.data.upsertAccount('gone', 'fake', 'old@example.com');
+    const notices: unknown[] = [];
+    c.onNotice((n) => notices.push(n));
+
+    expect(c.data.pruneAccounts(['acct-1', 'never-synced'])).toEqual(['gone']);
+    expect(await c.rows('inbox')).toEqual(before);
+
+    expect(c.data.pruneAccounts([])).toEqual(['acct-1']);
+    expect(await c.rows('inbox')).toEqual([]);
+    expect(notices).toContainEqual({ type: 'rows-changed', split: 'inbox' });
   });
 });

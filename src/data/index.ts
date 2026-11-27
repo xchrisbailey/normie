@@ -6,7 +6,7 @@ import { mainPortChannel, serve } from '../core/rpc';
 import { Store } from '../core/store';
 
 type InitMessage =
-  | { type: 'init'; dbPath: string }
+  | { type: 'init'; dbPath: string; keepAccounts?: string[] }
   | { type: 'renderer-port' }
   | { type: 'sync-port' };
 
@@ -34,6 +34,11 @@ process.parentPort.on('message', (e) => {
   const msg = e.data as InitMessage;
   if (msg.type === 'init') {
     data = new DataService(new Store(msg.dbPath));
+    // Main sends the Account list when it's the source of truth (not in fake or benchmark runs).
+    if (msg.keepAccounts) {
+      const removed = data.pruneAccounts(msg.keepAccounts);
+      if (removed.length) console.log(`[data] removed ${removed.length} Account(s) that are no longer signed in`);
+    }
     data.bodyRequester = (loc) => emitToSync?.('fetch-body', loc);
     for (const p of pendingPorts.splice(0)) attach(p.kind, p.port);
   } else {

@@ -40,6 +40,11 @@ export function AccountBar({ accounts }: { accounts: AccountRecord[] }) {
           </button>
         ),
       )}
+      {!window.normie.fake && (
+        <button className="account add" disabled={busy} onClick={() => void add()} title="Sign in with Google in your browser">
+          {busy ? 'Waiting for Google…' : '+ Add Gmail'}
+        </button>
+      )}
       {error && <span className="account-error">{error}</span>}
     </div>
   );
