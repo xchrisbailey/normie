@@ -8,6 +8,7 @@ export function Panel({
   className,
   onClose,
   initialFocus,
+  dismissible = true,
   children,
 }: {
   /** Names the panel for screen readers. */
@@ -16,11 +17,14 @@ export function Panel({
   onClose: () => void;
   /** A selector for where focus starts, when not the first field. */
   initialFocus?: string;
+  /** False when the panel closes itself, as Compose does to save its draft. */
+  dismissible?: boolean;
   children: ReactNode;
 }) {
   return (
     <Dialog
       open
+      dismissible={dismissible}
       onOpenChange={(open) => {
         if (!open) {
           onClose();

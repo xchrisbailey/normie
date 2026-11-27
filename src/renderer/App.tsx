@@ -27,6 +27,8 @@ import { WhenPicker } from './WhenPicker';
 import { describeWhen } from '../core/when';
 import { splitSummaries, splitsFrom } from './splits';
 import { Header } from './Header';
+import { Panel } from './Panel';
+import { SearchChip, SearchPanel } from './SearchPanel';
 import { note, Toasts, useProblems } from './Toasts';
 import { ThreadList } from './ThreadList';
 import type { ActionRunner } from './ActionTip';
@@ -90,6 +92,11 @@ function useLabels(core: CoreClient | null) {
   return labels;
 }
 
+/** What the search panel and the header chip show of a search. */
+function searchState(s: { query: string; results: Array<ThreadRow>; server?: 'searching' | 'done' }) {
+  return { query: s.query, count: s.results.length, server: s.server };
+}
+
 function Inbox({ core }: { core: CoreClient | null }) {
   // The first frame draws the last Split from the snapshot; the core's rows replace it as soon as they arrive.
   // Every Account's Inbox Threads, interleaved by date (the Unified Inbox)…
@@ -125,13 +132,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
   /** Search: the query and its results; while it's open, the list shows the results instead of a Split. */
   const [search, setSearch] = useState<{ query: string; results: Array<ThreadRow>; server?: 'searching' | 'done' } | null>(null);
   const searchInput = useRef<HTMLInputElement>(null);
-  const searchWantsFocus = useRef(false);
-  useLayoutEffect(() => {
-    if (searchWantsFocus.current && searchInput.current) {
-      searchWantsFocus.current = false;
-      searchInput.current.focus();
-    }
-  });
+  /** Whether the search panel is down; the results stay in the list after it goes. */
+  const [searchPanel, setSearchPanel] = useState(false);
   const searchRef = useRef(search);
   useLayoutEffect(() => {
     searchRef.current = search;
@@ -494,12 +496,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
     'search.open': () => {
       setOpen(null);
       setSearch((s) => s ?? { query: '', results: [] });
-      // Focused once the field is in the page, however long that render takes. Already open: focus it now.
-      if (searchInput.current) {
-        searchInput.current.focus();
-      } else {
-        searchWantsFocus.current = true;
-      }
+      setSearchPanel(true);
+      // Already down: back to its field. Otherwise the panel puts focus there as it opens.
+      searchInput.current?.focus();
     },
     'search.close': () => closeSearch(),
     'theme.system': () => followSystem(),
@@ -790,6 +789,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   }
   function closeSearch() {
     clearTimeout(searchTimer.current);
+    setSearchPanel(false);
     setSearch(null);
     setSelected(0);
     selectedKey.current = undefined;
@@ -902,55 +902,26 @@ function Inbox({ core }: { core: CoreClient | null }) {
         }}
         onSearch={() => runAction(['search.open'])}
         onCompose={() => runAction(['compose.new'])}
-        search={
-          search ? (
-            <span className="search-bar">
-              <input
-                ref={searchInput}
-                value={search.query}
-                placeholder='Search: words, "a phrase", from:, to:, subject:'
-                spellCheck={false}
-                onChange={(e) => onSearchInput(e.target.value)}
-                onKeyDown={(e) => {
-                  // Enter or ↓ moves to the results (then j, k, Enter, e…); Esc closes the search.
-                  if (e.key === 'Enter' || e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    e.currentTarget.blur();
-                    setSelected(0);
-                  } else if (e.key === 'Escape') {
-                    e.preventDefault();
-                    closeSearch();
-                  }
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                    searchServer();
-                  }
-                }}
-              />
-              <span className="count">{search.results.length}</span>
-              {search.server === 'searching' ? (
-                <span className="sync-note">Searching the server…</span>
-              ) : search.server === 'done' ? (
-                <span className="sync-note">Server searched</span>
-              ) : search.query.trim() ? (
-                <button
-                  type="button"
-                  className="quiet search-server"
-                  onClick={() => searchServer()}
-                  tabIndex={-1}
-                  title="Also search mail that isn't stored on this Mac (⌘↩)"
-                >
-                  Search the server
-                </button>
-              ) : null}
-            </span>
-          ) : null
-        }
+        search={search ? <SearchChip search={searchState(search)} onEdit={() => runAction(['search.open'])} /> : null}
       />
+      {search && searchPanel && (
+        <SearchPanel
+          search={searchState(search)}
+          input={searchInput}
+          onQuery={onSearchInput}
+          onShow={() => {
+            setSearchPanel(false);
+            setSelected(0);
+          }}
+          onClose={closeSearch}
+          onServer={() => searchServer()}
+        />
+      )}
       {empty ? (
         <EmptyState />
       ) : (
-        <div className={compose ? 'view composing' : open ? 'view reading' : 'view'}>
-          <div className="lists" inert={!!(open || compose)}>
+        <div className={open ? 'view reading' : 'view'}>
+          <div className="lists" inert={!!open}>
             <ThreadList
               rows={rows}
               selected={selected}
@@ -961,28 +932,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
               actions={runner}
             />
           </div>
-          {compose && (
-            <Suspense fallback={<section className="composer" />}>
-              <Composer
-                key={composeKey(compose)}
-                start={compose}
-                identities={identities}
-                onSend={sendMessage}
-                onClose={() => setCompose(null)}
-                onSaveDraft={(id, content) => expected(core, 'the core').saveDraft(id, content)}
-                suggest={suggestContacts}
-                snippets={snippets}
-                handle={composer}
-                onDiscard={(id) => {
-                  if (id !== null) {
-                    void core?.deleteDraft(id);
-                  }
-                  setNote('Draft discarded');
-                }}
-              />
-            </Suspense>
-          )}
-          {open && !compose && (
+          {open && (
             <Reader
               threadKey={open.key}
               subject={open.subject}
@@ -998,6 +948,29 @@ function Inbox({ core }: { core: CoreClient | null }) {
             />
           )}
         </div>
+      )}
+      {compose && (
+        <Panel title="Compose" className="compose-panel" initialFocus="none" dismissible={false} onClose={() => setCompose(null)}>
+          <Suspense fallback={<section className="composer" />}>
+            <Composer
+              key={composeKey(compose)}
+              start={compose}
+              identities={identities}
+              onSend={sendMessage}
+              onClose={() => setCompose(null)}
+              onSaveDraft={(id, content) => expected(core, 'the core').saveDraft(id, content)}
+              suggest={suggestContacts}
+              snippets={snippets}
+              handle={composer}
+              onDiscard={(id) => {
+                if (id !== null) {
+                  void core?.deleteDraft(id);
+                }
+                setNote('Draft discarded');
+              }}
+            />
+          </Suspense>
+        </Panel>
       )}
       {accounts && (
         <footer className="foot">

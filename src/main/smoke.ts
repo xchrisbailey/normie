@@ -445,8 +445,21 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   await typeText('Great work. ;thanks');
   await press('Tab');
   const expanded = await d.js<string>(`document.querySelector('.composer textarea').value`);
+  // Cmd-K (the menu's key equivalent, from a field) over the compose panel lists the snippets; Enter puts one in at the cursor.
+  await drive(w).menuAction('palette.open');
+  await sleep(300);
+  await typeText('thanks');
+  await press('Return');
+  await sleep(200);
+  const inserted = await d.js<{ body: string; focused: boolean }>(
+    `(() => { const t = document.querySelector('.composer textarea'); return { body: t?.value ?? '', focused: document.activeElement === t }; })()`,
+  );
   await press('Escape');
-  const snippet = expanded === 'Great work. Thanks so much!';
+  const snippet =
+    expanded === 'Great work. Thanks so much!' &&
+    inserted.body === 'Great work. Thanks so much!Thanks so much!' &&
+    inserted.focused &&
+    !(await d.js<boolean>(`!!document.querySelector('.composer')`));
   // Tab steps through the Splits; Newsletters holds the fake newsletter; 0 goes back to the whole Inbox.
   const activeSplit = () => d.js<string>(`document.querySelector('.split[data-selected] .split-name')?.textContent`);
   const tabs: Array<string> = [];
@@ -523,14 +536,19 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   await sleep(200);
   await drive(w).type('budget');
   await sleep(400);
+  await d.shot('search');
   await press('Return');
+  await sleep(200);
+  // Enter: the panel goes up, the results stay in the list, and the header says what was searched.
+  await d.shot('search-results');
+  const chipShown = await d.js<boolean>(`!document.querySelector('.search-panel') && /budget/.test(document.querySelector('.search-chip')?.textContent ?? '')`);
   const results = await d.js<Array<string>>(`[...document.querySelectorAll('.row .subject')].map((s) => s.firstChild.textContent)`);
   await press('Return');
   await sleep(400);
   const resultOpened = await d.js<string>(`document.querySelector('.reader h1')?.textContent ?? ''`);
   await press('Escape');
   await press('Escape');
-  const searchClosed = await d.js<boolean>(`!document.querySelector('.search-bar') && !!document.querySelector('.splits')`);
+  const searchClosed = await d.js<boolean>(`!document.querySelector('.search-bar, .search-chip') && !!document.querySelector('.splits')`);
   // Nothing local: the server is asked by itself (the fake server has nothing more either).
   await press('/');
   await sleep(200);
@@ -539,7 +557,12 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   const serverStatus = await d.js<string>(`document.querySelector('.search-bar .sync-note')?.textContent ?? ''`);
   await press('Escape');
   const search =
-    results.length > 0 && results.every((r) => /budget/i.test(r)) && /budget/i.test(resultOpened) && searchClosed && serverStatus === 'Server searched';
+    chipShown &&
+    results.length > 0 &&
+    results.every((r) => /budget/i.test(r)) &&
+    /budget/i.test(resultOpened) &&
+    searchClosed &&
+    serverStatus === 'Server searched';
 
   // Themes: Cmd-K "Theme: Normie Light" turns the page and the reader frame light; "Catppuccin Mocha" turns them dark.
   const paletteRun = async (text: string) => {
