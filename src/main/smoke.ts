@@ -124,7 +124,19 @@ async function smokeHeader(w: BrowserWindow) {
   await d.clickAt('.tool[aria-label="Inbox"]');
   w.webContents.sendInputEvent({ type: 'mouseMove', x: 4, y: 400 });
   await sleep(300);
-  return { ok: clickOpens && inkUnder && peek && icons && more, names, clickOpens, inkUnder, peekCards, icons, search: { hit: searchIcon.hit, focus: searchFocus, closed: searchClosed }, shownNarrow, items, opened, more };
+  return {
+    ok: clickOpens && inkUnder && peek && icons && more,
+    names,
+    clickOpens,
+    inkUnder,
+    peekCards,
+    icons,
+    search: { hit: searchIcon.hit, focus: searchFocus, closed: searchClosed },
+    shownNarrow,
+    items,
+    opened,
+    more,
+  };
 }
 
 /**
