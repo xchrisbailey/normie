@@ -54,6 +54,14 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const [overlay, setOverlay] = useState(false);
   /** The open palette: every action, or Labels for the selected Thread. */
   const [palette, setPalette] = useState<null | 'actions' | 'label'>(null);
+  /** A short message in the top bar, gone after a few seconds. */
+  const [note, setNoteState] = useState<string | null>(null);
+  const noteTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const setNote = useCallback((text: string) => {
+    setNoteState(text);
+    clearTimeout(noteTimer.current);
+    noteTimer.current = setTimeout(() => setNoteState(null), 8000);
+  }, []);
   /** Messages whose remote images the user loaded this session. */
   const [imagesAllowed, setImagesAllowed] = useState<ReadonlySet<number>>(new Set());
   const frame = useRef<FrameHandle | null>(null);
@@ -298,6 +306,18 @@ function Inbox({ core }: { core: CoreClient | null }) {
     }
   }
 
+  /** Open or save an attachment. Files that would run code are only ever saved. */
+  const onAttachment = useCallback((action: 'open' | 'save', messageId: number, index: number) => {
+    if (!core) return;
+    void core.attachment(messageId, index).then(async (file) => {
+      if (!file) return setNote('That attachment is no longer available.');
+      if (action === 'save') return void (await window.normie.saveAttachment(file));
+      const r = await window.normie.openAttachment(file);
+      if (r.reason === 'risky') setNote(`"${file.filename}" could run code, so Normie won't open it. Save it to look at it.`);
+      else if (!r.ok) setNote(`Couldn't open "${file.filename}": ${r.reason}`);
+    });
+  }, [core]);
+
   /** Labels of the selected Thread's Account. */
   const rowLabels = () => labels.get(rows[clamp(selected)]?.accountId ?? '') ?? [];
   const applyLabel = (label: string) => triage({ type: 'label', label, on: true }, (r) => r);
@@ -313,6 +333,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
         <span className="split active">Inbox</span>
         <span className="count">{rows.length}</span>
         <SyncBadge core={core} />
+        {note && <span className="sync-note">{note}</span>}
         {keymap.problems.length > 0 && (
           <span className="keymap-note" title={keymap.problems.join('\n')}>
             keymap.json: {keymap.problems.length} {keymap.problems.length === 1 ? 'problem' : 'problems'}
@@ -334,6 +355,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
               frame={frame}
               onLoadImages={() => loadImages(false)}
               onAlwaysLoadImages={() => loadImages(true)}
+              onAttachment={onAttachment}
             />
           )}
         </div>

@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('normie', {
   fake: process.argv.includes('--normie-fake'),
   /** Open a link from a message in the system browser (main checks it's http, https or mailto). */
   openLink: (url: string) => ipcRenderer.send('open-link', url),
+  openAttachment: (file: { filename: string; content: Uint8Array }): Promise<{ ok: boolean; reason?: string }> => ipcRenderer.invoke('attachment:open', file),
+  saveAttachment: (file: { filename: string; content: Uint8Array }): Promise<{ ok: boolean; path?: string }> => ipcRenderer.invoke('attachment:save', file),
   /** A native menu item was chosen: the registry action ids it stands for. */
   onMenuAction: (fn: (ids: string[]) => void) => {
     const handler = (_e: unknown, ids: string[]) => fn(ids);

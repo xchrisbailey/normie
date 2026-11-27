@@ -332,9 +332,12 @@ export function seedNewsletter(p: FakeProvider, now = Date.now()) {
     subject: 'The Normie Weekly', from: { name: 'Normie Weekly', address: 'weekly@example.com' }, date: now + 1000, threadId: 't-weekly',
     raw: [
       'Subject: The Normie Weekly', 'From: Normie Weekly <weekly@example.com>', 'MIME-Version: 1.0',
-      'Content-Type: multipart/alternative; boundary="b"', '',
+      'Content-Type: multipart/mixed; boundary="m"', '',
+      '--m', 'Content-Type: multipart/alternative; boundary="b"', '',
       '--b', 'Content-Type: text/plain; charset=utf-8', '', 'Hello from Normie. This is an HTML newsletter.', '',
       '--b', 'Content-Type: text/html; charset=utf-8', '', html, '', '--b--', '',
+      '--m', 'Content-Type: text/plain; name="agenda.txt"', 'Content-Disposition: attachment; filename="agenda.txt"', '', 'Monday: ship it.', '',
+      '--m--', '',
     ].join('\r\n'),
   });
 }

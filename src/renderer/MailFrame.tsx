@@ -25,7 +25,12 @@ const SHELL_CSS = `
   pre { margin: 0; white-space: pre-wrap; word-wrap: break-word; font: inherit; }
   .pending { color: #7f849c; font-style: italic; }
   .html { background: #fff; color: #111; border-radius: 8px; padding: 16px; overflow-x: auto; }
+  .attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .attachment { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-radius: 6px; background: #313244; font-size: 12px; }
+  .attachment .size { color: #7f849c; }
+  .attachment button { font: inherit; color: #cdd6f4; background: #45475a; border: 0; border-radius: 4px; padding: 2px 8px; cursor: pointer; }
 `;
+const sizeOf = (n: number) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
 const PAPER_CSS = `:host { display: block; } img { max-width: 100%; height: auto; } table { max-width: 100%; }`;
 
 const shell = (remote: boolean) =>
@@ -65,6 +70,28 @@ function render(doc: Document, messages: ThreadMessage[], allow: (m: ThreadMessa
       pre.textContent = m.text || '(no text)';
       article.append(pre);
     }
+    if (m.attachments.length) {
+      const list = doc.createElement('div');
+      list.className = 'attachments';
+      for (const a of m.attachments) {
+        const chip = doc.createElement('div');
+        chip.className = 'attachment';
+        const name = doc.createElement('span');
+        name.textContent = a.filename;
+        const size = doc.createElement('span');
+        size.className = 'size';
+        size.textContent = sizeOf(a.size);
+        chip.append(name, size);
+        for (const [label, action] of [['Open', 'open'], ['Save', 'save']] as const) {
+          const b = doc.createElement('button');
+          b.textContent = label;
+          b.dataset.attachment = `${action}:${m.id}:${a.index}`;
+          chip.append(b);
+        }
+        list.append(chip);
+      }
+      article.append(list);
+    }
     body.append(article);
   }
   doc.defaultView?.scrollTo(0, 0);
@@ -74,18 +101,21 @@ export interface FrameHandle {
   scrollPage(direction: 1 | -1): void;
 }
 
-export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, remote, handle }: {
+export type AttachmentAction = (action: 'open' | 'save', messageId: number, index: number) => void;
+
+export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, remote, handle, onAttachment }: {
   threadKey: string;
   messages: ThreadMessage[];
   allow: (m: ThreadMessage) => boolean;
   /** Any message in view may load remote images: the frame's CSP lets them through. */
   remote: boolean;
   handle?: React.MutableRefObject<FrameHandle | null>;
+  onAttachment?: AttachmentAction;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const ready = useRef(false);
-  const latest = useRef({ messages, allow });
-  latest.current = { messages, allow };
+  const latest = useRef({ messages, allow, onAttachment });
+  latest.current = { messages, allow, onAttachment };
 
   const fill = () => {
     const doc = frame.current?.contentDocument;
@@ -105,6 +135,13 @@ export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, r
       if (forwarded.defaultPrevented) e.preventDefault();
     });
     doc.addEventListener('click', (e) => {
+      const button = e.composedPath().find((n) => (n as HTMLElement).dataset?.attachment) as HTMLElement | undefined;
+      if (button) {
+        e.preventDefault();
+        const [action, id, index] = button.dataset.attachment!.split(':');
+        latest.current.onAttachment?.(action as 'open' | 'save', Number(id), Number(index));
+        return;
+      }
       const a = (e.composedPath().find((n) => (n as Element).tagName === 'A') as HTMLAnchorElement | undefined) ?? null;
       if (!a) return;
       e.preventDefault();
