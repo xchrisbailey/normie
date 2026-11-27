@@ -22,6 +22,7 @@ export function coreApiOf(ds: DataService): CoreApi {
     send: async (m, draftId, sendAt) => ds.send(m, draftId, sendAt),
     scheduled: async () => ds.scheduled(),
     search: async (q, limit) => ds.search(q, limit),
+    searchServer: (q, limit) => ds.searchServer(q, limit),
     saveDraft: async (id, content) => ds.saveDraft(id, content),
     deleteDraft: async (id) => ds.deleteDraft(id),
     drafts: async () => ds.drafts(),
@@ -86,6 +87,7 @@ export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
   data.replayRequester = () => engine.replaySoon();
   data.outboxRequester = () => engine.outboxSoon();
   data.draftsRequester = () => engine.draftsSoon();
+  data.serverSearcher = (q) => engine.searchServer(q);
   await engine.start();
   data.startScheduler();
   return {

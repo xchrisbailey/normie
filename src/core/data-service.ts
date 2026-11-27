@@ -3,6 +3,7 @@
 import { newMessageId } from './ids';
 import type { Original } from './reply';
 import { parseThreadKey } from './keys';
+import { serverQuery, type ServerQuery } from './search-query';
 import type { BodyInput, Store } from './store';
 import type {
   AccountId, Address, AttachmentInfo, ChangeResult, ChangeSet, ScheduledSummary, LabelSet, DraftContent, DraftSummary, DraftToSync, OutboxItem, OutgoingMessage, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
@@ -249,6 +250,16 @@ export class DataService {
 
   /** Threads matching a search, newest first. */
   search(query: string, limit?: number): ThreadRow[] {
+    return this.store.search(query, limit);
+  }
+
+  /** Asks the servers to search, storing what they find; set by whoever wires up sync. */
+  serverSearcher?: (query: ServerQuery) => Promise<void>;
+
+  /** Search the servers too (for mail not stored here), then answer from the store again. */
+  async searchServer(query: string, limit?: number): Promise<ThreadRow[]> {
+    const q = serverQuery(query);
+    if (q && this.serverSearcher) await this.serverSearcher(q);
     return this.store.search(query, limit);
   }
 

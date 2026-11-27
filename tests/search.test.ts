@@ -64,3 +64,40 @@ describe('searching', () => {
     expect(await subjects(c, 'budget')).toEqual(['Lunch', 'Quarterly budget', 'Old archive']);
   });
 });
+
+describe('searching the server', () => {
+  it('turns the search box into server terms', async () => {
+    const { serverQuery } = await import('../src/core/search-query');
+    expect(serverQuery('invoice from:acme "march 2024"')).toEqual({
+      raw: 'invoice from:acme "march 2024"',
+      terms: [{ text: 'invoice' }, { field: 'from', text: 'acme' }, { text: 'march 2024' }],
+    });
+    expect(serverQuery('  ')).toBeNull();
+  });
+
+  it('finds Gmail mail older than what is stored, and stores it as headers', async () => {
+    const p = new FakeProvider();
+    p.deliver({ subject: 'Tax return 2019', threadId: 't-tax', from: { address: 'accountant@example.com' }, text: 'Attached.', date: NOW - 2000 * 24 * HOUR });
+    p.deliver({ subject: 'Lunch', threadId: 't-lunch', date: NOW - HOUR });
+    core = await createCore({ provider: p, extractText: fakeExtractText, now: () => NOW });
+    // Only the recent window so far; the old history hasn't been backfilled yet.
+    await core.engine.syncHeaders();
+    expect(await core.search('tax')).toEqual([]);
+    const found = await core.searchServer('tax');
+    expect(found.map((r) => r.subject)).toEqual(['Tax return 2019']);
+    expect(p.calls.filter((c) => c === 'search')).toHaveLength(1);
+    // Stored now: the next local search finds it without asking.
+    expect((await core.search('tax')).map((r) => r.subject)).toEqual(['Tax return 2019']);
+  });
+
+  it('looks in folders a folder server keeps that Normie does not sync', async () => {
+    const { ICLOUD_CAPS } = await import('../src/core/fake-provider');
+    const p = new FakeProvider({ caps: ICLOUD_CAPS });
+    p.addMailbox({ path: 'Receipts' });
+    p.deliver({ subject: 'Your receipt', messageId: '<r@x>', from: { address: 'shop@example.com' }, text: 'Order 42', date: NOW - 24 * HOUR }, 'Receipts');
+    core = await createCore({ provider: p, extractText: fakeExtractText, now: () => NOW, accountId: 'icloud:me' });
+    await core.engine.syncOnce();
+    expect(await core.search('receipt')).toEqual([]);
+    expect((await core.searchServer('from:shop')).map((r) => r.subject)).toEqual(['Your receipt']);
+  });
+});

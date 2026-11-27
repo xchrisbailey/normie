@@ -14,6 +14,8 @@ type InitMessage =
 let data: DataService | undefined;
 const pendingPorts: { kind: 'renderer-port' | 'sync-port'; port: MessagePortMain }[] = [];
 let emitToSync: ((name: string, payload: unknown) => void) | undefined;
+const pendingSearches = new Map<number, () => void>();
+let nextSearch = 0;
 
 /** After a few quiet seconds, SQLite gives its page cache back (#75). Every request pushes it back. */
 let quietTimer: ReturnType<typeof setTimeout> | undefined;
@@ -35,7 +37,8 @@ function attach(kind: 'renderer-port' | 'sync-port', port: MessagePortMain) {
     port.on('close', () => off());
   } else {
     const handlers = Object.fromEntries(DATA_PORT_METHODS.map((m) => [m, (...a: unknown[]) => (ds[m] as (...x: unknown[]) => unknown)(...a)]));
-    emitToSync = serve(ch, handlers);
+    // Sync answers a server search by calling back with its id once the hits are stored.
+    emitToSync = serve(ch, { ...handlers, serverSearchDone: (id: number) => void pendingSearches.get(id)?.() });
   }
 }
 
@@ -66,6 +69,18 @@ process.parentPort.on('message', (e) => {
       if (removed.length) console.log(`[data] removed ${removed.length} Account(s) that are no longer signed in`);
     }
     data.bodyRequester = (loc) => emitToSync?.('fetch-body', loc);
+    data.serverSearcher = (query) => new Promise<void>((resolve) => {
+      const id = ++nextSearch;
+      const done = () => {
+        pendingSearches.delete(id);
+        resolve();
+      };
+      pendingSearches.set(id, done);
+      // A server that never answers doesn't hold the search up for long.
+      setTimeout(done, 30_000);
+      if (emitToSync) emitToSync('search-server', { id, query });
+      else done();
+    });
     data.startScheduler();
     // Mail stored before list headers were fetched gets its Newsletters tag in the background.
     const ds = data;

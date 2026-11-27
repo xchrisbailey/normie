@@ -5,6 +5,7 @@ import { DATA_PORT_METHODS, type DataPort } from '../core/data-service';
 import { FakeProvider, FakeTransport, seedDemo, seedNewsletter } from '../core/fake-provider';
 import { connect, mainPortChannel, proxy, type Client } from '../core/rpc';
 import { SyncEngine } from '../core/sync-engine';
+import type { ServerQuery } from '../core/search-query';
 import type { MailProvider, MailTransport } from '../core/types';
 import type { PasswordAccountSettings } from '../main/auth/password-accounts';
 import { extractText } from './extract-text';
@@ -125,6 +126,11 @@ process.parentPort.on('message', (e) => {
     });
     dataClient.on('replay', (payload) => engines.get((payload as { accountId: string }).accountId)?.replaySoon());
     dataClient.on('outbox', (payload) => engines.get((payload as { accountId: string }).accountId)?.outboxSoon());
+    dataClient.on('search-server', (payload) => {
+      const { id, query } = payload as { id: number; query: ServerQuery };
+      void Promise.all([...engines.values()].map((e) => e.searchServer(query).catch((err) => log(`server search failed: ${(err as Error).message}`))))
+        .then(() => dataClient!.call('serverSearchDone', id));
+    });
     dataClient.on('drafts', (payload) => engines.get((payload as { accountId: string }).accountId)?.draftsSoon());
   } else if (msg.type === 'main-port' && e.ports[0]) mainClient = connect(mainPortChannel(e.ports[0] as MessagePortMain));
   void reconcile();

@@ -1,3 +1,4 @@
+import type { ServerQuery } from './search-query';
 // Domain types and the provider interface. Vocabulary follows GLOSSARY.md.
 
 export type AccountId = string;
@@ -246,6 +247,8 @@ export interface MailProvider {
   fetchBodies(mailbox: string, uids: number[]): Promise<RawMessage[]>;
   /** Change flags and Labels on the server. */
   edit(mailbox: string, uids: number[], edit: MessageEdit): Promise<void>;
+  /** UIDs in a mailbox matching a search (Gmail: X-GM-RAW; elsewhere IMAP SEARCH). */
+  search(mailbox: string, query: ServerQuery): Promise<number[]>;
   /** Move messages to another mailbox (MOVE, or copy + delete + expunge). Returns their new UIDs, 0 where unknown. */
   move(mailbox: string, uids: number[], destination: string): Promise<{ uids: number[] }>;
   createMailbox(path: string): Promise<void>;

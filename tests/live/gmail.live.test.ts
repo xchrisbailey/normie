@@ -100,6 +100,13 @@ describe.skipIf(!user)('Gmail provider against the real server', () => {
     expect(found).toBe(true);
   }, 60_000);
 
+  it('searches All Mail with Gmail search syntax (X-GM-RAW)', async () => {
+    const hits = await p.search(allMail, { raw: 'newer_than:30d', terms: [{ text: 'newer_than:30d' }] });
+    expect(hits.length).toBeGreaterThan(0);
+    const none = await p.search(allMail, { raw: '"zq9x-no-such-phrase-normie"', terms: [{ text: 'zq9x-no-such-phrase-normie' }] });
+    expect(none).toEqual([]);
+  });
+
   it('holds an IDLE connection on INBOX and closes it cleanly', async () => {
     const ac = new AbortController();
     const it = p.watch('INBOX', ac.signal)[Symbol.asyncIterator]();

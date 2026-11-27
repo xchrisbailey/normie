@@ -1,6 +1,7 @@
 // The IMAP provider over ImapFlow. Gmail, iCloud and generic servers all use it and differ in caps
 // (read from the server after login) and a few overrides. Facts it relies on are from spike #2.
 import { ImapFlow, type FetchMessageObject, type ListResponse, type MessageAddressObject } from 'imapflow';
+import type { ServerQuery } from '../core/search-query';
 import { ServerRejectedError } from '../core/types';
 import type {
   Address, Caps, ChangeSet, ChangesOptions, FlagChange, Mailbox, MailboxRole, MailEvent, MailProvider, MessageEdit, RawMessage, RemoteHeader, SyncState,
@@ -292,6 +293,25 @@ export class ImapProvider implements MailProvider {
       throw new Error(`connection lost while appending to ${path}`);
     }
     return r.uid ? { uid: r.uid } : {};
+  }
+
+  /** Search the server: Gmail takes the query as typed (X-GM-RAW); elsewhere each term becomes a SEARCH key. */
+  async search(path: string, query: ServerQuery) {
+    return this.withMailbox(path, async () => {
+      let criteria: Record<string, string>;
+      if (this.gmail) criteria = { gmraw: query.raw };
+      else {
+        criteria = {};
+        const words: string[] = [];
+        for (const t of query.terms) {
+          if (t.field && !criteria[t.field]) criteria[t.field] = t.text;
+          else words.push(t.text);
+        }
+        if (words.length) criteria.text = words.join(' ');
+      }
+      const r = await this.c.search(criteria, { uid: true });
+      return r ? [...r] : [];
+    });
   }
 
   /**
