@@ -61,3 +61,55 @@ describe('opening a Thread', () => {
     expect(p.calls.filter((x) => x === 'fetchBodies')).toHaveLength(fetchesAfterSync);
   });
 });
+
+describe('HTML mail', () => {
+  const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const newsletter = [
+    'Subject: News', 'MIME-Version: 1.0', 'Content-Type: multipart/related; boundary="rel"', '',
+    '--rel', 'Content-Type: multipart/alternative; boundary="alt"', '',
+    '--alt', 'Content-Type: text/plain; charset=utf-8', '', 'Plain news', '',
+    '--alt', 'Content-Type: text/html; charset=utf-8', '', '<p>Hello <b>news</b> <img src="cid:logo@x"> <img src="https://tracker.example/p.gif"></p>', '',
+    '--alt--', '',
+    '--rel', 'Content-Type: image/png', 'Content-Transfer-Encoding: base64', 'Content-ID: <logo@x>', 'Content-Disposition: inline', '', PNG, '',
+    '--rel--', '',
+  ].join('\r\n');
+
+  const startReal = async (p: FakeProvider) => {
+    const { extractHtml } = await import('../src/core/mime');
+    const { extractText } = await import('../src/sync/extract-text');
+    return (core = await createCore({ provider: p, extractText, extractHtml, now: () => NOW }));
+  };
+
+  it('gives the reader the HTML part, with inline images embedded, and plain text alongside', async () => {
+    const p = new FakeProvider();
+    p.deliver({ subject: 'News', date: NOW - DAY, from: { address: 'News@Example.com' }, raw: newsletter });
+    const c = await startReal(p);
+    await c.engine.syncOnce();
+    const [row] = await c.rows('inbox');
+    const [m] = await c.thread(row!.key);
+    expect(m!.text).toBe('Plain news');
+    expect(m!.html).toContain('<b>news</b>');
+    expect(m!.html).toContain(`data:image/png;base64,${PNG}`);
+    expect(m!.html).not.toContain('cid:');
+    expect(m!.imagesAllowed).toBe(false);
+  });
+
+  it('has no HTML for a plain-text message', async () => {
+    const p = new FakeProvider();
+    p.deliver({ subject: 'Plain', date: NOW - DAY, text: 'Just text' });
+    const c = await startReal(p);
+    await c.engine.syncOnce();
+    const [row] = await c.rows('inbox');
+    expect((await c.thread(row!.key))[0]).toMatchObject({ text: 'Just text', html: null });
+  });
+
+  it('remembers senders whose images always load, whatever the case of their address', async () => {
+    const p = new FakeProvider();
+    p.deliver({ subject: 'News', date: NOW - DAY, from: { address: 'News@Example.com' }, raw: newsletter });
+    const c = await startReal(p);
+    await c.engine.syncOnce();
+    const [row] = await c.rows('inbox');
+    await c.allowImagesFrom('news@example.com');
+    expect((await c.thread(row!.key))[0]!.imagesAllowed).toBe(true);
+  });
+});

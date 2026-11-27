@@ -100,6 +100,11 @@ const MIGRATIONS: string[] = [
     primary key (account_id, thread_key)
   );
   `,
+  // HTML parts, extracted on first open (NULL: not yet; '': none), and senders whose remote images always load.
+  `
+  alter table bodies add column html text;
+  create table image_senders (address text primary key);
+  `,
 ];
 
 /** How long a delete waits before it's sent, so it can still be undone. */
@@ -594,7 +599,7 @@ export class Store {
   /** Store bodies. Returns the keys of the Threads touched and whether the Inbox Split was affected. */
   putBodies(accountId: AccountId, mailbox: string, bodies: BodyInput[]): { keys: string[]; inboxChanged: boolean } {
     const idOf = this.db.prepare('select id, thread_key from messages where account_id = ? and mailbox = ? and uid = ?');
-    const put = this.db.prepare('insert into bodies(message_id, raw, text) values (?, ?, ?) on conflict(message_id) do update set raw = excluded.raw, text = excluded.text');
+    const put = this.db.prepare('insert into bodies(message_id, raw, text) values (?, ?, ?) on conflict(message_id) do update set raw = excluded.raw, text = excluded.text, html = null');
     const mark = this.db.prepare('update messages set has_body = 1, snippet = ? where id = ?');
     const touched = new Set<string>();
     let inboxChanged = false;
@@ -660,13 +665,35 @@ export class Store {
   thread(key: string): ThreadMessage[] {
     const { accountId, threadKey } = parseThreadKey(key);
     return (this.db
-      .prepare(`select m.id, m.from_json, m.to_json, m.date, m.subject, b.text from messages m left join bodies b on b.message_id = m.id
+      .prepare(`select m.id, m.from_json, m.to_json, m.date, m.subject, b.text, b.html,
+                exists (select 1 from image_senders s where s.address = lower(json_extract(m.from_json, '$.address'))) images_allowed
+                from messages m left join bodies b on b.message_id = m.id
                 where m.account_id = ? and m.thread_key = ? order by m.date asc, m.id asc`)
-      .all(accountId, threadKey) as { id: number; from_json: string | null; to_json: string; date: number; subject: string; text: string | null }[])
+      .all(accountId, threadKey) as {
+        id: number; from_json: string | null; to_json: string; date: number; subject: string; text: string | null; html: string | null; images_allowed: number;
+      }[])
       .map((r) => ({
         id: r.id, from: r.from_json ? JSON.parse(r.from_json) : undefined, to: JSON.parse(r.to_json), date: r.date,
-        subject: r.subject, text: r.text,
+        subject: r.subject, text: r.text, html: r.html || null, imagesAllowed: r.images_allowed === 1,
       }));
+  }
+
+  /** Stored bodies among these messages whose HTML part hasn't been extracted yet. */
+  bodiesWithoutHtml(ids: number[]): { id: number; raw: Uint8Array }[] {
+    if (!ids.length) return [];
+    return (this.db
+      .prepare(`select message_id id, raw from bodies where html is null and message_id in (${ids.map(() => '?').join(',')})`)
+      .all(...ids) as { id: number; raw: Buffer }[]).map((r) => ({ id: r.id, raw: new Uint8Array(r.raw) }));
+  }
+
+  /** Store a message's extracted HTML part ('' for none). */
+  putHtml(id: number, html: string) {
+    this.db.prepare('update bodies set html = ? where message_id = ?').run(html, id);
+  }
+
+  /** Always load remote images from this sender. */
+  allowImagesFrom(address: string) {
+    this.db.prepare('insert into image_senders(address) values (?) on conflict do nothing').run(address.toLowerCase());
   }
 
   /** Where a message lives, so the sync process can fetch its body on demand. */

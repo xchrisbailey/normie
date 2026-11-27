@@ -17,12 +17,15 @@ export interface FakeMessageInput {
   inReplyTo?: string;
   references?: string[];
   text?: string;
+  /** The whole raw message (headers and MIME body), instead of a plain-text one built from `text`. */
+  raw?: string;
 }
 
 interface Stored {
   header: RemoteHeader;
   modseq: bigint;
   text: string;
+  raw?: string;
 }
 
 interface FakeBox {
@@ -105,6 +108,7 @@ export class FakeProvider implements MailProvider {
     b.messages.set(uid, {
       modseq: b.modseq,
       text: input.text ?? `Body of ${input.subject}`,
+      ...(input.raw ? { raw: input.raw } : {}),
       header: {
         uid, remoteId: this.caps.labels ? `gm-${uid}` : `${path}:${uid}`,
         threadId: this.caps.serverThreads ? (input.threadId ?? `t-${uid}`) : undefined,
@@ -226,7 +230,7 @@ export class FakeProvider implements MailProvider {
     return uids.flatMap((uid) => {
       const m = b.messages.get(uid);
       if (!m) return [];
-      const raw = `Subject: ${m.header.subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${m.text}`;
+      const raw = m.raw ?? `Subject: ${m.header.subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${m.text}`;
       return [{ uid, raw: new TextEncoder().encode(raw) }];
     });
   }
@@ -313,4 +317,24 @@ export function seedDemo(p: FakeProvider, count = 40, now = Date.now()) {
       text: `Hi,\n\nA note about ${subject.toLowerCase()}.\n\n${name}`,
     });
   }
+}
+
+/** An HTML newsletter with the usual hazards (a script, a tracking pixel, a javascript: link), for the fake mailbox. */
+export function seedNewsletter(p: FakeProvider, now = Date.now()) {
+  const html = [
+    '<style>h1 { color: #d20f39 }</style>',
+    '<h1>Hello from Normie</h1>',
+    '<p>This is an <b>HTML</b> newsletter. <a href="https://example.com/read">Read more</a> or <a href="javascript:alert(1)">do not click</a>.</p>',
+    '<img src="https://tracker.example/open.gif" width="1" height="1">',
+    '<script>document.title = "pwned"</script>',
+  ].join('\n');
+  p.deliver({
+    subject: 'The Normie Weekly', from: { name: 'Normie Weekly', address: 'weekly@example.com' }, date: now + 1000, threadId: 't-weekly',
+    raw: [
+      'Subject: The Normie Weekly', 'From: Normie Weekly <weekly@example.com>', 'MIME-Version: 1.0',
+      'Content-Type: multipart/alternative; boundary="b"', '',
+      '--b', 'Content-Type: text/plain; charset=utf-8', '', 'Hello from Normie. This is an HTML newsletter.', '',
+      '--b', 'Content-Type: text/html; charset=utf-8', '', html, '', '--b--', '',
+    ].join('\r\n'),
+  });
 }

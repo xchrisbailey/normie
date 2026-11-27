@@ -2,6 +2,7 @@
 // to another process. Entries refresh when the core says a Thread changed (for example, a body arrived).
 import type { ThreadMessage } from '../core/types';
 import type { CoreClient } from './core-client';
+import { sanitized } from './sanitize-cache';
 
 const MAX = 50;
 
@@ -48,7 +49,8 @@ export class ThreadCache {
   prefetch(keys: string[]) {
     const missing = keys.filter((k) => !this.entries.has(k) && !this.inflight.has(k));
     if (!missing.length) return;
-    requestIdleCallback(() => missing.forEach((k) => void this.load(k)), { timeout: 500 });
+    // Load, then sanitize their HTML in idle time too, so opening one does no work on the key path.
+    requestIdleCallback(() => missing.forEach((k) => void this.load(k).then((ms) => requestIdleCallback(() => ms.forEach((m) => sanitized(m, m.imagesAllowed))))), { timeout: 500 });
   }
 
   onLoaded(fn: (key: string, messages: ThreadMessage[]) => void): () => void {

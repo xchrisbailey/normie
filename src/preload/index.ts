@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('normie', {
   platform: process.platform,
   /** Running against the fake provider: there are no real Accounts to add. */
   fake: process.argv.includes('--normie-fake'),
+  /** Open a link from a message in the system browser (main checks it's http, https or mailto). */
+  openLink: (url: string) => ipcRenderer.send('open-link', url),
   /** A native menu item was chosen: the registry action ids it stands for. */
   onMenuAction: (fn: (ids: string[]) => void) => {
     const handler = (_e: unknown, ids: string[]) => fn(ids);

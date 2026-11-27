@@ -17,6 +17,7 @@ declare global {
       platform: string;
       fake: boolean;
       onMenuAction(fn: (ids: string[]) => void): () => void;
+      openLink(url: string): void;
       keymap(): Promise<{ file?: unknown; error?: string }>;
       onKeymapChanged(fn: (k: { file?: unknown; error?: string }) => void): () => void;
       accounts: {
