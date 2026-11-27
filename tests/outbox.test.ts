@@ -208,3 +208,48 @@ describe('attachments', () => {
     expect(raw).toMatch(/multipart\/alternative/);
   });
 });
+
+describe('Send Later', () => {
+  it('holds a message until its time, lists it as scheduled, and sends it then', async () => {
+    const { c, transport } = await start();
+    const at = now + 3 * 3_600_000;
+    const id = await c.send(message({ subject: 'Later' }), undefined, at);
+    expect(await c.scheduled()).toEqual([{ id, accountId: 'gmail:me@example.com', subject: 'Later', to: 'Ada', sendAt: at }]);
+    now += 3_600_000;
+    await c.engine.sendOutbox();
+    expect(transport.sent).toEqual([]);
+    now += 2 * 3_600_000;
+    await c.engine.sendOutbox();
+    expect(transport.sent).toHaveLength(1);
+    expect(await c.scheduled()).toEqual([]);
+  });
+
+  it('can be taken back to edit or cancel before its time', async () => {
+    const { c, transport } = await start();
+    const id = await c.send(message({ subject: 'Later' }), undefined, now + 3_600_000);
+    expect(await c.cancelSend(id)).toMatchObject({ subject: 'Later' });
+    now += 2 * 3_600_000;
+    await c.engine.sendOutbox();
+    expect(transport.sent).toEqual([]);
+  });
+
+  it('goes out at the next start when it came due while Normie was closed', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'normie-later-'));
+    dirs.push(dir);
+    const dbPath = path.join(dir, 'store.sqlite');
+    const provider = new FakeProvider();
+    const first = await start({ provider, dbPath });
+    await first.c.send(message({ subject: 'Later' }), undefined, now + 3_600_000);
+    await first.c.close();
+    cores.splice(cores.indexOf(first.c), 1);
+    now += 2 * 3_600_000;
+    const second = await start({ provider, dbPath });
+    await waitFor(() => second.transport.sent.length === 1);
+  });
+
+  it('treats a time already past as now', async () => {
+    const { c } = await start();
+    await c.send(message(), undefined, now - 1000);
+    expect(await c.scheduled()).toEqual([]);
+  });
+});

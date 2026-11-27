@@ -2,7 +2,7 @@
 import Database from 'better-sqlite3';
 import { SNOOZED } from './types';
 import type {
-  AccountId, Address, AttachmentInfo, ChangeResult, DraftContent, LabelSet, DraftSummary, DraftToSync, FlagChange, OutboxItem, OutgoingMessage, MailboxRole, MessageEdit, PendingChange, RemoteHeader, SplitId, SyncState, ThreadAction,
+  AccountId, Address, AttachmentInfo, ChangeResult, ScheduledSummary, DraftContent, LabelSet, DraftSummary, DraftToSync, FlagChange, OutboxItem, OutgoingMessage, MailboxRole, MessageEdit, PendingChange, RemoteHeader, SplitId, SyncState, ThreadAction,
   ThreadMessage, ThreadRow,
 } from './types';
 
@@ -1079,6 +1079,15 @@ export class Store {
       for (const r of rows) mark.run(r.id);
       return rows.map((r) => ({ id: r.id, messageId: r.message_id, message: decodeMessage(r.message_json), attempts: r.attempts }));
     })();
+  }
+
+  /** Messages set to go out later than the undo window: Send Later. */
+  scheduled(after: number): ScheduledSummary[] {
+    return (this.sql(`select id, account_id, message_json, send_at from outbox where state = 'queued' and send_at > ? order by send_at`).all(after) as
+      { id: number; account_id: string; message_json: string; send_at: number }[]).map((r) => {
+      const m = JSON.parse(r.message_json) as OutgoingMessage;
+      return { id: r.id, accountId: r.account_id, subject: m.subject, to: m.to.map((a) => a.name || a.address).join(', '), sendAt: r.send_at };
+    });
   }
 
   nextOutboxAt(accountId: AccountId): number | undefined {

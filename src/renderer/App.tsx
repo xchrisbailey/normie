@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { DraftSummary, LabelSet, OutgoingMessage, ThreadAction, ThreadMessage, ThreadRow } from '../core/types';
+import type { DraftSummary, LabelSet, OutgoingMessage, ScheduledSummary, ThreadAction, ThreadMessage, ThreadRow } from '../core/types';
 import type { ComposerHandle, ComposeStart, Identity } from './Composer';
 import { planReply, type ReplyKind } from '../core/reply';
 import { AccountBar, EmptyState, useAccounts } from './AccountBar';
@@ -14,6 +14,7 @@ import { SyncBadge } from './SyncBadge';
 import { ThreadCache } from './thread-cache';
 import { toNotify } from './notify';
 import { WhenPicker } from './WhenPicker';
+import { describeWhen } from '../core/when';
 import { splitCounts, splitsFrom } from './splits';
 import { ThreadList } from './ThreadList';
 import { useKeymap, useKeys, useSnippets, useSplitsFile, type Handlers } from './useKeys';
@@ -41,6 +42,7 @@ const DRAFT_ITEM = 'draft:';
 /** One color per Account, for the marker on each row. */
 const ACCOUNT_COLORS = ['#89b4fa', '#a6e3a1', '#fab387', '#f5c2e7', '#94e2d5', '#f9e2af', '#cba6f7', '#eba0ac', '#74c7ec'];
 const SNIPPET_ITEM = 'snippet:';
+const SCHEDULED_ITEM = 'scheduled:';
 
 /** Each Account's Labels, fetched once and again whenever the core says they changed. */
 function useLabels(core: CoreClient | null) {
@@ -98,6 +100,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const [picker, setPicker] = useState<null | 'snooze'>(null);
   /** Drafts, fetched when the palette opens. */
   const [drafts, setDrafts] = useState<DraftSummary[]>([]);
+  /** Messages scheduled with Send Later, fetched when the palette opens. */
+  const [scheduled, setScheduled] = useState<ScheduledSummary[]>([]);
   /** A short message in the top bar, gone after a few seconds. */
   const [note, setNoteState] = useState<string | null>(null);
   const noteTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -430,9 +434,13 @@ function Inbox({ core }: { core: CoreClient | null }) {
 
   const suggestContacts = useCallback((q: string) => (core ? core.contacts(q, 6) : Promise.resolve([])), [core]);
 
-  const sendMessage = (m: OutgoingMessage, draftId?: number) => {
+  const sendMessage = (m: OutgoingMessage, draftId?: number, sendAt?: number) => {
     if (!core) return;
     setCompose(null);
+    if (sendAt !== undefined) {
+      void core.send(m, draftId, sendAt).then(() => setNote(`Scheduled for ${describeWhen(new Date(sendAt), new Date())}`));
+      return;
+    }
     void core.send(m, draftId).then((id) => {
       lastSent.current = { id, at: performance.now() };
       setNote('Sending… ⌘Z to undo');
@@ -508,13 +516,26 @@ function Inbox({ core }: { core: CoreClient | null }) {
     if (mode === 'label') return labelItems;
     // While writing: snippets, by name, with their trigger.
     if (compose) return snippets.map((s) => ({ id: SNIPPET_ITEM + s.trigger, name: `Snippet: ${s.name}`, hint: `;${s.trigger}`, keywords: `${s.trigger} ${s.text.slice(0, 60)}` }));
+    const scheduledItems = scheduled.map((s) => ({ id: SCHEDULED_ITEM + s.id, name: `Scheduled: ${s.subject || '(no subject)'}`, keywords: `scheduled later ${s.to}`, hint: describeWhen(new Date(s.sendAt), new Date()) }));
     const draftItems = drafts.map((d) => ({ id: DRAFT_ITEM + d.id, name: `Draft: ${d.subject || '(no subject)'}`, keywords: `draft ${d.to}`, ...(d.to ? { hint: d.to.slice(0, 30) } : {}) }));
-    return [...actionItems(keymap.actions, context, (id) => id !== 'palette.open' && !!handlers[id as keyof Handlers]), ...draftItems, ...(rows.length ? labelItems : [])];
+    return [...actionItems(keymap.actions, context, (id) => id !== 'palette.open' && !!handlers[id as keyof Handlers]), ...scheduledItems, ...draftItems, ...(rows.length ? labelItems : [])];
   };
 
   useEffect(() => {
-    if (palette === 'actions' && core) void core.drafts().then(setDrafts);
+    if (palette === 'actions' && core) {
+      void core.drafts().then(setDrafts);
+      void core.scheduled().then(setScheduled);
+    }
   }, [palette, core]);
+
+  /** Take a scheduled message out of the Outbox and into the composer: edit it, send it now, schedule it again, or discard it. */
+  function openScheduled(id: number) {
+    void core?.cancelSend(id).then((m) => {
+      if (!m) return setNote('That message has already gone.');
+      setCompose(m);
+      setNote('Out of the schedule: ⌘↩ sends now, ⌘⇧↩ schedules again, Discard cancels it');
+    });
+  }
 
   /** Reopen a draft where it was left. */
   function openDraft(id: number) {
@@ -614,6 +635,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
             setPalette(null);
             if (item.id.startsWith(LABEL_ITEM)) applyLabel(item.id.slice(LABEL_ITEM.length));
             else if (item.id.startsWith(DRAFT_ITEM)) openDraft(Number(item.id.slice(DRAFT_ITEM.length)));
+            else if (item.id.startsWith(SCHEDULED_ITEM)) openScheduled(Number(item.id.slice(SCHEDULED_ITEM.length)));
             else if (item.id.startsWith(SNIPPET_ITEM)) composer.current?.insert(snippets.find((s) => s.trigger === item.id.slice(SNIPPET_ITEM.length))?.text ?? '');
             else runAction([item.id]);
           }}
