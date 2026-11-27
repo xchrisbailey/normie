@@ -127,10 +127,18 @@ function edited(xs: string[], add?: string[], remove?: string[]): string[] {
   return [...s];
 }
 
-/** Splits a Thread row key ("account:thread") into its parts. */
+/**
+ * A Thread's key across Accounts: "account:thread", with the Account id escaped so it never holds a colon
+ * (real ids do, as in "gmail:me@example.com"). Thread keys themselves may contain colons.
+ */
+export function threadRowKey(accountId: AccountId, threadKey: string): string {
+  return `${encodeURIComponent(accountId)}:${threadKey}`;
+}
+
+/** Splits a key made by threadRowKey into its parts. */
 export function parseThreadKey(key: string): { accountId: AccountId; threadKey: string } {
   const i = key.indexOf(':');
-  return { accountId: key.slice(0, i), threadKey: key.slice(i + 1) };
+  return { accountId: decodeURIComponent(key.slice(0, i)), threadKey: key.slice(i + 1) };
 }
 
 interface ActionMessage {
@@ -381,7 +389,7 @@ export class Store {
       const muted = this.db.prepare('select 1 from muted_threads where account_id = ? and thread_key = ?').pluck();
       for (const key of arrived) {
         if (!muted.get(accountId, key)) continue;
-        if (this.recordAction(`${accountId}:${key}`, { type: 'done' }).changes.length) this.replayNeeded.add(accountId);
+        if (this.recordAction(threadRowKey(accountId, key), { type: 'done' }).changes.length) this.replayNeeded.add(accountId);
       }
     })();
     return inboxChanged;
@@ -600,7 +608,7 @@ export class Store {
       }
       for (const key of touched) if (this.refreshThread(accountId, key)) inboxChanged = true;
     })();
-    return { keys: [...touched].map((k) => `${accountId}:${k}`), inboxChanged };
+    return { keys: [...touched].map((k) => threadRowKey(accountId, k)), inboxChanged };
   }
 
   /** Recompute one Thread's row from its messages. Returns whether the Inbox Split was affected. */
@@ -644,7 +652,7 @@ export class Store {
         unread: number; starred: number; count: number;
       }[])
       .map((r) => ({
-        key: `${r.account_id}:${r.thread_key}`, accountId: r.account_id, subject: r.subject, from: r.from_label,
+        key: threadRowKey(r.account_id, r.thread_key), accountId: r.account_id, subject: r.subject, from: r.from_label,
         date: r.last_date, snippet: r.snippet, unread: r.unread === 1, starred: r.starred === 1, count: r.count,
       }));
   }
