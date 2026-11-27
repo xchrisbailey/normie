@@ -113,7 +113,9 @@ export type ThreadAction =
   | { type: 'star'; on: boolean }
   | { type: 'read'; on: boolean }
   /** Mute: Done now, and Done again whenever new mail arrives in the Thread. Off only unmutes. */
-  | { type: 'mute'; on: boolean };
+  | { type: 'mute'; on: boolean }
+  /** Gmail: add or remove a Label. Folder servers, where a Label is a move, come in milestone 4. */
+  | { type: 'label'; label: string; on: boolean };
 
 /** A triage action recorded by the core and waiting to reach the server. */
 export interface PendingChange {
@@ -182,5 +184,6 @@ export type CoreNotice =
   | { type: 'rows-changed'; split: SplitId }
   | { type: 'thread-changed'; key: string }
   | ({ type: 'pending' } & PendingStatus)
+  | { type: 'labels-changed'; accountId: AccountId }
   /** A change the server kept refusing was undone locally. */
   | { type: 'change-failed'; subject: string; error: string };

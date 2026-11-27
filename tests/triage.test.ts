@@ -414,3 +414,46 @@ describe('mute', () => {
     expect((await c.rows('inbox'))[0]!.count).toBe(2);
   });
 });
+
+describe('Labels', () => {
+  const labelled = () => {
+    const m = mailbox();
+    for (const path of ['Receipts', 'Work/Projects', '[Gmail]/Important', '[Gmail]/Starred', 'Sent Messages']) m.p.addMailbox({ path });
+    return m;
+  };
+
+  it("lists the Account's own Labels, not system mailboxes", async () => {
+    const { p } = labelled();
+    const c = await start(p);
+    expect(await c.labels('acct-1')).toEqual(['Receipts', 'Sent Messages', 'Work/Projects']);
+  });
+
+  it('adds a Label to every message in the Thread that lacks it, and keeps the Thread in the Inbox', async () => {
+    const { p, lunch } = labelled();
+    p.setFlags(lunch.inbox[0]!, { labels: ['\\Inbox', 'Receipts'] });
+    const c = await start(p);
+    await c.act(await keyOf(c, 'Lunch'), { type: 'label', label: 'Receipts', on: true });
+    expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
+    await c.engine.replay();
+    expect(p.edits).toEqual([{ mailbox: '[Gmail]/All Mail', uids: [lunch.sent, lunch.inbox[1]], edit: { addLabels: ['Receipts'] } }]);
+  });
+
+  it('undoes a Label by taking it off the same messages', async () => {
+    const { p, lunch } = labelled();
+    const c = await start(p);
+    const ids = await c.act(await keyOf(c, 'Lunch'), { type: 'label', label: 'Work/Projects', on: true });
+    await c.engine.replay();
+    await c.undo(ids);
+    await c.engine.replay();
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[0], lunch.sent, lunch.inbox[1]], edit: { removeLabels: ['Work/Projects'] } });
+  });
+
+  it('removes a Label from every message that has it', async () => {
+    const { p, lunch } = labelled();
+    p.setFlags(lunch.inbox[1]!, { labels: ['\\Inbox', 'Receipts'] });
+    const c = await start(p);
+    await c.act(await keyOf(c, 'Lunch'), { type: 'label', label: 'Receipts', on: false });
+    await c.engine.replay();
+    expect(p.edits).toEqual([{ mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[1]], edit: { removeLabels: ['Receipts'] } }]);
+  });
+});

@@ -3,7 +3,7 @@ import type { ThreadAction, ThreadMessage, ThreadRow } from '../core/types';
 import { AccountBar, EmptyState, useAccounts } from './AccountBar';
 import type { CoreClient } from './core-client';
 import { DevOverlay } from './DevOverlay';
-import { actionItems } from './commands/palette';
+import { actionItems, type PaletteItem } from './commands/palette';
 import { ACTIONS } from './commands/registry';
 import { Palette } from './Palette';
 import { Reader } from './Reader';
@@ -21,6 +21,23 @@ export function App({ corePromise }: { corePromise: Promise<CoreClient> }) {
 }
 
 const SNAPSHOT_ROWS = 60;
+const LABEL_ITEM = 'label:';
+
+/** Each Account's Labels, fetched once and again whenever the core says they changed. */
+function useLabels(core: CoreClient | null) {
+  const [labels, setLabels] = useState(new Map<string, string[]>());
+  const accounts = useAccounts();
+  useEffect(() => {
+    if (!core) return;
+    const load = (id: string) => void core.labels(id).then((l) => setLabels((m) => new Map(m).set(id, l)));
+    const ids = window.normie.fake ? ['fake-1'] : (accounts ?? []).map((a) => a.id);
+    ids.forEach(load);
+    return core.onNotice((n) => {
+      if (n.type === 'labels-changed') load(n.accountId);
+    });
+  }, [core, accounts]);
+  return labels;
+}
 
 function Inbox({ core }: { core: CoreClient | null }) {
   // The first frame draws the last Split from the snapshot; the core's rows replace it as soon as they arrive.
@@ -34,7 +51,9 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const reported = useRef(false);
   const accounts = useAccounts();
   const [overlay, setOverlay] = useState(false);
-  const [palette, setPalette] = useState(false);
+  /** The open palette: every action, or Labels for the selected Thread. */
+  const [palette, setPalette] = useState<null | 'actions' | 'label'>(null);
+  const labels = useLabels(core);
   const cache = useMemo(() => (core ? new ThreadCache(core) : null), [core]);
   /**
    * Triage changes the rows in memory first; these overrides stay laid over the core's rows until the core
@@ -241,7 +260,10 @@ function Inbox({ core }: { core: CoreClient | null }) {
     'thread.toggleRead': () => triage((r) => ({ type: 'read', on: r.unread }), (r) => ({ ...r, unread: !r.unread })),
     undo,
     'dev.overlay': () => setOverlay((o) => !o),
-    'palette.open': () => setPalette((p) => !p),
+    'palette.open': () => setPalette((p) => (p ? null : 'actions')),
+    'thread.label': () => {
+      if (rows[clamp(selected)]) setPalette('label');
+    },
   };
   useKeys(context, handlers);
 
@@ -254,6 +276,15 @@ function Inbox({ core }: { core: CoreClient | null }) {
     if (id) void h[id as keyof Handlers]!();
   }, []);
   useEffect(() => window.normie.onMenuAction(runAction), [runAction]);
+
+  /** Labels of the selected Thread's Account. */
+  const rowLabels = () => labels.get(rows[clamp(selected)]?.accountId ?? '') ?? [];
+  const applyLabel = (label: string) => triage({ type: 'label', label, on: true }, (r) => r);
+  const paletteItems = (mode: 'actions' | 'label'): PaletteItem[] => {
+    const labelItems = rowLabels().map((l) => ({ id: LABEL_ITEM + l, name: mode === 'label' ? l : `Label: ${l}`, keywords: l }));
+    if (mode === 'label') return labelItems;
+    return [...actionItems(ACTIONS, context, (id) => id !== 'palette.open' && !!handlers[id as keyof Handlers]), ...(rows.length ? labelItems : [])];
+  };
 
   return (
     <main className="app">
@@ -274,11 +305,13 @@ function Inbox({ core }: { core: CoreClient | null }) {
       {overlay && <DevOverlay />}
       {palette && (
         <Palette
-          items={actionItems(ACTIONS, context, (id) => id !== 'palette.open' && !!handlers[id as keyof Handlers])}
-          onClose={() => setPalette(false)}
+          items={paletteItems(palette)}
+          placeholder={palette === 'label' ? 'Apply a Label' : 'Type a command or Label'}
+          onClose={() => setPalette(null)}
           onRun={(item) => {
-            setPalette(false);
-            runAction([item.id]);
+            setPalette(null);
+            if (item.id.startsWith(LABEL_ITEM)) applyLabel(item.id.slice(LABEL_ITEM.length));
+            else runAction([item.id]);
           }}
         />
       )}

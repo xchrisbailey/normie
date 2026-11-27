@@ -155,6 +155,13 @@ function planAction(action: ThreadAction, msgs: ActionMessage[]): { pick: Action
     case 'done':
       // Gmail: remove the Inbox label from the messages that carry it. Sent copies don't, so they're untouched.
       return [{ pick: inInbox, edit: { removeLabels: [INBOX_LABEL] } }];
+    case 'label': {
+      // Gmail labels the whole Thread: every message that lacks the Label gets it; removing takes it off all.
+      const has = (m: ActionMessage) => (JSON.parse(m.labels_json) as string[]).includes(action.label);
+      return [action.on
+        ? { pick: labelled.filter((m) => !has(m)), edit: { addLabels: [action.label] } }
+        : { pick: labelled.filter(has), edit: { removeLabels: [action.label] } }];
+    }
     case 'mute':
       // Muting is Done plus a local note (see recordAction); unmuting changes nothing on the server.
       return action.on ? [{ pick: inInbox, edit: { removeLabels: [INBOX_LABEL] } }] : [];
@@ -242,7 +249,27 @@ export class Store {
     const up = this.db.prepare(
       'insert into mailboxes(account_id, path, role) values (?, ?, ?) on conflict(account_id, path) do update set role = excluded.role',
     );
-    this.db.transaction(() => boxes.forEach((b) => up.run(accountId, b.path, b.role ?? null)))();
+    this.db.transaction(() => {
+      boxes.forEach((b) => up.run(accountId, b.path, b.role ?? null));
+      // Labels deleted elsewhere go too; a mailbox Normie syncs keeps its sync state until it's really gone.
+      const keep = new Set(boxes.map((b) => b.path));
+      const known = this.db.prepare('select path from mailboxes where account_id = ? and uid_validity is null').pluck().all(accountId) as string[];
+      for (const path of known) if (!keep.has(path)) this.db.prepare('delete from mailboxes where account_id = ? and path = ?').run(accountId, path);
+    })();
+  }
+
+  /**
+   * The Account's own Labels, sorted: on Gmail these are its mailboxes, less the Inbox and system ones.
+   * Folder servers have none until milestone 4.
+   */
+  labels(accountId: AccountId): string[] {
+    const isGmail = this.db.prepare(`select 1 from mailboxes where account_id = ? and role = 'all'`).pluck().get(accountId);
+    if (!isGmail) return [];
+    return (this.db
+      .prepare(`select path from mailboxes where account_id = ? and role is null and upper(path) != 'INBOX'
+                and path not like '[Gmail]/%' and path not like '[Google Mail]/%' order by path collate nocase`)
+      .pluck()
+      .all(accountId) as string[]);
   }
 
   mailboxState(accountId: AccountId, path: string): SyncState | null {

@@ -123,6 +123,11 @@ export class DataService {
 
   setMailboxes(accountId: AccountId, boxes: { path: string; role?: MailboxRole }[]) {
     this.store.setMailboxes(accountId, boxes);
+    this.emit({ type: 'labels-changed', accountId });
+  }
+
+  labels(accountId: AccountId): string[] {
+    return this.store.labels(accountId);
   }
 
   /** Delete an Account and all its local mail. */

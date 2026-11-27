@@ -16,6 +16,7 @@ export function coreApiOf(ds: DataService): CoreApi {
     act: async (key, action) => ds.act(key, action),
     undo: async (ids) => ds.undo(ids),
     pending: async () => ds.pending(),
+    labels: async (accountId) => ds.labels(accountId),
   };
 }
 
