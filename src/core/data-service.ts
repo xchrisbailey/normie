@@ -1,7 +1,7 @@
 // The data side of the core: wraps the Store, answers the renderer's queries,
 // takes writes from sync, and emits change notices. Runs in the data process.
 import { Store, type BodyInput } from './store';
-import type { AccountId, ChangeSet, CoreNotice, MailboxRole, SplitId, SyncState, ThreadMessage, ThreadRow } from './types';
+import type { AccountId, ChangeSet, CoreNotice, MailboxRole, PendingChange, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow } from './types';
 
 export type NoticeListener = (n: CoreNotice) => void;
 
@@ -9,6 +9,8 @@ export class DataService {
   private listeners = new Set<NoticeListener>();
   /** Called when the renderer opens a message whose body isn't stored yet. Set by whoever wires up sync. */
   bodyRequester?: (loc: { accountId: AccountId; mailbox: string; uid: number }) => void;
+  /** Called when an Account has new pending changes for the server. Set by whoever wires up sync. */
+  replayRequester?: (accountId: AccountId) => void;
 
   constructor(readonly store: Store) {}
 
@@ -38,7 +40,33 @@ export class DataService {
     return messages;
   }
 
+  // --- Commands (renderer)
+
+  /**
+   * A triage action: the store changes at once, and the change is queued for the server. Returns the pending change ids.
+   * No rows-changed notice: the renderer that asked has already changed its rows, and reloading thousands of rows
+   * per key press costs memory for nothing.
+   */
+  act(key: string, action: ThreadAction): number[] {
+    const { changes } = this.store.recordAction(key, action);
+    const accounts = new Set(changes.map((c) => c.accountId));
+    for (const a of accounts) this.replayRequester?.(a);
+    return changes.map((c) => c.id);
+  }
+
   // --- Writes (sync)
+
+  pendingChanges(accountId: AccountId): PendingChange[] {
+    return this.store.pendingChanges(accountId);
+  }
+
+  changeApplied(id: number) {
+    this.store.changeApplied(id);
+  }
+
+  changeFailed(id: number, error: string) {
+    this.store.changeFailed(id, error);
+  }
 
   upsertAccount(id: AccountId, kind: string, email: string) {
     this.store.upsertAccount(id, kind, email);
@@ -94,10 +122,14 @@ export interface DataPort {
   uidsNeedingBodies(accountId: AccountId, mailbox: string, windowStart: number, limit: number): Promise<number[]>;
   applyChanges(accountId: AccountId, mailbox: string, cs: Partial<ChangeSet>): Promise<void>;
   putBodies(accountId: AccountId, mailbox: string, bodies: BodyInput[]): Promise<void>;
+  pendingChanges(accountId: AccountId): Promise<PendingChange[]>;
+  changeApplied(id: number): Promise<void>;
+  changeFailed(id: number, error: string): Promise<void>;
 }
 
 export const DATA_PORT_METHODS = [
   'upsertAccount', 'setMailboxes', 'removeAccount', 'mailboxState', 'knownUids', 'uidsNeedingBodies', 'applyChanges', 'putBodies',
+  'pendingChanges', 'changeApplied', 'changeFailed',
 ] as const satisfies readonly (keyof DataPort)[];
 
 /** Adapts an in-process DataService to the async DataPort. */

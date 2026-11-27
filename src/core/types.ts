@@ -86,6 +86,28 @@ export type MailEvent =
   | { type: 'flags'; mailbox: string; uid: number; flags: string[] }
   | { type: 'expunge'; mailbox: string; uid?: number };
 
+/** Changes to the flags and Labels of some messages. Labels apply only on servers with caps.labels. */
+export interface MessageEdit {
+  addFlags?: string[];
+  removeFlags?: string[];
+  addLabels?: string[];
+  removeLabels?: string[];
+}
+
+/** A triage action on a Thread, as the user takes it. */
+export type ThreadAction = { type: 'done' };
+
+/** A triage action recorded by the core and waiting to reach the server. */
+export interface PendingChange {
+  id: number;
+  accountId: AccountId;
+  threadKey: string;
+  mailbox: string;
+  uids: number[];
+  edit: MessageEdit;
+  attempts: number;
+}
+
 export interface ChangesOptions {
   /** Only consider messages dated on or after this time (ms). */
   windowStart: number;
@@ -106,6 +128,8 @@ export interface MailProvider {
   /** Headers for specific UIDs. */
   headers(mailbox: string, uids: number[]): Promise<RemoteHeader[]>;
   fetchBodies(mailbox: string, uids: number[]): Promise<RawMessage[]>;
+  /** Change flags and Labels on the server. */
+  edit(mailbox: string, uids: number[], edit: MessageEdit): Promise<void>;
   /** Live events for one mailbox (IMAP IDLE). Ends when the signal aborts. */
   watch(mailbox: string, signal: AbortSignal): AsyncIterable<MailEvent>;
 }

@@ -40,6 +40,7 @@ process.parentPort.on('message', (e) => {
       if (removed.length) console.log(`[data] removed ${removed.length} Account(s) that are no longer signed in`);
     }
     data.bodyRequester = (loc) => emitToSync?.('fetch-body', loc);
+    data.replayRequester = (accountId) => emitToSync?.('replay', { accountId });
     for (const p of pendingPorts.splice(0)) attach(p.kind, p.port);
   } else {
     const port = e.ports[0];

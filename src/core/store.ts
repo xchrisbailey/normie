@@ -1,7 +1,8 @@
 // The local store: one SQLite file in WAL mode, owned by the data process.
 import Database from 'better-sqlite3';
 import type {
-  AccountId, Address, FlagChange, MailboxRole, RemoteHeader, SplitId, SyncState, ThreadMessage, ThreadRow,
+  AccountId, Address, FlagChange, MailboxRole, MessageEdit, PendingChange, RemoteHeader, SplitId, SyncState, ThreadAction,
+  ThreadMessage, ThreadRow,
 } from './types';
 
 const INBOX_LABEL = '\\Inbox';
@@ -63,7 +64,36 @@ const MIGRATIONS: string[] = [
   );
   create index threads_inbox on threads (in_inbox, last_date desc);
   `,
+  // Triage actions waiting to reach the server. Each targets messages in one mailbox.
+  `
+  create table pending_changes (
+    id integer primary key,
+    account_id text not null,
+    thread_key text not null,
+    mailbox text not null,
+    uids_json text not null,
+    edit_json text not null,
+    created_at integer not null,
+    attempts integer not null default 0,
+    last_error text
+  );
+  create index pending_changes_account on pending_changes (account_id, id);
+  `,
 ];
+
+/** Applies an edit to a list of flags or Labels. */
+function edited(xs: string[], add?: string[], remove?: string[]): string[] {
+  const s = new Set(xs);
+  for (const x of remove ?? []) s.delete(x);
+  for (const x of add ?? []) s.add(x);
+  return [...s];
+}
+
+/** Splits a Thread row key ("account:thread") into its parts. */
+export function parseThreadKey(key: string): { accountId: AccountId; threadKey: string } {
+  const i = key.indexOf(':');
+  return { accountId: key.slice(0, i), threadKey: key.slice(i + 1) };
+}
 
 export interface MailboxStateRow {
   path: string;
@@ -115,7 +145,7 @@ export class Store {
   removeAccount(id: AccountId) {
     this.db.transaction(() => {
       this.db.prepare('delete from bodies where message_id in (select id from messages where account_id = ?)').run(id);
-      for (const t of ['threads', 'messages', 'mailboxes']) this.db.prepare(`delete from ${t} where account_id = ?`).run(id);
+      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes']) this.db.prepare(`delete from ${t} where account_id = ?`).run(id);
       this.db.prepare('delete from accounts where id = ?').run(id);
     })();
   }
@@ -220,6 +250,15 @@ export class Store {
         touched.add(key);
         del.run(accountId, mailbox, uid);
       }
+      // The server doesn't know about pending changes yet: lay them back over what it just reported.
+      const written = new Set([...(batch.headers ?? []).map((h) => h.uid), ...(batch.flagChanges ?? []).map((f) => f.uid)]);
+      if (written.size) {
+        for (const c of this.pendingChanges(accountId)) {
+          if (c.mailbox !== mailbox) continue;
+          const uids = c.uids.filter((u) => written.has(u));
+          if (uids.length) this.editMessages(accountId, mailbox, uids, c.edit).forEach((k) => touched.add(k));
+        }
+      }
       if (batch.state) {
         this.db
           .prepare('update mailboxes set uid_validity = ?, uid_next = ?, highest_modseq = ? where account_id = ? and path = ?')
@@ -228,6 +267,81 @@ export class Store {
       for (const key of touched) if (this.refreshThread(accountId, key)) inboxChanged = true;
     })();
     return inboxChanged;
+  }
+
+  // --- Triage: local edits and pending changes
+
+  /**
+   * Record a triage action on a Thread: change the local copy at once and queue the change for the server.
+   * Returns the pending changes made (none when the action changes nothing, such as Done on a Thread already out of the Inbox).
+   */
+  recordAction(key: string, action: ThreadAction, now = Date.now()): { changes: PendingChange[]; inboxChanged: boolean } {
+    const { accountId, threadKey } = parseThreadKey(key);
+    const msgs = this.db
+      .prepare(`select m.mailbox, m.uid, m.labels_json, mb.role from messages m
+                left join mailboxes mb on mb.account_id = m.account_id and mb.path = m.mailbox
+                where m.account_id = ? and m.thread_key = ?`)
+      .all(accountId, threadKey) as { mailbox: string; uid: number; labels_json: string; role: string | null }[];
+    // Done on Gmail removes the Inbox label from the messages that carry it; nothing else is touched.
+    // Folder servers (a move to Archive) come with those servers in milestone 4.
+    const targets = new Map<string, number[]>();
+    if (action.type === 'done') {
+      for (const m of msgs) {
+        if (m.role === 'inbox' || !(JSON.parse(m.labels_json) as string[]).includes(INBOX_LABEL)) continue;
+        targets.set(m.mailbox, [...(targets.get(m.mailbox) ?? []), m.uid]);
+      }
+    }
+    const edit: MessageEdit = { removeLabels: [INBOX_LABEL] };
+    const insert = this.db.prepare(
+      'insert into pending_changes(account_id, thread_key, mailbox, uids_json, edit_json, created_at) values (?, ?, ?, ?, ?, ?)',
+    );
+    const changes: PendingChange[] = [];
+    let inboxChanged = false;
+    this.db.transaction(() => {
+      for (const [mailbox, uids] of targets) {
+        const id = Number(insert.run(accountId, threadKey, mailbox, JSON.stringify(uids), JSON.stringify(edit), now).lastInsertRowid);
+        changes.push({ id, accountId, threadKey, mailbox, uids, edit, attempts: 0 });
+        for (const k of this.editMessages(accountId, mailbox, uids, edit)) if (this.refreshThread(accountId, k)) inboxChanged = true;
+      }
+    })();
+    return { changes, inboxChanged };
+  }
+
+  /** Apply an edit to local messages. Returns the thread keys touched; the caller refreshes them. */
+  private editMessages(accountId: AccountId, mailbox: string, uids: number[], edit: MessageEdit): string[] {
+    const isInboxMailbox = this.db.prepare('select role from mailboxes where account_id = ? and path = ?').pluck().get(accountId, mailbox) === 'inbox';
+    const get = this.db.prepare('select flags_json, labels_json, thread_key from messages where account_id = ? and mailbox = ? and uid = ?');
+    const set = this.db.prepare('update messages set flags_json = ?, labels_json = ?, unread = ?, in_inbox = ? where account_id = ? and mailbox = ? and uid = ?');
+    const keys = new Set<string>();
+    for (const uid of uids) {
+      const m = get.get(accountId, mailbox, uid) as { flags_json: string; labels_json: string; thread_key: string } | undefined;
+      if (!m) continue;
+      const flags = edited(JSON.parse(m.flags_json) as string[], edit.addFlags, edit.removeFlags);
+      const labels = edited(JSON.parse(m.labels_json) as string[], edit.addLabels, edit.removeLabels);
+      set.run(JSON.stringify(flags), JSON.stringify(labels), flags.includes('\\Seen') ? 0 : 1, isInboxMailbox || labels.includes(INBOX_LABEL) ? 1 : 0, accountId, mailbox, uid);
+      keys.add(m.thread_key);
+    }
+    return [...keys];
+  }
+
+  pendingChanges(accountId: AccountId): PendingChange[] {
+    return (this.db
+      .prepare('select id, account_id, thread_key, mailbox, uids_json, edit_json, attempts from pending_changes where account_id = ? order by id')
+      .all(accountId) as { id: number; account_id: string; thread_key: string; mailbox: string; uids_json: string; edit_json: string; attempts: number }[])
+      .map((r) => ({
+        id: r.id, accountId: r.account_id, threadKey: r.thread_key, mailbox: r.mailbox,
+        uids: JSON.parse(r.uids_json) as number[], edit: JSON.parse(r.edit_json) as MessageEdit, attempts: r.attempts,
+      }));
+  }
+
+  /** The server has the change: forget it. */
+  changeApplied(id: number) {
+    this.db.prepare('delete from pending_changes where id = ?').run(id);
+  }
+
+  /** Sending the change failed; it stays pending. */
+  changeFailed(id: number, error: string) {
+    this.db.prepare('update pending_changes set attempts = attempts + 1, last_error = ? where id = ?').run(error, id);
   }
 
   /** Store bodies. Returns the keys of the Threads touched and whether the Inbox Split was affected. */
@@ -293,8 +407,7 @@ export class Store {
   }
 
   thread(key: string): ThreadMessage[] {
-    const i = key.indexOf(':');
-    const accountId = key.slice(0, i), threadKey = key.slice(i + 1);
+    const { accountId, threadKey } = parseThreadKey(key);
     return (this.db
       .prepare(`select m.id, m.from_json, m.to_json, m.date, m.subject, b.text from messages m left join bodies b on b.message_id = m.id
                 where m.account_id = ? and m.thread_key = ? order by m.date asc, m.id asc`)
