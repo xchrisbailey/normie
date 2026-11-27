@@ -8,16 +8,16 @@ const fmt = (a: Address) => (a.name ? { name: a.name, address: a.address } : a.a
 
 /** Markdown to HTML for the HTML part. Raw HTML in the Markdown is escaped, not passed through. */
 export function markdownToHtml(markdown: string): string {
-  const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const escapeHtml = (s: string) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
   const body = marked.parse(markdown, { async: false, gfm: true, breaks: true, renderer: Object.assign(new marked.Renderer(), {
     html: ({ text }: { text: string }) => escapeHtml(text),
-  }) }) as string;
+  }) });
   return `<!doctype html><html><body style="font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.5;">${body}</body></html>`;
 }
 
 export interface BuiltMessage {
   raw: Uint8Array;
-  envelope: { from: string; to: string[] };
+  envelope: { from: string; to: Array<string> };
 }
 
 /** The full message, ready for SMTP and for appending to Sent. */

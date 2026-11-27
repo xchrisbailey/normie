@@ -16,11 +16,11 @@ export function WhenPicker({ title, onPick, onClose }: { title: string; onPick: 
     : suggestions(now).map((s) => ({ label: `${s.label} · ${describeWhen(s.at, now)}`, at: s.at }));
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') onClose();
-    else if (e.key === 'ArrowDown') setIndex((i) => Math.min(choices.length - 1, i + 1));
-    else if (e.key === 'ArrowUp') setIndex((i) => Math.max(0, i - 1));
-    else if (e.key === 'Enter' && choices[index]) onPick(choices[index]!.at.getTime());
-    else return;
+    if (e.key === 'Escape') {onClose();}
+    else if (e.key === 'ArrowDown') {setIndex((i) => Math.min(choices.length - 1, i + 1));}
+    else if (e.key === 'ArrowUp') {setIndex((i) => Math.max(0, i - 1));}
+    else if (e.key === 'Enter' && choices[index]) {onPick(choices[index].at.getTime());}
+    else {return;}
     e.preventDefault();
     e.stopPropagation();
   };

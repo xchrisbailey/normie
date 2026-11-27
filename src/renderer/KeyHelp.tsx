@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import type { ActionDef } from './commands/keys';
 import { helpSections } from './commands/help';
 
-export function KeyHelp({ actions, onClose }: { actions: readonly ActionDef[]; onClose: () => void }) {
+export function KeyHelp({ actions, onClose }: { actions: ReadonlyArray<ActionDef>; onClose: () => void }) {
   const sheet = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => sheet.current?.focus(), []);
   return createPortal(

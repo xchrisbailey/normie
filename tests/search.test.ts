@@ -1,6 +1,7 @@
 // Search (#80): the query language, and finding Threads at the core seam.
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCore, type TestCore } from '../src/core/core';
+import { createCore } from '../src/core/core';
+import type { TestCore } from '../src/core/core';
 import { FakeProvider, fakeExtractText } from '../src/core/fake-provider';
 import { ftsQuery } from '../src/core/search-query';
 
@@ -60,7 +61,7 @@ describe('searching', () => {
     // As if these were stored before the index: empty it, and mark everything as still to do.
     c.data.store.db.exec(`delete from search; update meta set value = (select max(id) + 1 from messages) where key = 'search_backfill_below'`);
     expect(await subjects(c, 'budget')).toEqual([]);
-    while (c.data.store.indexSearchBatch(2));
+    while (c.data.store.indexSearchBatch(2)){;}
     expect(await subjects(c, 'budget')).toEqual(['Lunch', 'Quarterly budget', 'Old archive']);
   });
 });

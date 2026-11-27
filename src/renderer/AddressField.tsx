@@ -11,10 +11,10 @@ export function currentEntry(value: string): { head: string; entry: string } {
   let cut = 0;
   for (let i = 0; i < value.length; i++) {
     const ch = value[i];
-    if (ch === '"') quoted = !quoted;
-    else if (ch === '<' && !quoted) angle++;
-    else if (ch === '>' && !quoted) angle = Math.max(0, angle - 1);
-    else if ((ch === ',' || ch === ';') && !quoted && !angle) cut = i + 1;
+    if (ch === '"') {quoted = !quoted;}
+    else if (ch === '<' && !quoted) {angle++;}
+    else if (ch === '>' && !quoted) {angle = Math.max(0, angle - 1);}
+    else if ((ch === ',' || ch === ';') && !quoted && !angle) {cut = i + 1;}
   }
   return { head: value.slice(0, cut), entry: value.slice(cut).trim() };
 }
@@ -22,18 +22,18 @@ export function currentEntry(value: string): { head: string; entry: string } {
 export const AddressField = forwardRef<HTMLInputElement, {
   value: string;
   onChange: (v: string) => void;
-  suggest: (query: string) => Promise<Address[]>;
+  suggest: (query: string) => Promise<Array<Address>>;
 }>(function AddressField({ value, onChange, suggest }, ref) {
-  const [options, setOptions] = useState<Address[]>([]);
+  const [options, setOptions] = useState<Array<Address>>([]);
   const [index, setIndex] = useState(0);
   const asked = useRef(0);
 
   useEffect(() => {
     const { entry } = currentEntry(value);
-    if (entry.length < 1 || entry.includes('<')) return setOptions([]);
+    if (entry.length < 1 || entry.includes('<')) {return setOptions([]);}
     const n = ++asked.current;
     void suggest(entry).then((list) => {
-      if (n !== asked.current) return;
+      if (n !== asked.current) {return;}
       // Nothing to suggest once the entry is exactly a suggestion.
       setOptions(list.length === 1 && list[0]!.address === entry.toLowerCase() ? [] : list);
       setIndex(0);
@@ -46,12 +46,12 @@ export const AddressField = forwardRef<HTMLInputElement, {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (!options.length) return;
-    if (e.key === 'ArrowDown') setIndex((i) => Math.min(options.length - 1, i + 1));
-    else if (e.key === 'ArrowUp') setIndex((i) => Math.max(0, i - 1));
-    else if ((e.key === 'Tab' || e.key === 'Enter') && !e.metaKey && !e.ctrlKey) pick(options[index]!);
-    else if (e.key === 'Escape') setOptions([]);
-    else return;
+    if (!options.length) {return;}
+    if (e.key === 'ArrowDown') {setIndex((i) => Math.min(options.length - 1, i + 1));}
+    else if (e.key === 'ArrowUp') {setIndex((i) => Math.max(0, i - 1));}
+    else if ((e.key === 'Tab' || e.key === 'Enter') && !e.metaKey && !e.ctrlKey) {pick(options[index]!);}
+    else if (e.key === 'Escape') {setOptions([]);}
+    else {return;}
     e.preventDefault();
     e.stopPropagation();
   };

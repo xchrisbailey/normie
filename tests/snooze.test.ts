@@ -3,16 +3,17 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCore, type TestCore } from '../src/core/core';
+import { createCore } from '../src/core/core';
+import type { TestCore } from '../src/core/core';
 import { FakeProvider, fakeExtractText, ICLOUD_CAPS } from '../src/core/fake-provider';
 
 const HOUR = 3_600_000;
 let now = Date.UTC(2026, 10, 27, 12);
-const cores: TestCore[] = [];
-const dirs: string[] = [];
+const cores: Array<TestCore> = [];
+const dirs: Array<string> = [];
 afterEach(async () => {
-  for (const c of cores.splice(0)) await c.close();
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const c of cores.splice(0)) {await c.close();}
+  for (const d of dirs.splice(0)) {rmSync(d, { recursive: true, force: true });}
 });
 
 async function start(p: FakeProvider, opts: { dbPath?: string; accountId?: string } = {}) {
@@ -36,7 +37,7 @@ describe('Snooze on Gmail', () => {
     expect(await inbox(c)).toEqual(['Lunch']);
     expect(await snoozed(c)).toEqual([['Trip', until]]);
     await c.engine.replay();
-    expect(p.edits).toEqual([{ mailbox: '[Gmail]/All Mail', uids: [trip], edit: { removeLabels: ['\\Inbox'], addLabels: ['Snoozed'] } }]);
+    expect(p.edits).toEqual([{ mailbox: '[Gmail]/All Mail', uids: [trip], edit: { removeLabels: [String.raw`\Inbox`], addLabels: ['Snoozed'] } }]);
 
     now += HOUR;
     expect(c.data.runDue()).toBe(0);
@@ -45,7 +46,7 @@ describe('Snooze on Gmail', () => {
     expect(await inbox(c)).toEqual(['Trip', 'Lunch']);
     expect(await snoozed(c)).toEqual([]);
     await c.engine.replay();
-    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [trip], edit: { addLabels: ['\\Inbox'], removeLabels: ['Snoozed'] } });
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [trip], edit: { addLabels: [String.raw`\Inbox`], removeLabels: ['Snoozed'] } });
     await c.engine.syncOnce();
     expect(await inbox(c)).toEqual(['Trip', 'Lunch']);
   });

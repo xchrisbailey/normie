@@ -49,23 +49,23 @@ export interface RemoteHeader {
   threadId?: string;
   messageId?: string;
   inReplyTo?: string;
-  references?: string[];
+  references?: Array<string>;
   subject: string;
   from?: Address;
-  to: Address[];
+  to: Array<Address>;
   /** Milliseconds since epoch. */
   date: number;
-  flags: string[];
+  flags: Array<string>;
   /** Labels including system ones such as \Inbox. On folder-only servers, the mailbox the message is in. */
-  labels: string[];
+  labels: Array<string>;
   /** Sent to a list: List-Unsubscribe, List-Id or Precedence: bulk/list. Undefined when the headers weren't fetched. */
   isList?: boolean;
 }
 
 export interface FlagChange {
   uid: number;
-  flags: string[];
-  labels?: string[];
+  flags: Array<string>;
+  labels?: Array<string>;
 }
 
 export interface ChangeSet {
@@ -73,10 +73,10 @@ export interface ChangeSet {
   /** True when the server's UIDVALIDITY changed or there was no prior state: replace everything known. */
   reset: boolean;
   /** New messages, or messages to (re)write in full. */
-  headers: RemoteHeader[];
-  flagChanges: FlagChange[];
+  headers: Array<RemoteHeader>;
+  flagChanges: Array<FlagChange>;
   /** UIDs the server reported as gone (QRESYNC VANISHED or EXPUNGE). */
-  vanished: number[];
+  vanished: Array<number>;
 }
 
 export interface RawMessage {
@@ -86,7 +86,7 @@ export interface RawMessage {
 
 export type MailEvent =
   | { type: 'exists'; mailbox: string }
-  | { type: 'flags'; mailbox: string; uid: number; flags: string[] }
+  | { type: 'flags'; mailbox: string; uid: number; flags: Array<string> }
   | { type: 'expunge'; mailbox: string; uid?: number };
 
 /**
@@ -94,17 +94,17 @@ export type MailEvent =
  * servers). A move is never combined with the others.
  */
 export interface MessageEdit {
-  addFlags?: string[];
-  removeFlags?: string[];
-  addLabels?: string[];
-  removeLabels?: string[];
+  addFlags?: Array<string>;
+  removeFlags?: Array<string>;
+  addLabels?: Array<string>;
+  removeLabels?: Array<string>;
   moveTo?: string;
 }
 
 /** What a replayed change left behind that undo needs: where moved messages are now. */
 export interface ChangeResult {
   /** UIDs in the destination mailbox, in the same order as the change's UIDs (0 where unknown). */
-  movedUids?: number[];
+  movedUids?: Array<number>;
 }
 
 /** A message the user wrote, as the composer hands it to the core. */
@@ -112,15 +112,15 @@ export interface OutgoingMessage {
   accountId: AccountId;
   /** The Identity it goes out from. */
   from: Address;
-  to: Address[];
-  cc: Address[];
-  bcc: Address[];
+  to: Array<Address>;
+  cc: Array<Address>;
+  bcc: Array<Address>;
   subject: string;
   /** Markdown; sent as HTML and as plain text. */
   body: string;
   inReplyTo?: string;
-  references?: string[];
-  attachments?: { filename: string; contentType: string; content: Uint8Array }[];
+  references?: Array<string>;
+  attachments?: Array<{ filename: string; contentType: string; content: Uint8Array }>;
   /** A Reminder: if nobody but me has written in the Thread by then (ms), it comes back to the Inbox. */
   remindAt?: number;
 }
@@ -135,8 +135,8 @@ export interface DraftContent {
   subject: string;
   body: string;
   inReplyTo?: string;
-  references?: string[];
-  attachments?: { filename: string; contentType: string; content: Uint8Array }[];
+  references?: Array<string>;
+  attachments?: Array<{ filename: string; contentType: string; content: Uint8Array }>;
 }
 
 /** A draft in the list the palette shows. */
@@ -175,7 +175,7 @@ export interface OutboxItem {
 
 /** Sends built messages over SMTP. One per Account; a fake in tests. */
 export interface MailTransport {
-  send(raw: Uint8Array, envelope: { from: string; to: string[] }): Promise<void>;
+  send(raw: Uint8Array, envelope: { from: string; to: Array<string> }): Promise<void>;
 }
 
 /** The Label (Gmail) or folder snoozed mail waits in. */
@@ -211,7 +211,7 @@ export type ThreadAction =
 /** An Account's Labels, or on folder servers its folders, where applying one moves the Thread. */
 export interface LabelSet {
   moves: boolean;
-  names: string[];
+  names: Array<string>;
 }
 
 /** A triage action recorded by the core and waiting to reach the server. */
@@ -220,7 +220,7 @@ export interface PendingChange {
   accountId: AccountId;
   threadKey: string;
   mailbox: string;
-  uids: number[];
+  uids: Array<number>;
   edit: MessageEdit;
   attempts: number;
 }
@@ -235,27 +235,27 @@ export interface MailProvider {
   readonly caps: Caps;
   connect(): Promise<void>;
   close(): Promise<void>;
-  listMailboxes(): Promise<Mailbox[]>;
+  listMailboxes(): Promise<Array<Mailbox>>;
   /** What changed in a mailbox since `since` (or everything in the window when `since` is null). */
   changes(mailbox: string, since: SyncState | null, opts: ChangesOptions): Promise<ChangeSet>;
   /** Every UID in the mailbox within the window, for finding deletions when QRESYNC is missing. */
-  uids(mailbox: string, opts: ChangesOptions): Promise<number[]>;
+  uids(mailbox: string, opts: ChangesOptions): Promise<Array<number>>;
   /** UIDs of messages dated before `before` (ms): the history kept as headers only. */
-  uidsBefore(mailbox: string, before: number): Promise<number[]>;
+  uidsBefore(mailbox: string, before: number): Promise<Array<number>>;
   /** Headers for specific UIDs. */
-  headers(mailbox: string, uids: number[]): Promise<RemoteHeader[]>;
-  fetchBodies(mailbox: string, uids: number[]): Promise<RawMessage[]>;
+  headers(mailbox: string, uids: Array<number>): Promise<Array<RemoteHeader>>;
+  fetchBodies(mailbox: string, uids: Array<number>): Promise<Array<RawMessage>>;
   /** Change flags and Labels on the server. */
-  edit(mailbox: string, uids: number[], edit: MessageEdit): Promise<void>;
+  edit(mailbox: string, uids: Array<number>, edit: MessageEdit): Promise<void>;
   /** UIDs in a mailbox matching a search (Gmail: X-GM-RAW; elsewhere IMAP SEARCH). */
-  search(mailbox: string, query: ServerQuery): Promise<number[]>;
+  search(mailbox: string, query: ServerQuery): Promise<Array<number>>;
   /** Move messages to another mailbox (MOVE, or copy + delete + expunge). Returns their new UIDs, 0 where unknown. */
-  move(mailbox: string, uids: number[], destination: string): Promise<{ uids: number[] }>;
+  move(mailbox: string, uids: Array<number>, destination: string): Promise<{ uids: Array<number> }>;
   createMailbox(path: string): Promise<void>;
   /** Add a message to a mailbox, such as a sent copy to Sent. Returns its UID when the server says (UIDPLUS). */
-  append(mailbox: string, raw: Uint8Array, flags: string[]): Promise<{ uid?: number }>;
+  append(mailbox: string, raw: Uint8Array, flags: Array<string>): Promise<{ uid?: number }>;
   /** Delete messages for good (flag deleted, then expunge), such as an old copy of a draft. */
-  remove(mailbox: string, uids: number[]): Promise<void>;
+  remove(mailbox: string, uids: Array<number>): Promise<void>;
   /** Live events for one mailbox (IMAP IDLE). Ends when the signal aborts. */
   watch(mailbox: string, signal: AbortSignal): AsyncIterable<MailEvent>;
 }
@@ -288,7 +288,7 @@ export interface RowTags {
   /** The other person in the Thread (its latest sender who isn't me), lowercased. */
   sender?: string;
   /** The Thread's own Labels (Gmail; system ones left out). */
-  labels?: string[];
+  labels?: Array<string>;
   /** Snoozed until then (ms). */
   snoozedUntil?: number;
   /** Back because nobody replied in time (a Reminder fired). */
@@ -298,7 +298,7 @@ export interface RowTags {
 export interface ThreadMessage {
   id: number;
   from?: Address;
-  to: Address[];
+  to: Array<Address>;
   date: number;
   subject: string;
   /** Plain text, or null when the body hasn't been downloaded yet. */
@@ -308,7 +308,7 @@ export interface ThreadMessage {
   /** The sender is on the list whose remote images always load. */
   imagesAllowed: boolean;
   /** Files attached (inline images shown in the body are left out). Empty until the body is stored. */
-  attachments: AttachmentInfo[];
+  attachments: Array<AttachmentInfo>;
 }
 
 /** An attachment as the reader lists it. */
@@ -329,6 +329,6 @@ export type CoreNotice =
   /** A change the server kept refusing was undone locally. */
   | { type: 'change-failed'; subject: string; error: string }
   /** New mail just arrived in these Inbox Threads (not on a first sync, not old mail, not mine). */
-  | { type: 'arrived'; keys: string[] }
+  | { type: 'arrived'; keys: Array<string> }
   /** A message couldn't be sent and was taken out of the Outbox; the renderer reopens it. */
   | { type: 'send-failed'; id: number; error: string };

@@ -1,22 +1,23 @@
 // The benchmark, run inside the app (NORMIE_BENCH=1 via npm run bench): real key presses against the 100,000-message
 // fixture, timed to the next frame and checked against the budgets in src/core/budgets.ts.
-import { app, type BrowserWindow, type UtilityProcess } from 'electron';
+import { app } from 'electron';
+import type { BrowserWindow, UtilityProcess } from 'electron';
 import { execFileSync } from 'node:child_process';
 import { BUDGETS } from '../core/budgets';
 
 /** The benchmark: real key presses against the 100,000-message fixture, checked against the budgets. */
 export async function runBench(w: BrowserWindow, info: { rows: number }, dataProc: UtilityProcess): Promise<boolean> {
   const budgets = { ...BUDGETS, keyMoveMs: Number(process.env.NORMIE_BUDGET_KEY_MS) || BUDGETS.keyMoveMs };
-  const press = async (keyCode: string, modifiers: 'meta'[] = []) => {
+  const press = async (keyCode: string, modifiers: Array<'meta'> = []) => {
     w.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
-    if (!modifiers.length) w.webContents.sendInputEvent({ type: 'char', keyCode });
+    if (!modifiers.length) {w.webContents.sendInputEvent({ type: 'char', keyCode });}
     w.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
     await new Promise((r) => setTimeout(r, 25));
   };
   await new Promise((r) => setTimeout(r, 500)); // let the first frames settle
   await w.webContents.executeJavaScript('window.__normiePerf.clear()');
-  for (let i = 0; i < 200; i++) await press('j');
-  for (let i = 0; i < 100; i++) await press('k');
+  for (let i = 0; i < 200; i++) {await press('j');}
+  for (let i = 0; i < 100; i++) {await press('k');}
   await new Promise((r) => setTimeout(r, 200));
   // Opening: Enter on the selected Thread, then j through the next 30 in the reader. Each step's Thread
   // was prefetched while the one before it was open.
@@ -29,11 +30,11 @@ export async function runBench(w: BrowserWindow, info: { rows: number }, dataPro
   await press('Escape');
   // Triage: Done on 50 Threads in a row (the main run works on a copy of the fixture).
   await new Promise((r) => setTimeout(r, 200));
-  for (let i = 0; i < 50; i++) await press('e');
+  for (let i = 0; i < 50; i++) {await press('e');}
   await new Promise((r) => setTimeout(r, 200));
   // Switching Splits (Tab through all five and back) redraws the list from memory.
   for (let i = 0; i < 8; i++) {
-    for (let j = 0; j < 5; j++) await press('Tab');
+    for (let j = 0; j < 5; j++) {await press('Tab');}
   }
   await new Promise((r) => setTimeout(r, 200));
   // The palette: open with Cmd-K, close with Escape.
@@ -43,9 +44,9 @@ export async function runBench(w: BrowserWindow, info: { rows: number }, dataPro
     await press('Escape');
   }
   await new Promise((r) => setTimeout(r, 200));
-  const samples = (await w.webContents.executeJavaScript('window.__normiePerf.samples()')) as { action: string; ms: number }[];
-  const sorted = (xs: { ms: number }[]) => xs.map((s) => s.ms).sort((a, b) => a - b);
-  const pctOf = (xs: number[]) => (p: number) => xs[Math.min(xs.length - 1, Math.floor((p / 100) * xs.length))] ?? Infinity;
+  const samples = (await w.webContents.executeJavaScript('window.__normiePerf.samples()')) as Array<{ action: string; ms: number }>;
+  const sorted = (xs: Array<{ ms: number }>) => xs.map((s) => s.ms).sort((a, b) => a - b);
+  const pctOf = (xs: Array<number>) => (p: number) => xs[Math.min(xs.length - 1, Math.floor((p / 100) * xs.length))] ?? Infinity;
   const ms = sorted(samples.filter((s) => s.action === 'list.down' || s.action === 'list.up'));
   const pct = pctOf(ms);
   const opens = sorted(samples.filter((s) => s.action === 'list.open' || s.action === 'reader.next'));
@@ -65,13 +66,13 @@ export async function runBench(w: BrowserWindow, info: { rows: number }, dataPro
   const queries = ['review', 'the', 'budget 1234', 'from:ada', 'subject:"design review"', 'schedule numbers', 'thanks', 'offsite agenda', 'zzzz', 'to:me'];
   const searchTimes = (await new Promise<unknown>((resolve) => {
     const onMessage = (m: { type?: string; times?: unknown }) => {
-      if (m?.type !== 'debug-search') return;
+      if (m?.type !== 'debug-search') {return;}
       dataProc.off('message', onMessage);
       resolve(m.times);
     };
     dataProc.on('message', onMessage);
     dataProc.postMessage({ type: 'debug-search', queries: [...queries, ...queries, ...queries] });
-  })) as { q: string; n: number; ms: number }[];
+  })) as Array<{ q: string; n: number; ms: number }>;
   const searchMs = searchTimes.map((t) => t.ms).sort((a, b) => a - b);
   const searchPct = pctOf(searchMs);
   // Where the memory is, inside the data process and the renderer (for #75).
@@ -92,8 +93,8 @@ export async function runBench(w: BrowserWindow, info: { rows: number }, dataPro
   ];
   const pressesOk = ms.length === 300 && opens.length === 31 && dones.length === 50 && palettes.length === 40 && switches.length === 40;
   console.log(`\n[bench] fixture: ${info.rows} Inbox rows in the renderer`);
-  for (const r of results) console.log(`[bench] ${r.value <= r.limit ? 'ok  ' : 'FAIL'} ${r.budget.padEnd(12)} ${r.value.toFixed(1).padStart(7)} / ${r.limit}   ${r.detail}`);
-  if (!pressesOk) console.log(`[bench] FAIL expected 300 moves, 31 opens, 50 Dones and 40 palettes, got ${ms.length}, ${opens.length}, ${dones.length} and ${palettes.length}`);
+  for (const r of results) {console.log(`[bench] ${r.value <= r.limit ? 'ok  ' : 'FAIL'} ${r.budget.padEnd(12)} ${r.value.toFixed(1).padStart(7)} / ${r.limit}   ${r.detail}`);}
+  if (!pressesOk) {console.log(`[bench] FAIL expected 300 moves, 31 opens, 50 Dones and 40 palettes, got ${ms.length}, ${opens.length}, ${dones.length} and ${palettes.length}`);}
   return pressesOk && results.every((r) => r.value <= r.limit);
 }
 

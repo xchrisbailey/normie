@@ -45,7 +45,7 @@ const shell = (remote: boolean, theme: ReturnType<typeof themeColors>) =>
   `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp(remote)}"><style>${shellCss(theme.colors, theme.dark)}</style></head><body></body></html>`;
 
 /** Fill the frame's document with the Thread's messages. */
-function render(doc: Document, messages: ThreadMessage[], allow: (m: ThreadMessage) => boolean) {
+function render(doc: Document, messages: Array<ThreadMessage>, allow: (m: ThreadMessage) => boolean) {
   const body = doc.body;
   body.replaceChildren();
   for (const m of messages) {
@@ -113,7 +113,7 @@ export type AttachmentAction = (action: 'open' | 'save', messageId: number, inde
 
 export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, remote, handle, onAttachment, theme }: {
   threadKey: string;
-  messages: ThreadMessage[];
+  messages: Array<ThreadMessage>;
   allow: (m: ThreadMessage) => boolean;
   /** Any message in view may load remote images: the frame's CSP lets them through. */
   remote: boolean;
@@ -130,20 +130,20 @@ export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, r
 
   const fill = () => {
     const doc = frame.current?.contentDocument;
-    if (ready.current && doc?.body) render(doc, latest.current.messages, latest.current.allow);
+    if (ready.current && doc?.body) {render(doc, latest.current.messages, latest.current.allow);}
   };
 
   // Hook up the frame's document once it has loaded: keys go to the app, links to the system browser.
   const onLoad = () => {
     const doc = frame.current?.contentDocument;
-    if (!doc) return;
+    if (!doc) {return;}
     ready.current = true;
     doc.addEventListener('keydown', (e) => {
       const forwarded = new KeyboardEvent('keydown', {
         key: e.key, code: e.code, shiftKey: e.shiftKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, cancelable: true,
       });
       window.dispatchEvent(forwarded);
-      if (forwarded.defaultPrevented) e.preventDefault();
+      if (forwarded.defaultPrevented) {e.preventDefault();}
     });
     doc.addEventListener('click', (e) => {
       const button = e.composedPath().find((n) => (n as HTMLElement).dataset?.attachment) as HTMLElement | undefined;
@@ -154,10 +154,10 @@ export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, r
         return;
       }
       const a = (e.composedPath().find((n) => (n as Element).tagName === 'A') as HTMLAnchorElement | undefined) ?? null;
-      if (!a) return;
+      if (!a) {return;}
       e.preventDefault();
       const href = a.getAttribute('href');
-      if (href && /^(https?:|mailto:)/i.test(href.trim())) window.normie.openLink(href.trim());
+      if (href && /^(https?:|mailto:)/i.test(href.trim())) {window.normie.openLink(href.trim());}
     }, true);
     fill();
   };
@@ -169,7 +169,7 @@ export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, r
     handle.current = {
       scrollPage: (d) => {
         const w = frame.current?.contentWindow;
-        if (w) w.scrollBy({ top: d * w.innerHeight * 0.85 });
+        if (w) {w.scrollBy({ top: d * w.innerHeight * 0.85 });}
       },
     };
   }

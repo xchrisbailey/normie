@@ -43,8 +43,8 @@ export function AddPasswordAccount({ provider, onDone, existing }: {
       };
     const r = await window.normie.accounts.addPassword(input);
     setBusy(false);
-    if (r.ok) onDone();
-    else setError({ message: r.error, ...(r.field ? { field: r.field } : {}) });
+    if (r.ok) {onDone();}
+    else {setError({ message: r.error, ...(r.field ? { field: r.field } : {}) });}
   };
 
   const bad = (field: string) => (error?.field === field ? 'bad' : undefined);

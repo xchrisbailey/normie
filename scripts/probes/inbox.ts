@@ -4,7 +4,7 @@ import type { Store } from '../../src/core/store';
 
 export default async function probe(store: Store) {
   const rows = store.rows('inbox');
-  while (store.indexSearchBatch(2000));
+  while (store.indexSearchBatch(2000)){;}
   return {
     schema: store.db.pragma('user_version', { simple: true }),
     inbox: rows.length,

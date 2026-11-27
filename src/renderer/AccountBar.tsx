@@ -1,10 +1,11 @@
 // Shows which Accounts are signed in, and a quiet way to sign in again when one has expired.
 import { useEffect, useState } from 'react';
-import { AddPasswordAccount, type PasswordProvider } from './AddAccount';
+import { AddPasswordAccount } from './AddAccount';
+import type { PasswordProvider } from './AddAccount';
 import { IdentitiesEditor } from './Identities';
 
 export function useAccounts() {
-  const [accounts, setAccounts] = useState<AccountRecord[] | null>(null);
+  const [accounts, setAccounts] = useState<Array<AccountRecord> | null>(null);
   useEffect(() => {
     void window.normie.accounts.list().then(setAccounts);
     return window.normie.accounts.onChanged(setAccounts);
@@ -20,8 +21,8 @@ export function useAddGmail() {
     setError(null);
     try {
       await window.normie.accounts.addGmail(loginHint);
-    } catch (e) {
-      setError((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+    } catch (error_) {
+      setError((error_ as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
     } finally {
       setBusy(false);
     }
@@ -29,7 +30,7 @@ export function useAddGmail() {
   return { add, busy, error };
 }
 
-export function AccountBar({ accounts }: { accounts: AccountRecord[] }) {
+export function AccountBar({ accounts }: { accounts: Array<AccountRecord> }) {
   const { add, busy, error } = useAddGmail();
   const [menu, setMenu] = useState(false);
   const [form, setForm] = useState<PasswordProvider | null>(null);

@@ -1,6 +1,7 @@
 // SMTP over Nodemailer. Gmail: smtp.gmail.com with XOAUTH2, a fresh access token per send.
 import nodemailer from 'nodemailer';
-import { ServerRejectedError, type MailTransport } from '../core/types';
+import { ServerRejectedError } from '../core/types';
+import type { MailTransport } from '../core/types';
 
 /** A 5xx reply means the server said no to this message; anything else (4xx, network) is worth retrying. */
 function classify(e: unknown): Error {
@@ -18,8 +19,8 @@ export function gmailTransport(user: string, accessToken: () => Promise<string>)
       });
       try {
         await t.sendMail({ envelope, raw: Buffer.from(raw) });
-      } catch (e) {
-        throw classify(e);
+      } catch (error) {
+        throw classify(error);
       } finally {
         t.close();
       }
@@ -37,8 +38,8 @@ export function passwordTransport(server: { host: string; port: number; security
       });
       try {
         await t.sendMail({ envelope, raw: Buffer.from(raw) });
-      } catch (e) {
-        throw classify(e);
+      } catch (error) {
+        throw classify(error);
       } finally {
         t.close();
       }

@@ -7,8 +7,8 @@ import path from 'node:path';
 export function safeFilename(name: string): string {
   const base = name.split(/[/\\]/).pop() ?? '';
   // eslint-disable-next-line no-control-regex
-  let clean = base.replace(/[\u0000-\u001f\u007f:*?"<>|]/g, '_').replace(/^[.\s]+/, '').trim();
-  if (!clean) clean = 'attachment';
+  let clean = base.replaceAll(/[\u0000-\u001f\u007f:*?"<>|]/g, '_').replace(/^[.\s]+/, '').trim();
+  if (!clean) {clean = 'attachment';}
   if (clean.length > 120) {
     const ext = path.extname(clean).slice(0, 16);
     clean = clean.slice(0, 120 - ext.length) + ext;
@@ -29,7 +29,7 @@ export function isRisky(filename: string): boolean {
 
 /** Mark a file as downloaded from the internet, as browsers do. */
 export function quarantine(file: string): Promise<void> {
-  if (process.platform !== 'darwin') return Promise.resolve();
+  if (process.platform !== 'darwin') {return Promise.resolve();}
   const value = `0081;${Math.floor(Date.now() / 1000).toString(16)};Normie;`;
   return new Promise((resolve) => execFile('xattr', ['-w', 'com.apple.quarantine', value, file], () => resolve()));
 }

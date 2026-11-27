@@ -1,7 +1,8 @@
 // Checking a password Account's settings against the real servers before saving it: an IMAP login, then SMTP.
 import { ImapFlow } from 'imapflow';
 import nodemailer from 'nodemailer';
-import { explainFailure, type PasswordAccountSettings } from './password-accounts';
+import { explainFailure } from './password-accounts';
+import type { PasswordAccountSettings } from './password-accounts';
 
 export class VerifyError extends Error {}
 
@@ -13,8 +14,8 @@ export async function verifyPasswordAccount(s: PasswordAccountSettings, password
   imap.on('error', () => {});
   try {
     await imap.connect();
-  } catch (e) {
-    throw new VerifyError(explainFailure(s, 'imap', e));
+  } catch (error) {
+    throw new VerifyError(explainFailure(s, 'imap', error));
   } finally {
     await imap.logout().catch(() => imap.close());
   }
@@ -24,8 +25,8 @@ export async function verifyPasswordAccount(s: PasswordAccountSettings, password
   });
   try {
     await smtp.verify();
-  } catch (e) {
-    throw new VerifyError(explainFailure(s, 'smtp', e));
+  } catch (error) {
+    throw new VerifyError(explainFailure(s, 'smtp', error));
   } finally {
     smtp.close();
   }

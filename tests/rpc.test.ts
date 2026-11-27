@@ -15,7 +15,7 @@ describe('rpc over a MessagePort', () => {
       boom: () => { throw new Error('nope'); },
     });
     const c = connect(client);
-    const events: unknown[] = [];
+    const events: Array<unknown> = [];
     c.on('notice', (p) => events.push(p));
 
     expect(await c.call('add', 2, 3)).toBe(5);

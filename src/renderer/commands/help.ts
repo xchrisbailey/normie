@@ -5,7 +5,7 @@ import { keyLabel } from './palette';
 
 export interface HelpSection {
   title: string;
-  rows: { name: string; keys: string[] }[];
+  rows: Array<{ name: string; keys: string[] }>;
 }
 
 /** Keys that live in the composer itself, not in the registry. */
@@ -22,7 +22,7 @@ const COMPOSER: HelpSection = {
   ],
 };
 
-export function helpSections(actions: readonly ActionDef[]): HelpSection[] {
+export function helpSections(actions: ReadonlyArray<ActionDef>): Array<HelpSection> {
   const byId = new Map(actions.map((a) => [a.id, a]));
   const sections = menuSections(actions).map((s) => ({
     title: s.label,

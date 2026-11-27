@@ -1,6 +1,7 @@
 // Reply, reply all and forward (#41): recipients, subjects, threading headers, quoting.
 import { describe, expect, it } from 'vitest';
-import { planReply, prefixed, type Original } from '../src/core/reply';
+import { planReply, prefixed } from '../src/core/reply';
+import type { Original } from '../src/core/reply';
 
 const me = { name: 'Me', address: 'me@example.com' };
 const ada = { name: 'Ada', address: 'ada@example.com' };

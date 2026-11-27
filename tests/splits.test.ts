@@ -1,6 +1,7 @@
 // Splits (#60): the rules over tagged rows, and the tags the core gives them.
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCore, type TestCore } from '../src/core/core';
+import { createCore } from '../src/core/core';
+import type { TestCore } from '../src/core/core';
 import { FakeProvider, fakeExtractText } from '../src/core/fake-provider';
 import type { ThreadRow } from '../src/core/types';
 import { builtInSplits, splitCounts, splitsFrom } from '../src/renderer/splits';
@@ -15,7 +16,7 @@ afterEach(async () => {
   core = undefined;
 });
 
-const inSplits = (rows: ThreadRow[], subject: string) => {
+const inSplits = (rows: Array<ThreadRow>, subject: string) => {
   const r = rows.find((x) => x.subject === subject)!;
   return builtInSplits([]).filter((s) => s.match(r)).map((s) => s.id);
 };
@@ -23,7 +24,7 @@ const inSplits = (rows: ThreadRow[], subject: string) => {
 async function inbox() {
   const p = new FakeProvider();
   p.deliver({ subject: 'Hi from Ada', threadId: 't-ada', from: { address: 'ada@example.com' }, date: NOW - 5 * HOUR });
-  p.deliver({ subject: 'Re: Hi from Ada', threadId: 't-ada', from: me, to: [{ address: 'ada@example.com' }], date: NOW - 4 * HOUR, labels: ['\\Sent'] });
+  p.deliver({ subject: 'Re: Hi from Ada', threadId: 't-ada', from: me, to: [{ address: 'ada@example.com' }], date: NOW - 4 * HOUR, labels: [String.raw`\Sent`] });
   p.deliver({ subject: 'Weekly digest', threadId: 't-news', from: { address: 'news@example.com' }, list: true, date: NOW - 3 * HOUR });
   p.deliver({ subject: 'Who is this', threadId: 't-stranger', from: { address: 'stranger@example.com' }, date: NOW - 2 * HOUR });
   p.deliver({ subject: 'Boss newsletter', threadId: 't-boss', from: { address: 'boss@example.com' }, list: true, date: NOW - HOUR });
@@ -80,7 +81,7 @@ describe('Splits', () => {
     core.data.store.db.prepare('update messages set is_list = null').run();
     core.data.store.db.prepare('update threads set is_list = 0').run();
     expect((await core.rows('inbox'))[0]!.tags!.newsletter).toBe(false);
-    while (core.data.backfillListFlags(10));
+    while (core.data.backfillListFlags(10)){;}
     expect((await core.rows('inbox'))[0]!.tags!.newsletter).toBe(true);
   });
 });

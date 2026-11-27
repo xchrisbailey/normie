@@ -1,6 +1,7 @@
 // New-mail notifications (#62): what the core reports as news, and what the renderer notifies about.
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCore, type TestCore } from '../src/core/core';
+import { createCore } from '../src/core/core';
+import type { TestCore } from '../src/core/core';
 import { FakeProvider, fakeExtractText } from '../src/core/fake-provider';
 import type { CoreNotice, ThreadRow } from '../src/core/types';
 import { NOTIFY_QUIET_MS, toNotify } from '../src/renderer/notify';

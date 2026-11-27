@@ -39,7 +39,7 @@ const Row = memo(function Row({ row, selected, top, marker }: { row: ThreadRow; 
 
 /** Memoized: opening the palette or an overlay shouldn't re-render the list. */
 export const ThreadList = memo(function ThreadList({ rows, selected, markers }: {
-  rows: ThreadRow[];
+  rows: Array<ThreadRow>;
   selected: number;
   /** A color per Account, when there's more than one. */
   markers?: Map<string, string>;
@@ -48,7 +48,7 @@ export const ThreadList = memo(function ThreadList({ rows, selected, markers }: 
   const v = useVirtualizer({ count: rows.length, getScrollElement: () => scroller.current, estimateSize: () => ROW_HEIGHT, overscan: 12 });
 
   useEffect(() => {
-    if (rows.length) v.scrollToIndex(selected, { align: 'auto' });
+    if (rows.length) {v.scrollToIndex(selected, { align: 'auto' });}
   }, [selected, rows.length, v]);
 
   return (

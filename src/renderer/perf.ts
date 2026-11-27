@@ -4,7 +4,7 @@ export interface Sample {
   ms: number;
 }
 
-const samples: Sample[] = [];
+const samples: Array<Sample> = [];
 const listeners = new Set<(s: Sample) => void>();
 const MAX = 2000;
 
@@ -18,8 +18,8 @@ export function measureToNextFrame(action: string, start: number) {
       performance.measure(`action:${action}`, { start, end });
       const s = { action, ms: end - start };
       samples.push(s);
-      if (samples.length > MAX) samples.shift();
-      for (const fn of listeners) fn(s);
+      if (samples.length > MAX) {samples.shift();}
+      for (const fn of listeners) {fn(s);}
     };
     ch.port2.postMessage(null);
   });

@@ -4,22 +4,22 @@ import type { Address, ScheduledSummary, DraftContent, DraftSummary, LabelSet, O
 
 /** What the renderer can ask of the core. Every method is async because it crosses a MessagePort in the app. */
 export interface CoreApi {
-  rows(split: SplitId, limit?: number): Promise<ThreadRow[]>;
-  thread(key: string): Promise<ThreadMessage[]>;
+  rows(split: SplitId, limit?: number): Promise<Array<ThreadRow>>;
+  thread(key: string): Promise<Array<ThreadMessage>>;
   /** A triage action on a Thread. The store changes at once; the server catches up. Returns the pending change ids. */
-  act(key: string, action: ThreadAction): Promise<number[]>;
+  act(key: string, action: ThreadAction): Promise<Array<number>>;
   /** Put a message in the Outbox; it goes out after the undo window. Returns its Outbox id. Its draft, if any, goes. */
   send(message: OutgoingMessage, draftId?: number, sendAt?: number): Promise<number>;
   /** Threads with a message matching the query (words, "phrases", from:, to:, subject:), newest first. */
-  search(query: string, limit?: number): Promise<ThreadRow[]>;
+  search(query: string, limit?: number): Promise<Array<ThreadRow>>;
   /** The same search, asking the servers too for mail that isn't stored here. Slower: seconds, not milliseconds. */
-  searchServer(query: string, limit?: number): Promise<ThreadRow[]>;
+  searchServer(query: string, limit?: number): Promise<Array<ThreadRow>>;
   /** Messages set to go out later (Send Later). */
-  scheduled(): Promise<ScheduledSummary[]>;
+  scheduled(): Promise<Array<ScheduledSummary>>;
   /** Save a draft (new when `id` is null); kept here and synced to the Drafts mailbox. Returns its id. */
   saveDraft(id: number | null, content: DraftContent): Promise<number>;
   deleteDraft(id: number): Promise<void>;
-  drafts(): Promise<DraftSummary[]>;
+  drafts(): Promise<Array<DraftSummary>>;
   draft(id: number): Promise<DraftContent | null>;
   /** Take a message back out of the Outbox (undo send, or after it failed). Null once it's on its way. */
   cancelSend(id: number): Promise<OutgoingMessage | null>;
@@ -28,7 +28,7 @@ export interface CoreApi {
   /** One attachment's bytes. */
   attachment(messageId: number, index: number): Promise<{ filename: string; contentType: string; content: Uint8Array } | null>;
   /** People to suggest in an address field, best first. */
-  contacts(query: string, limit?: number): Promise<Address[]>;
+  contacts(query: string, limit?: number): Promise<Array<Address>>;
   /** Add a sender to the VIP list, or take them off. */
   setVip(address: string, on: boolean): Promise<void>;
   /** Always load remote images from this sender. */
@@ -36,9 +36,9 @@ export interface CoreApi {
   /** An Account's own Labels, for the Label picker. Kept current by 'labels-changed' notices. */
   labels(accountId: string): Promise<LabelSet>;
   /** Undo the changes an `act` returned. */
-  undo(ids: number[]): Promise<void>;
+  undo(ids: Array<number>): Promise<void>;
   /** Changes still on their way to the server. Kept current by 'pending' notices. */
   pending(): Promise<PendingStatus>;
 }
 
-export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment', 'send', 'cancelSend', 'original', 'saveDraft', 'deleteDraft', 'drafts', 'draft', 'contacts', 'setVip', 'scheduled', 'search', 'searchServer'] as const satisfies readonly (keyof CoreApi)[];
+export const CORE_API_METHODS = ['rows', 'thread', 'act', 'undo', 'pending', 'labels', 'allowImagesFrom', 'attachment', 'send', 'cancelSend', 'original', 'saveDraft', 'deleteDraft', 'drafts', 'draft', 'contacts', 'setVip', 'scheduled', 'search', 'searchServer'] as const satisfies ReadonlyArray<keyof CoreApi>;

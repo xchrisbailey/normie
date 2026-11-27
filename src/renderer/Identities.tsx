@@ -6,15 +6,15 @@ type Row = { name: string; address: string };
 
 export function IdentitiesEditor({ account, onDone }: { account: AccountRecord; onDone: () => void }) {
   const start = account.identities?.length ? account.identities : [{ address: account.email }];
-  const [rows, setRows] = useState<Row[]>(start.map((i) => ({ name: i.name ?? '', address: i.address })));
+  const [rows, setRows] = useState<Array<Row>>(start.map((i) => ({ name: i.name ?? '', address: i.address })));
   const [error, setError] = useState<string | null>(null);
   const update = (i: number, patch: Partial<Row>) => setRows((r) => r.map((x, n) => (n === i ? { ...x, ...patch } : x)));
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     const r = await window.normie.accounts.setIdentities(account.id, rows.filter((x) => x.address.trim()).map((x) => (x.name.trim() ? x : { address: x.address })));
-    if (r.ok) onDone();
-    else setError(r.error);
+    if (r.ok) {onDone();}
+    else {setError(r.error);}
   };
 
   return (

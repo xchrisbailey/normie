@@ -1,7 +1,9 @@
 // Gmail sign-in: the browser and Google's endpoints are faked; the loopback server is real.
 import { describe, expect, it } from 'vitest';
-import { Accounts, type AccountList, type AccountRecord, type SecretStore } from '../src/main/auth/accounts';
-import { challengeOf, SignInRequiredError, type Fetch, type GoogleClient } from '../src/main/auth/google-oauth';
+import { Accounts } from '../src/main/auth/accounts';
+import type { AccountList, AccountRecord, SecretStore } from '../src/main/auth/accounts';
+import { challengeOf, SignInRequiredError } from '../src/main/auth/google-oauth';
+import type { Fetch, GoogleClient } from '../src/main/auth/google-oauth';
 
 const CLIENT: GoogleClient = { clientId: 'cid', clientSecret: 'csecret', authUri: 'https://accounts.example/auth', tokenUri: 'https://oauth.example/token' };
 
@@ -12,9 +14,9 @@ class MemSecrets implements SecretStore {
   async delete(id: string) { this.m.delete(id); }
 }
 class MemList implements AccountList {
-  saved: AccountRecord[] = [];
+  saved: Array<AccountRecord> = [];
   load() { return structuredClone(this.saved); }
-  save(a: AccountRecord[]) { this.saved = structuredClone(a); }
+  save(a: Array<AccountRecord>) { this.saved = structuredClone(a); }
 }
 
 /** A fake Google: issues codes, checks PKCE, hands out and refreshes tokens. */
@@ -22,20 +24,20 @@ function fakeGoogle() {
   const g = { challenge: '', issued: 0, refreshes: 0, revoked: false, lastTokenBody: undefined as URLSearchParams | undefined, realFetch: fetch };
   const fetchFn: Fetch = async (input, init) => {
     const url = String(input);
-    if (url.startsWith('http://127.0.0.1')) return g.realFetch(input, init);
+    if (url.startsWith('http://127.0.0.1')) {return g.realFetch(input, init);}
     if (url === CLIENT.tokenUri) {
       const body = new URLSearchParams(String(init!.body));
       g.lastTokenBody = body;
       if (body.get('grant_type') === 'authorization_code') {
-        if (challengeOf(body.get('code_verifier')!) !== g.challenge) return Response.json({ error: 'invalid_grant' }, { status: 400 });
+        if (challengeOf(body.get('code_verifier')!) !== g.challenge) {return Response.json({ error: 'invalid_grant' }, { status: 400 });}
         g.issued++;
         return Response.json({ access_token: `at-${g.issued}`, refresh_token: 'rt-1', expires_in: 3600 });
       }
-      if (g.revoked) return Response.json({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }, { status: 400 });
+      if (g.revoked) {return Response.json({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }, { status: 400 });}
       g.refreshes++;
       return Response.json({ access_token: `at-refreshed-${g.refreshes}`, expires_in: 3600 });
     }
-    if (url.endsWith('/users/me/profile')) return Response.json({ emailAddress: 'Chris@Example.com' });
+    if (url.endsWith('/users/me/profile')) {return Response.json({ emailAddress: 'Chris@Example.com' });}
     throw new Error(`unexpected fetch ${url}`);
   };
   /** Plays the user approving in the browser: follows the redirect with a code. */
@@ -64,7 +66,7 @@ describe('Gmail sign-in', () => {
   it('signs in through the browser with PKCE and records the Account', async () => {
     const { make, secrets, list, g } = setup();
     const accounts = make();
-    const changes: AccountRecord[][] = [];
+    const changes: Array<AccountRecord>[] = [];
     accounts.onChange((a) => changes.push(a));
     const acct = await accounts.addGmail();
     expect(acct).toEqual({ id: 'gmail:chris@example.com', kind: 'gmail', email: 'Chris@Example.com', status: 'ok' });

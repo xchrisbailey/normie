@@ -24,10 +24,10 @@ export class SafeStorageSecrets implements SecretStore {
   }
 
   async get(id: string) {
-    if (!(await this.isSecure())) return this.memory.get(id);
+    if (!(await this.isSecure())) {return this.memory.get(id);}
     try {
       const { result, shouldReEncrypt } = await safeStorage.decryptStringAsync(readFileSync(this.file(id)));
-      if (shouldReEncrypt) await this.set(id, result);
+      if (shouldReEncrypt) {await this.set(id, result);}
       return result;
     } catch {
       return undefined;
@@ -35,7 +35,7 @@ export class SafeStorageSecrets implements SecretStore {
   }
 
   async set(id: string, value: string) {
-    if (!(await this.isSecure())) return void this.memory.set(id, value);
+    if (!(await this.isSecure())) {return void this.memory.set(id, value);}
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     writeFileSync(this.file(id), await safeStorage.encryptStringAsync(value), { mode: 0o600 });
   }
@@ -49,15 +49,15 @@ export class SafeStorageSecrets implements SecretStore {
 export class JsonAccountList implements AccountList {
   constructor(private readonly file: string) {}
 
-  load(): AccountRecord[] {
+  load(): Array<AccountRecord> {
     try {
-      return JSON.parse(readFileSync(this.file, 'utf8')) as AccountRecord[];
+      return JSON.parse(readFileSync(this.file, 'utf8')) as Array<AccountRecord>;
     } catch {
       return [];
     }
   }
 
-  save(accounts: AccountRecord[]) {
+  save(accounts: Array<AccountRecord>) {
     writeFileSync(this.file, JSON.stringify(accounts, null, 2));
   }
 }

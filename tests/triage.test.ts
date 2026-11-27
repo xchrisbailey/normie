@@ -4,17 +4,18 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCore, type TestCore } from '../src/core/core';
+import { createCore } from '../src/core/core';
+import type { TestCore } from '../src/core/core';
 import { FakeProvider, fakeExtractText } from '../src/core/fake-provider';
 
 const NOW = Date.UTC(2026, 10, 26, 12);
 const HOUR = 3_600_000;
-const cores: TestCore[] = [];
-const dirs: string[] = [];
+const cores: Array<TestCore> = [];
+const dirs: Array<string> = [];
 
 afterEach(async () => {
-  for (const c of cores.splice(0)) await c.close();
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const c of cores.splice(0)) {await c.close();}
+  for (const d of dirs.splice(0)) {rmSync(d, { recursive: true, force: true });}
 });
 
 async function start(provider: FakeProvider, dbPath?: string) {
@@ -28,7 +29,7 @@ async function start(provider: FakeProvider, dbPath?: string) {
 function mailbox() {
   const p = new FakeProvider();
   const a1 = p.deliver({ subject: 'Lunch', threadId: 't-lunch', date: NOW - 3 * HOUR });
-  const a2 = p.deliver({ subject: 'Re: Lunch', threadId: 't-lunch', date: NOW - 2 * HOUR, labels: ['\\Sent'], flags: ['\\Seen'] });
+  const a2 = p.deliver({ subject: 'Re: Lunch', threadId: 't-lunch', date: NOW - 2 * HOUR, labels: [String.raw`\Sent`], flags: [String.raw`\Seen`] });
   const a3 = p.deliver({ subject: 'Re: Lunch', threadId: 't-lunch', date: NOW - HOUR });
   const b1 = p.deliver({ subject: 'Invoice', threadId: 't-invoice', date: NOW - 4 * HOUR });
   return { p, lunch: { inbox: [a1, a3], sent: a2 }, invoice: b1 };
@@ -50,7 +51,7 @@ describe('Done', () => {
     const c = await start(p);
     await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
     await c.engine.replay();
-    expect(p.edits).toEqual([{ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeLabels: ['\\Inbox'] } }]);
+    expect(p.edits).toEqual([{ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeLabels: [String.raw`\Inbox`] } }]);
     expect(c.data.pendingChanges('gmail:me@example.com')).toEqual([]);
     // The next sync agrees with what's on screen.
     await c.engine.syncOnce();
@@ -87,7 +88,7 @@ describe('Done', () => {
     await c.act(await keyOf(c, 'Lunch'), { type: 'done' });
     await c.engine.idle();
     // Meanwhile my phone marks the message read; the server still has it in the Inbox.
-    p.setFlags(lunch.inbox[1]!, { flags: ['\\Seen'] });
+    p.setFlags(lunch.inbox[1]!, { flags: [String.raw`\Seen`] });
     p.failNext = 1; // the replay at the start of the pass fails again; the header sync goes through
     await c.engine.syncOnce();
     expect(await subjects(c)).toEqual(['Invoice']);
@@ -107,7 +108,7 @@ describe('Done', () => {
     cores.splice(cores.indexOf(first), 1);
 
     const second = await start(p, db);
-    expect(p.edits).toEqual([{ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeLabels: ['\\Inbox'] } }]);
+    expect(p.edits).toEqual([{ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeLabels: [String.raw`\Inbox`] } }]);
     expect(await subjects(second)).toEqual(['Invoice']);
   });
 
@@ -126,7 +127,7 @@ describe('failed changes', () => {
   const waitFor = async (cond: () => boolean | Promise<boolean>, ms = 2000) => {
     const end = Date.now() + ms;
     while (!(await cond())) {
-      if (Date.now() > end) throw new Error('timed out');
+      if (Date.now() > end) {throw new Error('timed out');}
       await new Promise((r) => setTimeout(r, 5));
     }
   };
@@ -221,7 +222,7 @@ describe('undo', () => {
     await c.undo(ids);
     expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
     await c.engine.replay();
-    expect(p.edits.map((e) => e.edit)).toEqual([{ removeLabels: ['\\Inbox'] }, { addLabels: ['\\Inbox'] }]);
+    expect(p.edits.map((e) => e.edit)).toEqual([{ removeLabels: [String.raw`\Inbox`] }, { addLabels: [String.raw`\Inbox`] }]);
     expect(p.edits[1]!.uids).toEqual(lunch.inbox);
     await c.engine.syncOnce();
     expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
@@ -242,7 +243,7 @@ describe('undo', () => {
     c.data.changeApplied(inFlight!.id);
     await c.engine.idle();
     await c.engine.replay();
-    expect(p.edits.map((e) => e.edit)).toEqual([{ removeLabels: ['\\Inbox'] }, { addLabels: ['\\Inbox'] }]);
+    expect(p.edits.map((e) => e.edit)).toEqual([{ removeLabels: [String.raw`\Inbox`] }, { addLabels: [String.raw`\Inbox`] }]);
     await c.engine.syncOnce();
     expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
   });
@@ -284,13 +285,13 @@ describe('star, read and delete', () => {
     await c.act(key, { type: 'star', on: true });
     expect((await rowOf(c, 'Lunch'))!.starred).toBe(true);
     await c.engine.replay();
-    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[1]], edit: { addFlags: ['\\Flagged'] } });
-    p.setFlags(lunch.inbox[0]!, { flags: ['\\Flagged'] }); // starred elsewhere too
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[1]], edit: { addFlags: [String.raw`\Flagged`] } });
+    p.setFlags(lunch.inbox[0]!, { flags: [String.raw`\Flagged`] }); // starred elsewhere too
     await c.engine.syncOnce();
     await c.act(key, { type: 'star', on: false });
     expect((await rowOf(c, 'Lunch'))!.starred).toBe(false);
     await c.engine.replay();
-    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeFlags: ['\\Flagged'] } });
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeFlags: [String.raw`\Flagged`] } });
   });
 
   it('marks every unread message read, and marks the latest one unread', async () => {
@@ -301,11 +302,11 @@ describe('star, read and delete', () => {
     await c.act(key, { type: 'read', on: true });
     expect((await rowOf(c, 'Lunch'))!.unread).toBe(false);
     await c.engine.replay();
-    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { addFlags: ['\\Seen'] } });
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { addFlags: [String.raw`\Seen`] } });
     await c.act(key, { type: 'read', on: false });
     expect((await rowOf(c, 'Lunch'))!.unread).toBe(true);
     await c.engine.replay();
-    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[1]], edit: { removeFlags: ['\\Seen'] } });
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[1]], edit: { removeFlags: [String.raw`\Seen`] } });
   });
 
   it('deletes the whole Thread to Trash after a short hold', async () => {
@@ -322,8 +323,8 @@ describe('star, read and delete', () => {
     now += 10_000;
     await c.engine.replay();
     expect(p.edits).toEqual([
-      { mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[0], lunch.sent, lunch.inbox[1]], edit: { addLabels: ['\\Trash'] } },
-      { mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeLabels: ['\\Inbox'] } },
+      { mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[0], lunch.sent, lunch.inbox[1]], edit: { addLabels: [String.raw`\Trash`] } },
+      { mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeLabels: [String.raw`\Inbox`] } },
     ]);
   });
 
@@ -334,7 +335,7 @@ describe('star, read and delete', () => {
     await c.act(await keyOf(c, 'Invoice'), { type: 'done' });
     await c.engine.idle();
     await c.engine.replay();
-    expect(p.edits.map((e) => e.edit)).toEqual([{ removeLabels: ['\\Inbox'] }]);
+    expect(p.edits.map((e) => e.edit)).toEqual([{ removeLabels: [String.raw`\Inbox`] }]);
   });
 
   it('undo inside the hold cancels a delete; once Gmail has it, undo leaves it in Trash', async () => {
@@ -368,7 +369,7 @@ describe('star, read and delete', () => {
     await c.undo(ids);
     expect((await rowOf(c, 'Lunch'))!.starred).toBe(false);
     await c.engine.replay();
-    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[1]], edit: { removeFlags: ['\\Flagged'] } });
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [lunch.inbox[1]], edit: { removeFlags: [String.raw`\Flagged`] } });
   });
 });
 
@@ -380,14 +381,14 @@ describe('mute', () => {
     await c.act(key, { type: 'mute', on: true });
     expect(await subjects(c)).toEqual(['Invoice']);
     await c.engine.replay();
-    expect(p.edits).toEqual([{ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeLabels: ['\\Inbox'] } }]);
+    expect(p.edits).toEqual([{ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeLabels: [String.raw`\Inbox`] } }]);
 
     const reply = p.deliver({ subject: 'Re: Lunch', threadId: 't-lunch', date: NOW });
     await c.engine.syncOnce();
     expect(await subjects(c)).toEqual(['Invoice']);
     await c.engine.idle();
     await c.engine.replay();
-    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [reply], edit: { removeLabels: ['\\Inbox'] } });
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: [reply], edit: { removeLabels: [String.raw`\Inbox`] } });
     // The server agrees on the next pass.
     await c.engine.syncOnce();
     expect(await subjects(c)).toEqual(['Invoice']);
@@ -418,7 +419,7 @@ describe('mute', () => {
 describe('Labels', () => {
   const labelled = () => {
     const m = mailbox();
-    for (const path of ['Receipts', 'Work/Projects', '[Gmail]/Important', '[Gmail]/Starred', 'Sent Messages']) m.p.addMailbox({ path });
+    for (const path of ['Receipts', 'Work/Projects', '[Gmail]/Important', '[Gmail]/Starred', 'Sent Messages']) {m.p.addMailbox({ path });}
     return m;
   };
 
@@ -430,7 +431,7 @@ describe('Labels', () => {
 
   it('adds a Label to every message in the Thread that lacks it, and keeps the Thread in the Inbox', async () => {
     const { p, lunch } = labelled();
-    p.setFlags(lunch.inbox[0]!, { labels: ['\\Inbox', 'Receipts'] });
+    p.setFlags(lunch.inbox[0]!, { labels: [String.raw`\Inbox`, 'Receipts'] });
     const c = await start(p);
     await c.act(await keyOf(c, 'Lunch'), { type: 'label', label: 'Receipts', on: true });
     expect(await subjects(c)).toEqual(['Lunch', 'Invoice']);
@@ -450,7 +451,7 @@ describe('Labels', () => {
 
   it('removes a Label from every message that has it', async () => {
     const { p, lunch } = labelled();
-    p.setFlags(lunch.inbox[1]!, { labels: ['\\Inbox', 'Receipts'] });
+    p.setFlags(lunch.inbox[1]!, { labels: [String.raw`\Inbox`, 'Receipts'] });
     const c = await start(p);
     await c.act(await keyOf(c, 'Lunch'), { type: 'label', label: 'Receipts', on: false });
     await c.engine.replay();
@@ -471,7 +472,7 @@ describe('real Account ids', () => {
     await c.act(key, { type: 'done' });
     expect(await subjects(c)).toEqual(['Invoice']);
     await c.engine.replay();
-    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeLabels: ['\\Inbox'] } });
+    expect(p.edits.at(-1)).toEqual({ mailbox: '[Gmail]/All Mail', uids: lunch.inbox, edit: { removeLabels: [String.raw`\Inbox`] } });
     expect((await c.rows('inbox'))[0]!.accountId).toBe('gmail:me@example.com');
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { KeyResolver, tokenOf, type KeyLike } from '../src/renderer/commands/keys';
+import { KeyResolver, tokenOf } from '../src/renderer/commands/keys';
+import type { KeyLike } from '../src/renderer/commands/keys';
 import { ACTIONS } from '../src/renderer/commands/registry';
 
 const key = (k: string, mods: Partial<KeyLike> = {}): KeyLike => ({ key: k, shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, ...mods });
@@ -23,7 +24,7 @@ describe('KeyResolver over the registry', () => {
         const r = new KeyResolver(ACTIONS);
         const tokens = k.split(' ');
         let res;
-        for (const t of tokens) res = r.feed(t, a.contexts[0]);
+        for (const t of tokens) {res = r.feed(t, a.contexts[0]);}
         expect(res, `${k} -> ${a.id}`).toEqual({ type: 'action', id: a.id });
       }
     }
@@ -56,10 +57,10 @@ describe('KeyResolver over the registry', () => {
 
   it('has no key bound twice in the same context', () => {
     const seen = new Map<string, string>();
-    for (const a of ACTIONS) for (const k of a.keys) for (const c of a.contexts) {
+    for (const a of ACTIONS) {for (const k of a.keys) for (const c of a.contexts) {
       const id = `${c}:${k}`;
       expect(seen.get(id), `${k} in ${c}`).toBeUndefined();
       seen.set(id, a.id);
-    }
+    }}
   });
 });

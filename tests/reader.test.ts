@@ -1,6 +1,7 @@
 // Opening Threads (#9), at the core seam over the fake provider.
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCore, type TestCore } from '../src/core/core';
+import { createCore } from '../src/core/core';
+import type { TestCore } from '../src/core/core';
 import { FakeProvider, fakeExtractText } from '../src/core/fake-provider';
 import type { CoreNotice } from '../src/core/types';
 

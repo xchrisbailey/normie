@@ -20,10 +20,10 @@ export function drive(w: BrowserWindow) {
     js,
 
     /** Press a key (n times): key-down, the character it types (not with Cmd), key-up. Then let the frame settle. */
-    async press(keyCode: string, n = 1, modifiers: Modifier[] = []) {
+    async press(keyCode: string, n = 1, modifiers: Array<Modifier> = []) {
       for (let i = 0; i < n; i++) {
         wc.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
-        if (!modifiers.includes('meta')) wc.sendInputEvent({ type: 'char', keyCode, modifiers });
+        if (!modifiers.includes('meta')) {wc.sendInputEvent({ type: 'char', keyCode, modifiers });}
         wc.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
       }
       await pause(100);
@@ -53,7 +53,7 @@ export function drive(w: BrowserWindow) {
         const top = document.elementFromPoint(x, y);
         return { x, y, hit: !!top && (top === el || el.contains(top)) };
       })()`);
-      if (!at) return { found: false, hit: false };
+      if (!at) {return { found: false, hit: false };}
       for (const type of ['mouseDown', 'mouseUp'] as const) {
         wc.sendInputEvent({ type, x: Math.round(at.x), y: Math.round(at.y), button: 'left', clickCount: 1 });
       }
@@ -62,7 +62,7 @@ export function drive(w: BrowserWindow) {
     },
 
     /** A command from the menu bar, as a menu item (or a key equivalent the menu caught) sends it. */
-    async menuAction(...ids: string[]) {
+    async menuAction(...ids: Array<string>) {
       wc.send('menu:action', ids);
       await pause(100);
     },
@@ -70,7 +70,7 @@ export function drive(w: BrowserWindow) {
     /** With NORMIE_SMOKE_SHOTS=<folder>, save a screenshot to look at (a hidden window still renders). */
     async shot(name: string) {
       const dir = process.env.NORMIE_SMOKE_SHOTS;
-      if (dir) writeFileSync(path.join(dir, `${name}.png`), (await wc.capturePage()).toPNG());
+      if (dir) {writeFileSync(path.join(dir, `${name}.png`), (await wc.capturePage()).toPNG());}
     },
   };
 }

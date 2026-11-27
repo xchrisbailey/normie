@@ -1,18 +1,19 @@
 // The reader: the Thread's subject, a quiet bar when remote images are hidden, and the sandboxed mail frame.
 import { memo, useCallback } from 'react';
 import type { ThreadMessage } from '../core/types';
-import { MailFrame, type AttachmentAction, type FrameHandle } from './MailFrame';
+import { MailFrame } from './MailFrame';
+import type { AttachmentAction, FrameHandle } from './MailFrame';
 import { sanitized } from './sanitize-cache';
 
 /** Messages whose remote images are hidden right now. */
-export function blockedMessages(messages: ThreadMessage[] | undefined, allowed: ReadonlySet<number>): ThreadMessage[] {
+export function blockedMessages(messages: Array<ThreadMessage> | undefined, allowed: ReadonlySet<number>): Array<ThreadMessage> {
   return (messages ?? []).filter((m) => m.html && !m.imagesAllowed && !allowed.has(m.id) && sanitized(m, false).remoteImages > 0);
 }
 
 export const Reader = memo(function Reader({ threadKey, subject, messages, allowed, frame, onLoadImages, onAlwaysLoadImages, onAttachment, theme }: {
   threadKey: string;
   subject: string;
-  messages: ThreadMessage[] | undefined;
+  messages: Array<ThreadMessage> | undefined;
   /** Messages whose images the user loaded this session. */
   allowed: ReadonlySet<number>;
   frame: React.MutableRefObject<FrameHandle | null>;

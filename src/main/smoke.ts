@@ -54,7 +54,7 @@ async function smokeAddAccountForm(w: BrowserWindow) {
   })()`)) as boolean;
   // Click into the field (as a person would), then type keys the list would take: they must land in the field.
   const field = (await w.webContents.executeJavaScript(`(() => { const r = document.querySelector('.sheet input').getBoundingClientRect(); return { x: r.left + 20, y: r.top + r.height / 2 }; })()`)) as { x: number; y: number };
-  for (const type of ['mouseDown', 'mouseUp'] as const) w.webContents.sendInputEvent({ type, x: Math.round(field.x), y: Math.round(field.y), button: 'left', clickCount: 1 });
+  for (const type of ['mouseDown', 'mouseUp'] as const) {w.webContents.sendInputEvent({ type, x: Math.round(field.x), y: Math.round(field.y), button: 'left', clickCount: 1 });}
   const selectedBefore = (await w.webContents.executeJavaScript(`document.querySelector('.row.selected')?.dataset.key ?? ''`)) as string;
   const countBefore = (await w.webContents.executeJavaScript(`Number(document.querySelector('.split.active .count')?.textContent)`)) as number;
   // A menu command arriving while typing in the form (as a key equivalent would, when the page answers slowly) is ignored.
@@ -118,7 +118,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   const html = frame.sandbox === 'allow-same-origin' && frame.text.includes('Hello from Normie') && frame.bar && frame.attachment.includes('agenda.txt')
     && !/<script|tracker\.example|javascript:/i.test(frame.html);
   // Click into the message, then Esc: keys still reach the app from inside the frame.
-  for (const type of ['mouseDown', 'mouseUp'] as const) w.webContents.sendInputEvent({ type, x: Math.round(frame.x), y: Math.round(frame.y), button: 'left', clickCount: 1 });
+  for (const type of ['mouseDown', 'mouseUp'] as const) {w.webContents.sendInputEvent({ type, x: Math.round(frame.x), y: Math.round(frame.y), button: 'left', clickCount: 1 });}
   await new Promise((r) => setTimeout(r, 100));
   const focusedFrame = (await w.webContents.executeJavaScript(`document.activeElement?.className === 'mail-frame'`)) as boolean;
   await press('Escape');
@@ -143,12 +143,12 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   const beforePalette = await count();
   await press('K', 1, ['meta']);
   const paletteOpen = (await w.webContents.executeJavaScript(`!!document.querySelector('.palette input')`)) as boolean;
-  for (const ch of 'done') await press(ch);
+  for (const ch of 'done') {await press(ch);}
   await press('Enter');
   const palette = paletteOpen && (await count()) === beforePalette - 1 && !((await w.webContents.executeJavaScript(`!!document.querySelector('.palette')`)) as boolean);
   // l opens the Label picker with the Account's Labels.
   await press('l');
-  const labelItems = (await w.webContents.executeJavaScript(`[...document.querySelectorAll('.palette li span')].map((s) => s.textContent)`)) as string[];
+  const labelItems = (await w.webContents.executeJavaScript(`[...document.querySelectorAll('.palette li span')].map((s) => s.textContent)`)) as Array<string>;
   await press('Escape');
   const label = labelItems.includes('Receipts');
   // keymap.json is picked up without a restart: bind star to y, and y toggles the selected Thread's star.
@@ -253,7 +253,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   const snippet = expanded === 'Great work. Thanks so much!';
   // Tab steps through the Splits; Newsletters holds the fake newsletter; 0 goes back to the whole Inbox.
   const activeSplit = () => w.webContents.executeJavaScript(`document.querySelector('.split.active')?.firstChild?.textContent?.trim()`) as Promise<string>;
-  const tabs: string[] = [];
+  const tabs: Array<string> = [];
   for (let i = 0; i < 4; i++) {
     await press('Tab');
     tabs.push(await activeSplit());
@@ -323,7 +323,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   await drive(w).type('budget');
   await new Promise((r) => setTimeout(r, 400));
   await press('Return');
-  const results = (await w.webContents.executeJavaScript(`[...document.querySelectorAll('.row .subject')].map((s) => s.firstChild.textContent)`)) as string[];
+  const results = (await w.webContents.executeJavaScript(`[...document.querySelectorAll('.row .subject')].map((s) => s.firstChild.textContent)`)) as Array<string>;
   await press('Return');
   await new Promise((r) => setTimeout(r, 400));
   const resultOpened = (await w.webContents.executeJavaScript(`document.querySelector('.reader h1')?.textContent ?? ''`)) as string;

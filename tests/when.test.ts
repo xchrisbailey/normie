@@ -48,7 +48,7 @@ describe('plain-word times', () => {
   });
 
   it('refuses nonsense and the past', () => {
-    for (const s of ['', 'whenever', 'feb 30', 'today 9am', '25:00', 'tomorrow at 13pm', '2026-11-01', 'blursday']) expect(when(s), s).toBeNull();
+    for (const s of ['', 'whenever', 'feb 30', 'today 9am', '25:00', 'tomorrow at 13pm', '2026-11-01', 'blursday']) {expect(when(s), s).toBeNull();}
   });
 
   it('suggests the usual choices, all in the future', () => {
