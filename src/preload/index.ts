@@ -1,6 +1,6 @@
 // Preload: the only bridge between the sandboxed renderer and Electron.
 // It forwards the core's MessagePort into the page and exposes a tiny API. No Node APIs reach the page.
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webFrame } from 'electron';
 
 ipcRenderer.on('core-port', (e) => window.postMessage('normie:core-port', '*', e.ports));
 
@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('normie', {
   platform: process.platform,
   /** Running against the fake provider: there are no real Accounts to add. */
   fake: process.argv.includes('--normie-fake'),
+  /** Give back memory Blink holds for things no longer shown (an old reader frame's resources, decoded images). */
+  trimMemory: () => webFrame.clearCache(),
   /** Open a link from a message in the system browser (main checks it's http, https or mailto). */
   openLink: (url: string) => ipcRenderer.send('open-link', url),
   openAttachment: (file: { filename: string; content: Uint8Array }): Promise<{ ok: boolean; reason?: string }> => ipcRenderer.invoke('attachment:open', file),

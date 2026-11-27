@@ -270,6 +270,13 @@ async function runBench(w: BrowserWindow, info: { rows: number }) {
   const peak = measureMemory();
   await new Promise((r) => setTimeout(r, Number(process.env.NORMIE_BENCH_SETTLE_MS) || 8000));
   const memory = measureMemory();
+  // Where the memory is, inside the data process and the renderer (for #75).
+  const dataMem = await new Promise((resolve) => {
+    dataProc!.once('message', (m) => resolve(m));
+    dataProc!.postMessage({ type: 'debug-memory' });
+  });
+  const tabMem = await w.webContents.executeJavaScript(`(() => { const m = performance.memory; return { used: Math.round(m.usedJSHeapSize / 1048576), total: Math.round(m.totalJSHeapSize / 1048576) }; })()`);
+  console.log(`[bench] inside: data ${JSON.stringify(dataMem)} renderer heap ${JSON.stringify(tabMem)}`);
   const results = [
     { budget: 'keyMoveMs', value: pct(95), limit: budgets.keyMoveMs, detail: `p50 ${pct(50).toFixed(1)}, p95 ${pct(95).toFixed(1)}, max ${(ms.at(-1) ?? 0).toFixed(1)} ms over ${ms.length} presses` },
     { budget: 'openCachedMs', value: openPct(95), limit: budgets.openCachedMs, detail: `p50 ${openPct(50).toFixed(1)}, p95 ${openPct(95).toFixed(1)}, max ${(opens.at(-1) ?? 0).toFixed(1)} ms over ${opens.length} opens` },

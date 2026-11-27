@@ -22,6 +22,7 @@ declare global {
       notify(n: { key: string; title: string; body: string }): void;
       onOpenThread(fn: (key: string) => void): () => void;
       openLink(url: string): void;
+      trimMemory(): void;
       openAttachment(file: { filename: string; content: Uint8Array }): Promise<{ ok: boolean; reason?: string }>;
       saveAttachment(file: { filename: string; content: Uint8Array }): Promise<{ ok: boolean; path?: string }>;
       keymap(): Promise<{ file?: unknown; error?: string }>;
