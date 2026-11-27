@@ -142,6 +142,7 @@ async function smokeHeader(w: BrowserWindow) {
 /**
  * The list: a click selects a row and gives the list the keys, j then moves one row (the list's own arrows don't add
  * a second move), and the selected row's Done and Snooze buttons take its Thread out of the Inbox. z brings each back.
+ * A double-click opens a Thread in the column, and the reader's Back returns to the list.
  */
 async function smokeList(w: BrowserWindow) {
   const d = drive(w);
@@ -184,11 +185,31 @@ async function smokeList(w: BrowserWindow) {
   await d.press('z');
   await sleep(300);
   const snoozeBack = (await inbox()) === before;
+  // A double-click opens the row in the column, in the list's place; Back returns to the list with it still selected.
+  const opening = await d.js<{ key: string; subject: string }>(
+    `(() => { const r = document.querySelectorAll('.row')[1]; return { key: r.dataset.key, subject: r.querySelector('.subject').firstChild.textContent }; })()`,
+  );
+  const dbl = await d.clickAt('.row:nth-child(2) .from', undefined, 2);
+  await sleep(500);
+  const reading = await d.js<{ subject: string; listInert: boolean; width: number; column: number }>(`({
+    subject: document.querySelector('.reader h1')?.textContent ?? '',
+    listInert: !!document.querySelector('.lists')?.inert,
+    width: Math.round(document.querySelector('.reader .mail-frame')?.getBoundingClientRect().width ?? 0),
+    column: Math.round(document.querySelector('.view')?.getBoundingClientRect().width ?? 0),
+  })`);
+  await d.shot('reader-column');
+  const opened = dbl.hit && reading.subject === opening.subject && reading.listInert && reading.width > 0 && reading.width === reading.column;
+  const back = await d.clickAt('.reader-bar .back');
+  await sleep(500);
+  const backToList =
+    back.hit &&
+    !(await d.js<boolean>(`!!document.querySelector('.reader') || !!document.querySelector('.lists')?.inert`)) &&
+    (await selectedKey()) === opening.key;
   // Back to the top, for the key checks after this.
   await d.press('g');
   await d.press('g');
-  const ok = clickSelects && oneStep && quiet && done && doneBack && snoozed && snoozeBack;
-  return { ok, clickSelects, oneStep, follows, face, done, doneBack, snoozed, snoozeBack };
+  const ok = clickSelects && oneStep && quiet && done && doneBack && snoozed && snoozeBack && opened && backToList;
+  return { ok, clickSelects, oneStep, follows, face, done, doneBack, snoozed, snoozeBack, opened, reading, backToList };
 }
 
 /** Smoke check with no Accounts: the iCloud form explains that the login must be the @icloud.com address. */
@@ -337,6 +358,7 @@ async function smokeKeys(w: BrowserWindow, ctx: SmokeContext) {
   await typeText('Smoke test');
   await press('Tab');
   await typeText('Hello **there**');
+  await d.shot('composer');
   await press('Return', 1, ['meta']);
   const sentClosed = await d.js<boolean>(`!document.querySelector('.composer')`);
   await press('Z', 1, ['meta']);
