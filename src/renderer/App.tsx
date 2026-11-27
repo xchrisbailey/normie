@@ -12,6 +12,7 @@ import type { FrameHandle } from './MailFrame';
 import { blockedMessages, Reader } from './Reader';
 import { SyncBadge } from './SyncBadge';
 import { ThreadCache } from './thread-cache';
+import { builtInSplits, splitCounts } from './splits';
 import { ThreadList } from './ThreadList';
 import { useKeymap, useKeys, useSnippets, type Handlers } from './useKeys';
 
@@ -59,10 +60,20 @@ function Inbox({ core }: { core: CoreClient | null }) {
   // The first frame draws the last Split from the snapshot; the core's rows replace it as soon as they arrive.
   // Every Account's Inbox Threads, interleaved by date (the Unified Inbox)…
   const [allRows, setAllRows] = useState<ThreadRow[]>(() => window.normie.snapshot() ?? []);
-  // …and the ones shown: all of them, or one Account's (keys 1–9; 0 for all).
-  const [accountFilter, setAccountFilter] = useState<string | null>(null);
-  const filterOf = useCallback((list: ThreadRow[]) => (accountFilter ? list.filter((r) => r.accountId === accountFilter) : list), [accountFilter]);
+  const accounts = useAccounts();
+  /** Accounts in order, for the per-Account Splits, 1–9 and the row markers: the Account list, else those in the rows. */
+  const accountOrder = useMemo(
+    () => (accounts?.length ? accounts.map((a) => a.id) : [...new Set(allRows.map((r) => r.accountId))].sort()),
+    [accounts, allRows],
+  );
+  const accountName = useCallback((id: string) => accounts?.find((a) => a.id === id)?.email ?? id, [accounts]);
+  // …split into tabs by local rules; the rows shown are the open Split's (Tab and Shift-Tab, 1–9 for an Account).
+  const splits = useMemo(() => builtInSplits(accountOrder.map((id) => ({ id, name: accountName(id) }))), [accountOrder, accountName]);
+  const [splitId, setSplitId] = useState('inbox');
+  const split = splits.find((s) => s.id === splitId) ?? splits[0]!;
+  const filterOf = useCallback((list: ThreadRow[]) => (split.id === 'inbox' ? list : list.filter(split.match)), [split]);
   const rows = useMemo(() => filterOf(allRows), [allRows, filterOf]);
+  const counts = useMemo(() => splitCounts(splits, allRows), [splits, allRows]);
   const fromSnapshot = useRef(true);
   const [coreAnswered, setCoreAnswered] = useState(false);
   const painted = useRef(false);
@@ -70,7 +81,6 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const [open, setOpen] = useState<{ key: string; subject: string; messages?: ThreadMessage[] } | null>(null);
   const selectedKey = useRef<string | undefined>(undefined);
   const reported = useRef(false);
-  const accounts = useAccounts();
   const [overlay, setOverlay] = useState(false);
   /** The open palette: every action, or Labels for the selected Thread. */
   const [palette, setPalette] = useState<null | 'actions' | 'label'>(null);
@@ -284,25 +294,31 @@ function Inbox({ core }: { core: CoreClient | null }) {
 
   const context = compose ? 'composer' : open ? 'reader' : 'list';
 
-  /** Accounts in order, for 1–9 and the row markers: the Account list, else (fake, benchmark) those in the rows. */
-  const accountOrder = useMemo(
-    () => (accounts?.length ? accounts.map((a) => a.id) : [...new Set(allRows.map((r) => r.accountId))].sort()),
-    [accounts, allRows],
-  );
   const markers = useMemo(
     () => (accountOrder.length > 1 ? new Map(accountOrder.map((id, i) => [id, ACCOUNT_COLORS[i % ACCOUNT_COLORS.length]!])) : undefined),
     [accountOrder],
   );
-  /** Show one Account's Threads (n = 1–9), or all of them (n = 0). */
-  const filterAccount = (n: number) => {
-    const id = n === 0 ? null : accountOrder[n - 1];
-    if (id === undefined) return;
-    setAccountFilter(id);
+  /** Open a Split: the list starts at its top. */
+  const openSplit = (id: string) => {
+    if (!splits.some((s) => s.id === id)) return;
+    setSplitId(id);
     setSelected(0);
     selectedKey.current = undefined;
     setOpen(null);
   };
-  const accountName = (id: string) => accounts?.find((a) => a.id === id)?.email ?? id;
+  const stepSplit = (d: 1 | -1) => openSplit(splits[(splits.indexOf(split) + d + splits.length) % splits.length]!.id);
+  /** 1–9: one Account's Split (or, with one Account, the whole Inbox). 0: the whole Inbox. */
+  const filterAccount = (n: number) => {
+    if (n === 0 || accountOrder.length < 2) return openSplit('inbox');
+    const id = accountOrder[n - 1];
+    if (id) openSplit(`account:${id}`);
+  };
+  /** Add the selected Thread's sender to the VIP list, or take them off. */
+  const setVip = (on: boolean) => {
+    const sender = rows[clamp(selected)]?.tags?.sender;
+    if (!sender || !core) return;
+    void core.setVip(sender, on).then(() => setNote(on ? `${sender} is a VIP` : `${sender} is no longer a VIP`));
+  };
   const handlers: Handlers = {
     'list.down': () => move((s) => s + 1),
     'list.up': () => move((s) => s - 1),
@@ -330,6 +346,10 @@ function Inbox({ core }: { core: CoreClient | null }) {
     'dev.overlay': () => setOverlay((o) => !o),
     'palette.open': () => setPalette((p) => (p ? null : 'actions')),
     'filter.all': () => filterAccount(0),
+    'split.next': () => stepSplit(1),
+    'split.prev': () => stepSplit(-1),
+    'vip.add': () => setVip(true),
+    'vip.remove': () => setVip(false),
     ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [`filter.${n}`, () => filterAccount(n)])),
     'compose.new': () => setCompose({ accountId: rows[clamp(selected)]?.accountId }),
     'send.undo': undoSend,
@@ -467,8 +487,13 @@ function Inbox({ core }: { core: CoreClient | null }) {
   return (
     <main className="app">
       <header className="split-bar">
-        <span className="split active">Inbox{accountFilter && <span className="filter"> · {accountName(accountFilter)}</span>}</span>
-        <span className="count">{rows.length}</span>
+        <nav className="splits" aria-label="Splits">
+          {splits.map((s) => (
+            <button key={s.id} className={s.id === split.id ? 'split active' : 'split'} onClick={() => openSplit(s.id)} tabIndex={-1}>
+              {s.name} <span className="count">{s.id === split.id ? rows.length : counts.get(s.id)}</span>
+            </button>
+          ))}
+        </nav>
         <SyncBadge core={core} />
         {note && <span className="sync-note">{note}</span>}
         {snippetProblems.length > 0 && (

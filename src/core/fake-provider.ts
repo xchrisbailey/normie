@@ -19,6 +19,8 @@ export interface FakeMessageInput {
   text?: string;
   /** The whole raw message (headers and MIME body), instead of a plain-text one built from `text`. */
   raw?: string;
+  /** Sent to a list (List-Unsubscribe), as a newsletter is. */
+  list?: boolean;
 }
 
 interface Stored {
@@ -127,6 +129,7 @@ export class FakeProvider implements MailProvider {
         messageId, inReplyTo: input.inReplyTo, references: input.references,
         subject: input.subject, from: input.from ?? { name: 'Sender', address: 'sender@example.com' }, to: input.to ?? [{ address: 'me@example.com' }],
         date: input.date ?? Date.now(), flags: input.flags ?? [], labels: input.labels ?? (this.caps.labels ? ['\\Inbox'] : [path]),
+        isList: input.list ?? (input.raw ? /^(list-unsubscribe|list-id):/im.test(input.raw.split(/\r?\n\r?\n/)[0] ?? '') : false),
       },
     });
     this.emit({ type: 'exists', mailbox: path }, b.messages.get(uid)!.header.labels);
@@ -405,7 +408,7 @@ export function seedNewsletter(p: FakeProvider, now = Date.now()) {
   p.deliver({
     subject: 'The Normie Weekly', from: { name: 'Normie Weekly', address: 'weekly@example.com' }, date: now + 1000, threadId: 't-weekly',
     raw: [
-      'Subject: The Normie Weekly', 'From: Normie Weekly <weekly@example.com>', 'MIME-Version: 1.0',
+      'Subject: The Normie Weekly', 'From: Normie Weekly <weekly@example.com>', 'List-Unsubscribe: <https://example.com/unsubscribe>', 'MIME-Version: 1.0',
       'Content-Type: multipart/mixed; boundary="m"', '',
       '--m', 'Content-Type: multipart/alternative; boundary="b"', '',
       '--b', 'Content-Type: text/plain; charset=utf-8', '', 'Hello from Normie. This is an HTML newsletter.', '',

@@ -42,6 +42,13 @@ export function roleOf(entry: Pick<ListResponse, 'path' | 'specialUse' | 'specia
 
 const addr = (a?: MessageAddressObject): Address | undefined => (a?.address ? { address: a.address, ...(a.name ? { name: a.name } : {}) } : undefined);
 
+/** Whether headers say the message was sent to a list: List-Unsubscribe, List-Id, or Precedence: bulk, list or junk. */
+export function isListMail(headers?: Buffer | string): boolean {
+  if (!headers) return false;
+  const text = headers.toString().replace(/\r?\n[ \t]+/g, ' ');
+  return /^(list-unsubscribe|list-id):/im.test(text) || /^precedence:\s*(bulk|list|junk)\b/im.test(text);
+}
+
 /** Message-IDs in a References header, oldest first. */
 export function referencesOf(headers?: Buffer | string): string[] {
   if (!headers) return [];
@@ -61,6 +68,7 @@ export function headerOf(m: FetchMessageObject, path: string, gmail: boolean): R
     messageId: env.messageId,
     inReplyTo: env.inReplyTo,
     ...(references.length ? { references } : {}),
+    ...(m.headers ? { isList: isListMail(m.headers) } : {}),
     subject: env.subject ?? '',
     from: addr(env.from?.[0]),
     to: (env.to ?? []).map(addr).filter((a): a is Address => !!a),
@@ -73,6 +81,7 @@ export function headerOf(m: FetchMessageObject, path: string, gmail: boolean): R
 
 const HEADER_QUERY = { uid: true, envelope: true, flags: true, internalDate: true } as const;
 const CHUNK = 500;
+const LIST_HEADERS = ['list-unsubscribe', 'list-id', 'precedence'];
 
 function chunks<T>(xs: T[], n: number): T[][] {
   const out: T[][] = [];
@@ -175,7 +184,10 @@ export class ImapProvider implements MailProvider {
   private async fetchHeaders(path: string, uids: number[]): Promise<RemoteHeader[]> {
     const out: RemoteHeader[] = [];
     // Gmail supplies thread ids; elsewhere Threads are built from References (see Store.localThread).
-    const query = this.gmail ? { ...HEADER_QUERY, labels: true, threadId: true, emailId: true } : { ...HEADER_QUERY, headers: ['references'] };
+    // Everywhere: the list headers, for the Newsletters Split.
+    const query = this.gmail
+      ? { ...HEADER_QUERY, labels: true, threadId: true, emailId: true, headers: LIST_HEADERS }
+      : { ...HEADER_QUERY, headers: ['references', ...LIST_HEADERS] };
     for (const part of chunks(uids, CHUNK)) {
       for await (const m of this.c.fetch(part.join(','), query, { uid: true })) out.push(headerOf(m, path, this.gmail));
     }

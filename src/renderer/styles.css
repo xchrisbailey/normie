@@ -10,8 +10,10 @@ html, body, #root { height: 100%; margin: 0; }
 body { background: var(--base); color: var(--text); overflow: hidden; -webkit-font-smoothing: antialiased; }
 .app { display: flex; flex-direction: column; height: 100%; }
 .split-bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--mantle); border-bottom: 1px solid var(--surface0); -webkit-app-region: drag; padding-left: 84px; }
-.split { color: var(--subtext); font-weight: 500; }
-.split.active { color: var(--text); }
+.splits { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; -webkit-app-region: no-drag; }
+.split { font: inherit; color: var(--subtext); font-weight: 500; background: none; border: 0; border-radius: 6px; padding: 3px 9px; cursor: pointer; white-space: nowrap; }
+.split .count { font-weight: 400; margin-left: 2px; }
+.split.active { color: var(--text); background: var(--surface0); }
 .count { color: var(--overlay); font-variant-numeric: tabular-nums; }
 .thread-list { overflow-y: auto; flex: 1; contain: strict; }
 .row { position: absolute; top: 0; left: 0; right: 0; display: grid; grid-template-columns: 180px 1fr 64px; gap: 12px; align-items: center; height: 36px; padding: 0 16px; border-bottom: 1px solid var(--mantle); color: var(--subtext); white-space: nowrap; }
@@ -22,7 +24,6 @@ body { background: var(--base); color: var(--text); overflow: hidden; -webkit-fo
 .snippet { margin-left: 10px; color: var(--overlay); font-weight: 400; }
 .date { text-align: right; color: var(--overlay); font-variant-numeric: tabular-nums; }
 .row .acct { display: inline-block; width: 6px; height: 6px; border-radius: 3px; margin-right: 8px; vertical-align: middle; }
-.split .filter { color: var(--subtext); font-weight: 400; }
 .row .star { color: #f9e2af; margin-right: 6px; }
 .row.selected { background: var(--surface0); box-shadow: inset 2px 0 0 var(--blue); }
 .accounts { margin-left: auto; display: flex; gap: 8px; align-items: center; -webkit-app-region: no-drag; }

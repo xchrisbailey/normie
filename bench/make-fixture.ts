@@ -29,7 +29,7 @@ function htmlRaw(body: string, i: number) {
     `<body><div class="wrap"><img src="https://cdn.example.com/header.png" width="600" alt="News"><table width="100%">${rows}</table>` +
     `<p style="font-size:11px;color:#888">You get this because you subscribed. <a href="https://example.com/unsubscribe">Unsubscribe</a></p></div>` +
     `<img src="https://tracker.example.com/open/${i}.gif" width="1" height="1"></body></html>`;
-  return ['Subject: x', 'MIME-Version: 1.0', 'Content-Type: multipart/alternative; boundary="b"', '',
+  return ['Subject: x', 'List-Unsubscribe: <https://example.com/unsubscribe>', 'MIME-Version: 1.0', 'Content-Type: multipart/alternative; boundary="b"', '',
     '--b', 'Content-Type: text/plain; charset=utf-8', '', body, '', '--b', 'Content-Type: text/html; charset=utf-8', '', html, '', '--b--', ''].join('\r\n');
 }
 
@@ -54,7 +54,7 @@ for (let start = 0; start < count; start += BATCH) {
     headers.push({
       uid, remoteId: `gm-${uid}`, threadId: `t-${thread}`, messageId: `<m${uid}@fixture>`,
       subject: `${topics[thread % topics.length]} ${thread}`, from: { name, address: `${name.split(' ')[0]!.toLowerCase()}@example.com` },
-      to: [{ address: 'me@example.com' }], date: NOW - i * 60_000, flags: i % 4 === 0 ? [] : ['\\Seen'], labels,
+      to: [{ address: 'me@example.com' }], date: NOW - i * 60_000, flags: i % 4 === 0 ? [] : ['\\Seen'], labels, isList: i % 2 === 0,
     });
     const body = text(i);
     // Half the mail is HTML, like a newsletter: styles, a layout table, links and remote images.
