@@ -29,6 +29,8 @@ A keyboard-first desktop mail client for Gmail, iCloud and any IMAP/SMTP server.
 | `u` | Mark read or unread |
 | `m` | Mute: Done now and whenever new mail arrives in it |
 | `l` | Apply a Label |
+| `h` | Snooze: type a time in plain words ("tomorrow 9", "fri 2pm", "in 3 hours") |
+| `Shift-U` | Unsnooze (from the Snoozed tab) |
 | `z` | Undo the last action |
 | `g i`, `g g`, `Shift-G` | Inbox, first Thread, last Thread |
 | `Space` / `Shift-Space` | Scroll the open Thread |

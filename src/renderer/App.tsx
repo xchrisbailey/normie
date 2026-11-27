@@ -13,6 +13,7 @@ import { blockedMessages, Reader } from './Reader';
 import { SyncBadge } from './SyncBadge';
 import { ThreadCache } from './thread-cache';
 import { toNotify } from './notify';
+import { WhenPicker } from './WhenPicker';
 import { splitCounts, splitsFrom } from './splits';
 import { ThreadList } from './ThreadList';
 import { useKeymap, useKeys, useSnippets, useSplitsFile, type Handlers } from './useKeys';
@@ -78,7 +79,7 @@ function Inbox({ core }: { core: CoreClient | null }) {
   }, [splitsFile, accountOrder, accountName]);
   const [splitId, setSplitId] = useState('inbox');
   const split = splits.find((s) => s.id === splitId) ?? splits[0]!;
-  const filterOf = useCallback((list: ThreadRow[]) => (split.id === 'inbox' ? list : list.filter(split.match)), [split]);
+  const filterOf = useCallback((list: ThreadRow[]) => list.filter(split.match), [split]);
   const rows = useMemo(() => filterOf(allRows), [allRows, filterOf]);
   const counts = useMemo(() => splitCounts(splits, allRows), [splits, allRows]);
   const fromSnapshot = useRef(true);
@@ -91,6 +92,8 @@ function Inbox({ core }: { core: CoreClient | null }) {
   const [overlay, setOverlay] = useState(false);
   /** The open palette: every action, or Labels for the selected Thread. */
   const [palette, setPalette] = useState<null | 'actions' | 'label'>(null);
+  /** The time picker, and what it's for. */
+  const [picker, setPicker] = useState<null | 'snooze'>(null);
   /** Drafts, fetched when the palette opens. */
   const [drafts, setDrafts] = useState<DraftSummary[]>([]);
   /** A short message in the top bar, gone after a few seconds. */
@@ -355,6 +358,10 @@ function Inbox({ core }: { core: CoreClient | null }) {
     'filter.all': () => filterAccount(0),
     'split.next': () => stepSplit(1),
     'split.prev': () => stepSplit(-1),
+    'thread.snooze': () => {
+      if (rows[clamp(selected)]) setPicker('snooze');
+    },
+    'thread.unsnooze': () => triage({ type: 'unsnooze' }, (r) => ({ ...r, date: Date.now(), tags: { ...r.tags!, snoozedUntil: undefined } })),
     'vip.add': () => setVip(true),
     'vip.remove': () => setVip(false),
     ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [`filter.${n}`, () => filterAccount(n)])),
@@ -583,6 +590,16 @@ function Inbox({ core }: { core: CoreClient | null }) {
         </div>
       )}
       {overlay && <DevOverlay />}
+      {picker === 'snooze' && (
+        <WhenPicker
+          title="Snooze until"
+          onClose={() => setPicker(null)}
+          onPick={(until) => {
+            setPicker(null);
+            triage({ type: 'snooze', until }, (r) => ({ ...r, tags: { ...(r.tags ?? { newsletter: false, vip: false, known: false }), snoozedUntil: until } }));
+          }}
+        />
+      )}
       {palette && (
         <Palette
           items={paletteItems(palette)}

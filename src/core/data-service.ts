@@ -2,7 +2,8 @@
 // takes writes from sync, and emits change notices. Runs in the data process.
 import { newMessageId } from './ids';
 import type { Original } from './reply';
-import { Store, type BodyInput } from './store';
+import { parseThreadKey } from './keys';
+import type { BodyInput, Store } from './store';
 import type {
   AccountId, Address, AttachmentInfo, ChangeResult, ChangeSet, LabelSet, DraftContent, DraftSummary, DraftToSync, OutboxItem, OutgoingMessage, CoreNotice, MailboxRole, PendingChange, PendingStatus, SplitId, SyncState, ThreadAction, ThreadMessage, ThreadRow,
 } from './types';
@@ -54,6 +55,44 @@ export class DataService {
     this.emitPending();
     this.outboxRequester?.(message.accountId);
     return id;
+  }
+
+  // --- The scheduler: timed work (Snooze wake-ups, for now) fires while this runs, and catches up at start.
+
+  private timer?: ReturnType<typeof setTimeout>;
+
+  /** Fire what came due while Normie wasn't running, then wait for the next. */
+  startScheduler() {
+    this.runDue();
+  }
+
+  stopScheduler() {
+    clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+
+  /** Fire everything due now. Returns how many fired. */
+  runDue(): number {
+    const due = this.store.dueSnoozes(this.now());
+    for (const d of due) this.wake(d.accountId, d.threadKey);
+    this.armScheduler();
+    return due.length;
+  }
+
+  /** Wait for the next wake-up. At most a minute at a time, so a Mac waking from sleep catches up promptly. */
+  private armScheduler() {
+    clearTimeout(this.timer);
+    const next = this.store.nextWakeAt();
+    if (next === undefined) return;
+    this.timer = setTimeout(() => this.runDue(), Math.min(60_000, Math.max(0, next - this.now())));
+  }
+
+  private wake(accountId: AccountId, threadKey: string) {
+    const accounts = this.store.wake(accountId, threadKey, this.now());
+    if (!accounts) return;
+    this.emit({ type: 'rows-changed', split: 'inbox' });
+    this.emitPending();
+    for (const a of accounts) this.replayRequester?.(a);
   }
 
   // --- Drafts
@@ -219,7 +258,13 @@ export class DataService {
    * per key press costs memory for nothing.
    */
   act(key: string, action: ThreadAction): number[] {
+    if (action.type === 'unsnooze') {
+      const { accountId, threadKey } = parseThreadKey(key);
+      this.wake(accountId, threadKey);
+      return [];
+    }
     const { changes } = this.store.recordAction(key, action, this.now(), this.deleteHoldMs);
+    if (action.type === 'snooze') this.armScheduler();
     if (changes.length) this.emitPending();
     const accounts = new Set(changes.map((c) => c.accountId));
     for (const a of accounts) this.replayRequester?.(a);
@@ -255,6 +300,7 @@ export class DataService {
 
   /** Undo triage actions by their change ids. The local copy goes back at once; the server catches up. */
   undo(ids: number[]) {
+    this.store.dropSnoozesFor(ids);
     const { accounts, inboxChanged } = this.store.undo(ids);
     if (inboxChanged) this.emit({ type: 'rows-changed', split: 'inbox' });
     this.emitPending();

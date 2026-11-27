@@ -55,6 +55,7 @@ process.parentPort.on('message', (e) => {
       if (removed.length) console.log(`[data] removed ${removed.length} Account(s) that are no longer signed in`);
     }
     data.bodyRequester = (loc) => emitToSync?.('fetch-body', loc);
+    data.startScheduler();
     // Mail stored before list headers were fetched gets its Newsletters tag in the background.
     const ds = data;
     const backfill = () => {

@@ -24,6 +24,7 @@ body { background: var(--base); color: var(--text); overflow: hidden; -webkit-fo
 .snippet { margin-left: 10px; color: var(--overlay); font-weight: 400; }
 .date { text-align: right; color: var(--overlay); font-variant-numeric: tabular-nums; }
 .row .acct { display: inline-block; width: 6px; height: 6px; border-radius: 3px; margin-right: 8px; vertical-align: middle; }
+.row .date.snoozed { color: var(--blue); }
 .row .star { color: #f9e2af; margin-right: 6px; }
 .row.selected { background: var(--surface0); box-shadow: inset 2px 0 0 var(--blue); }
 .accounts { margin-left: auto; display: flex; gap: 8px; align-items: center; -webkit-app-region: no-drag; }

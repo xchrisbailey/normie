@@ -85,6 +85,7 @@ export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
   data.outboxRequester = () => engine.outboxSoon();
   data.draftsRequester = () => engine.draftsSoon();
   await engine.start();
+  data.startScheduler();
   return {
     ...coreApiOf(data),
     data,
@@ -92,6 +93,7 @@ export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
     notices,
     onNotice: (fn) => data.onNotice(fn),
     close: async () => {
+      data.stopScheduler();
       await engine.stop();
       data.store.close();
     },
