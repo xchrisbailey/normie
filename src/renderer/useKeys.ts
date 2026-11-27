@@ -82,7 +82,7 @@ export function useKeys(context: Context, handlers: Handlers, actions: ReadonlyA
         return;
       }
       // While a form, the palette or a panel is open, keys are its own: none reach the list behind it.
-      if (document.querySelector('.palette-backdrop, .panel')) {
+      if (document.querySelector('.panel')) {
         return;
       }
       const token = tokenOf(e, window.normie.platform);
