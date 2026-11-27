@@ -54,6 +54,13 @@ export class DataService {
     this.emit({ type: 'rows-changed', split: 'inbox' });
   }
 
+  /** Drop local mail for Accounts that no longer exist, such as leftovers from a dev run. */
+  pruneAccounts(keep: AccountId[]): AccountId[] {
+    const removed = this.store.pruneAccounts(keep);
+    if (removed.length) this.emit({ type: 'rows-changed', split: 'inbox' });
+    return removed;
+  }
+
   mailboxState(accountId: AccountId, mailbox: string): SyncState | null {
     return this.store.mailboxState(accountId, mailbox);
   }

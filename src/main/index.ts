@@ -67,7 +67,8 @@ function syncAccounts(): AccountConfig[] {
 /** The data process starts at once: the first frame needs rows. */
 function startData() {
   dataProc = utilityProcess.fork(path.join(__dirname, '../data/index.js'), [], { serviceName: 'Normie Data', stdio: 'inherit' });
-  dataProc.postMessage({ type: 'init', dbPath: dbPath() });
+  const keepAccounts = noRealAccounts ? undefined : accounts.list().map((a) => a.id);
+  dataProc.postMessage({ type: 'init', dbPath: dbPath(), keepAccounts });
   watchExit('data', dataProc);
 }
 

@@ -120,6 +120,13 @@ export class Store {
     })();
   }
 
+  /** Delete every Account not in `keep`, with its mail. Returns the ids removed. */
+  pruneAccounts(keep: AccountId[]): AccountId[] {
+    const ids = (this.db.prepare('select id from accounts').all() as { id: string }[]).map((r) => r.id).filter((id) => !keep.includes(id));
+    for (const id of ids) this.removeAccount(id);
+    return ids;
+  }
+
   setMailboxes(accountId: AccountId, boxes: { path: string; role?: MailboxRole }[]) {
     const up = this.db.prepare(
       'insert into mailboxes(account_id, path, role) values (?, ?, ?) on conflict(account_id, path) do update set role = excluded.role',
