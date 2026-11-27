@@ -18,4 +18,4 @@ Before using ui-sdk, follow the ui-sdk skill if it's installed, and read `node_m
 
 ### Checks
 
-`npm run verify` runs on every push (pre-push hook); `npm run format` fixes what its format check finds. New UI gets a step in `src/main/smoke.ts` that reaches it the way a person does, through `src/main/drive.ts`; a bug fix's step fails on the old code first. `npm run bench` checks the budgets when a change touches the key path, memory or startup. `npm run dev:fake` is for looking at UI by hand; checks run against the build.
+`npm run verify` runs on every push (pre-push hook) and in CI on pull requests and `main` (`.github/workflows/verify.yml`, macOS); `npm run format` fixes what its format check finds. New UI gets a step in `src/main/smoke.ts` that reaches it the way a person does, through `src/main/drive.ts`; a bug fix's step fails on the old code first. `npm run bench` checks the budgets when a change touches the key path, memory or startup. `npm run dev:fake` is for looking at UI by hand; checks run against the build.
