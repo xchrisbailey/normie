@@ -11,6 +11,8 @@ export interface SyncEngineOptions {
   accountId: AccountId;
   kind: string;
   email: string;
+  /** The addresses this Account sends as (its Identities); the login address when absent. */
+  identities?: string[];
   provider: MailProvider;
   data: DataPort;
   extractText: TextExtractor;
@@ -116,6 +118,7 @@ export class SyncEngine {
     const { provider, data, accountId } = this.o;
     await provider.connect();
     await data.upsertAccount(accountId, this.o.kind, this.o.email);
+    await data.setIdentities(accountId, this.o.identities?.length ? this.o.identities : [this.o.email]);
     this.mailboxes = await provider.listMailboxes();
     await data.setMailboxes(accountId, this.mailboxes);
     this.primary = provider.caps.labels

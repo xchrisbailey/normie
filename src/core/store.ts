@@ -19,6 +19,21 @@ const REBUILD_CONTACTS = `
       from messages m where m.from_json is not null
     union all
     select lower(json_extract(t.value, '$.address')), nullif(json_extract(t.value, '$.name'), ''),
+      (lower(json_extract(m.from_json, '$.address')) in (select lower(email) from accounts union select address from identities)), m.date
+      from messages m, json_each(m.to_json) t
+  ) where address is not null and address like '%@%' and address not in (select lower(email) from accounts)
+  group by address;
+`;
+
+/** The contacts rebuild as migration 11 ran it, before Identities existed. Migrations never change. */
+const REBUILD_CONTACTS_V1 = `
+  delete from contacts;
+  insert into contacts(address, name, sent_count, seen_count, last_at)
+  select address, max(name), sum(sent), sum(1 - sent), max(date) from (
+    select lower(json_extract(m.from_json, '$.address')) address, nullif(json_extract(m.from_json, '$.name'), '') name, 0 sent, m.date date
+      from messages m where m.from_json is not null
+    union all
+    select lower(json_extract(t.value, '$.address')), nullif(json_extract(t.value, '$.name'), ''),
       (lower(json_extract(m.from_json, '$.address')) in (select lower(email) from accounts)), m.date
       from messages m, json_each(m.to_json) t
   ) where address is not null and address like '%@%' and address not in (select lower(email) from accounts)
@@ -171,7 +186,7 @@ const MIGRATIONS: string[] = [
     last_at integer not null default 0
   );
   `,
-  REBUILD_CONTACTS,
+  REBUILD_CONTACTS_V1,
   // Local threading on folder servers: every Message-ID seen (in a message or its references) and its Thread.
   `
   create table thread_refs (
@@ -185,6 +200,14 @@ const MIGRATIONS: string[] = [
   // What a replayed change left behind for undo (where moved messages are now).
   `
   alter table pending_changes add column result_json text;
+  `,
+  // Every address that's mine: each Account's Identities.
+  `
+  create table identities (
+    account_id text not null,
+    address text not null,
+    primary key (account_id, address)
+  );
   `,
 ];
 
@@ -377,9 +400,21 @@ export class Store {
   removeAccount(id: AccountId) {
     this.db.transaction(() => {
       this.db.prepare('delete from bodies where message_id in (select id from messages where account_id = ?)').run(id);
-      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes', 'muted_threads', 'outbox', 'drafts', 'draft_deletions', 'thread_refs']) this.db.prepare(`delete from ${t} where account_id = ?`).run(id);
+      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes', 'muted_threads', 'outbox', 'drafts', 'draft_deletions', 'thread_refs', 'identities']) this.db.prepare(`delete from ${t} where account_id = ?`).run(id);
       this.db.prepare('delete from accounts where id = ?').run(id);
     })();
+  }
+
+  /** The addresses an Account sends as. They're mine: never suggested, and mail from them counts as sent. */
+  setIdentities(accountId: AccountId, addresses: string[]) {
+    this.db.transaction(() => {
+      this.db.prepare('delete from identities where account_id = ?').run(accountId);
+      const put = this.db.prepare('insert or ignore into identities(account_id, address) values (?, ?)');
+      for (const a of addresses) put.run(accountId, a.toLowerCase());
+      // Contacts that turn out to be me go.
+      for (const a of addresses) this.db.prepare('delete from contacts where address = ?').run(a.toLowerCase());
+    })();
+    this.mine = undefined;
   }
 
   /** Delete every Account not in `keep`, with its mail. Returns the ids removed. */
@@ -784,7 +819,7 @@ export class Store {
 
   /** My own addresses: never suggested, and what makes a message "sent". */
   private myAddresses(): Set<string> {
-    this.mine ??= new Set((this.db.prepare('select lower(email) from accounts').pluck().all() as string[]));
+    this.mine ??= new Set((this.db.prepare('select lower(email) from accounts union select lower(address) from identities').pluck().all() as string[]));
     return this.mine;
   }
 

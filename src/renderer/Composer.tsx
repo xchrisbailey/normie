@@ -208,13 +208,13 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
           <label>
             <span>From</span>
             <select value={identity} onChange={(e) => setIdentity(Number(e.target.value))}>
-              {identities.map((i, n) => <option key={`${i.accountId}:${i.from.address}`} value={n}>{i.from.address}</option>)}
+              {identities.map((i, n) => <option key={`${i.accountId}:${i.from.address}`} value={n}>{i.from.name ? `${i.from.name} <${i.from.address}>` : i.from.address}</option>)}
             </select>
           </label>
         ) : (
           <label>
             <span>From</span>
-            <output>{identities[0]?.from.address ?? 'No Account'}</output>
+            <output>{identities[0] ? (identities[0].from.name ? `${identities[0].from.name} <${identities[0].from.address}>` : identities[0].from.address) : 'No Account'}</output>
           </label>
         )}
         <label>

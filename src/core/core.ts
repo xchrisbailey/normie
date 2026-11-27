@@ -45,6 +45,7 @@ export interface CreateCoreOptions {
   accountId?: AccountId;
   kind?: string;
   email?: string;
+  identities?: string[];
   now?: () => number;
   windowDays?: number;
   pollMs?: number;
@@ -66,6 +67,7 @@ export async function createCore(o: CreateCoreOptions): Promise<TestCore> {
     accountId: o.accountId ?? 'acct-1',
     kind: o.kind ?? 'fake',
     email: o.email ?? 'me@example.com',
+    ...(o.identities ? { identities: o.identities } : {}),
     provider: o.provider,
     data: localDataPort(data),
     extractText: o.extractText,

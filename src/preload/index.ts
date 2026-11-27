@@ -4,7 +4,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 ipcRenderer.on('core-port', (e) => window.postMessage('normie:core-port', '*', e.ports));
 
-type AccountRecord = { id: string; kind: 'gmail' | 'imap'; email: string; status: 'ok' | 'needs-sign-in' };
+type AccountRecord = { id: string; kind: 'gmail' | 'imap'; email: string; status: 'ok' | 'needs-sign-in'; identities?: { name?: string; address: string }[] };
 
 contextBridge.exposeInMainWorld('normie', {
   /** The first useful frame is painted: from the snapshot, or from the core's first answer (even an empty one). */
@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld('normie', {
     list: (): Promise<AccountRecord[]> => ipcRenderer.invoke('accounts:list'),
     addGmail: (loginHint?: string): Promise<AccountRecord> => ipcRenderer.invoke('accounts:add-gmail', loginHint),
     remove: (id: string): Promise<void> => ipcRenderer.invoke('accounts:remove', id),
+    setIdentities: (id: string, identities: { name?: string; address: string }[]): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke('accounts:set-identities', id, identities),
     addPassword: (input: unknown): Promise<{ ok: true; account: AccountRecord } | { ok: false; error: string; field?: string }> => ipcRenderer.invoke('accounts:add-password', input),
     onChanged: (fn: (list: AccountRecord[]) => void) => {
       const handler = (_e: unknown, list: AccountRecord[]) => fn(list);

@@ -7,7 +7,7 @@ import path from 'node:path';
 import { mainPortChannel, serve } from '../core/rpc';
 import { isRisky, quarantine, safeFilename } from './attachments';
 import type { AccountConfig } from '../sync/index';
-import { Accounts, type AccountRecord } from './auth/accounts';
+import { Accounts, identitiesOf, type AccountRecord, type Identity } from './auth/accounts';
 import { JsonAccountList, SafeStorageSecrets } from './auth/electron-stores';
 import { loadGoogleClient } from './auth/google-oauth';
 import { AccountSetupError, type PasswordAccountInput } from './auth/password-accounts';
@@ -67,9 +67,12 @@ function syncAccounts(): AccountConfig[] {
     const seed = Number(process.env.NORMIE_FAKE_SEED) || undefined;
     return [{ kind: 'fake', accountId: 'fake-1', email: 'me@example.com', seed }];
   }
-  return accounts.list().map((a): AccountConfig => (a.kind === 'imap'
-    ? { kind: 'imap', accountId: a.id, email: a.email, status: a.status, settings: a.settings }
-    : { kind: 'gmail', accountId: a.id, email: a.email, status: a.status }));
+  return accounts.list().map((a): AccountConfig => {
+    const identities = identitiesOf(a).map((i) => i.address);
+    return a.kind === 'imap'
+      ? { kind: 'imap', accountId: a.id, email: a.email, status: a.status, settings: a.settings, identities }
+      : { kind: 'gmail', accountId: a.id, email: a.email, status: a.status, identities };
+  });
 }
 
 /** The data process starts at once: the first frame needs rows. */
@@ -525,6 +528,16 @@ ipcMain.handle('accounts:add-gmail', async (_e, loginHint?: string): Promise<Acc
   return acct;
 });
 ipcMain.handle('accounts:remove', (_e, id: string) => accounts.remove(id));
+/** Replace an Account's Identities (the first is the default). */
+ipcMain.handle('accounts:set-identities', (_e, id: string, identities: Identity[]): { ok: true } | { ok: false; error: string } => {
+  try {
+    accounts.setIdentities(id, identities);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+});
+
 /** Add an iCloud or IMAP Account. Errors come back as plain messages the form shows. */
 ipcMain.handle('accounts:add-password', async (_e, input: PasswordAccountInput): Promise<{ ok: true; account: AccountRecord } | { ok: false; error: string; field?: string }> => {
   try {

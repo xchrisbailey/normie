@@ -4,10 +4,29 @@ import { accountIdOf, settingsFrom, type PasswordAccountInput, type PasswordAcco
 
 export type AccountStatus = 'ok' | 'needs-sign-in';
 
+/** A From name and address an Account can send as. It can differ from the login (iCloud: a custom domain). */
+export interface Identity {
+  name?: string;
+  address: string;
+}
+
+type Common = {
+  id: string;
+  email: string;
+  status: AccountStatus;
+  /** The Identities this Account sends as, the default first. Absent means just the login address. */
+  identities?: Identity[];
+};
+
 export type AccountRecord =
-  | { id: string; kind: 'gmail'; email: string; status: AccountStatus }
+  | (Common & { kind: 'gmail' })
   /** iCloud or another IMAP/SMTP server, signed in with a password. */
-  | { id: string; kind: 'imap'; email: string; status: AccountStatus; settings: PasswordAccountSettings };
+  | (Common & { kind: 'imap'; settings: PasswordAccountSettings });
+
+/** An Account's Identities, the default first; the login address when none were set. */
+export const identitiesOf = (a: AccountRecord): Identity[] => (a.identities?.length ? a.identities : [{ address: a.email }]);
+
+const IDENTITY_ADDRESS = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 
 /** Where secrets live. In the app: safeStorage (Keychain). Values are opaque strings. */
 export interface SecretStore {
@@ -102,6 +121,27 @@ export class Accounts {
     const raw = await this.o.secrets.get(id);
     if (!raw) return this.markNeedsSignIn(acct, 'no stored password');
     return (JSON.parse(raw) as { password: string }).password;
+  }
+
+  /**
+   * Replace an Account's Identities; the first is the default. Addresses are checked, duplicates dropped, and at
+   * least one must stay.
+   */
+  setIdentities(id: string, identities: Identity[]): AccountRecord {
+    const acct = this.accounts.find((a) => a.id === id);
+    if (!acct) throw new Error(`No Account ${id}`);
+    const clean: Identity[] = [];
+    for (const i of identities) {
+      const address = i.address.trim();
+      if (!IDENTITY_ADDRESS.test(address)) throw new Error(`“${address || '(empty)'}” isn’t an email address.`);
+      if (clean.some((c) => c.address.toLowerCase() === address.toLowerCase())) continue;
+      const name = i.name?.trim();
+      clean.push(name ? { name, address } : { address });
+    }
+    if (!clean.length) throw new Error('An Account needs at least one Identity to send from.');
+    acct.identities = clean;
+    this.commit();
+    return { ...acct };
   }
 
   async remove(id: string) {

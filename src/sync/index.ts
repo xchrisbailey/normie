@@ -13,8 +13,8 @@ import { gmailTransport, passwordTransport } from './smtp';
 
 export type AccountConfig =
   | { kind: 'fake'; accountId: string; email: string; seed?: number }
-  | { kind: 'gmail'; accountId: string; email: string; status?: 'ok' | 'needs-sign-in' }
-  | { kind: 'imap'; accountId: string; email: string; status?: 'ok' | 'needs-sign-in'; settings: PasswordAccountSettings };
+  | { kind: 'gmail'; accountId: string; email: string; status?: 'ok' | 'needs-sign-in'; identities?: string[] }
+  | { kind: 'imap'; accountId: string; email: string; status?: 'ok' | 'needs-sign-in'; settings: PasswordAccountSettings; identities?: string[] };
 
 type Message =
   | { type: 'accounts'; accounts: AccountConfig[] }
@@ -75,7 +75,10 @@ async function startAccount(a: AccountConfig) {
     return;
   }
   const { provider, transport, extractText: extract } = made;
-  const engine = new SyncEngine({ accountId: a.accountId, kind: a.kind, email: a.email, provider, transport, data, extractText: extract, log });
+  const engine = new SyncEngine({
+    accountId: a.accountId, kind: a.kind, email: a.email, ...(a.kind !== 'fake' && a.identities ? { identities: a.identities } : {}),
+    provider, transport, data, extractText: extract, log,
+  });
   try {
     await engine.start();
     engines.set(a.accountId, engine);
@@ -101,6 +104,9 @@ async function reconcile() {
       engines.delete(id);
       await engine.stop().catch(() => {});
       if (!w) await data.removeAccount(id);
+    } else if (w.kind !== 'fake') {
+      // Identities may have changed: the core keeps the list of my addresses current.
+      await data.setIdentities(id, w.identities?.length ? w.identities : [w.email]);
     }
   }
   for (const a of wanted) if (ids.has(a.accountId)) void startAccount(a);

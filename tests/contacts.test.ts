@@ -54,3 +54,15 @@ describe('address suggestions', () => {
     expect(await c.contacts('lin')).toEqual([{ name: 'Linus', address: 'linus@kernel.example' }]);
   });
 });
+
+describe('Identities and suggestions', () => {
+  it('never suggests any of my Identities, and counts mail from them as sent', async () => {
+    const p = new FakeProvider();
+    p.deliver({ subject: 'Hi', from: { address: 'chris@srcery.example' }, to: [{ name: 'Zoe', address: 'zoe@example.com' }], date: NOW - DAY, labels: ['\\Sent'] });
+    p.deliver({ subject: 'News', from: { name: 'Zed', address: 'zed@news.example' }, date: NOW - DAY });
+    core = await createCore({ provider: p, extractText: fakeExtractText, now: () => NOW, email: 'me@example.com', identities: ['me@example.com', 'chris@srcery.example'] });
+    await core.engine.syncOnce();
+    expect(await core.contacts('chris')).toEqual([]);
+    expect((await core.contacts('z')).map((a) => a.address)).toEqual(['zoe@example.com', 'zed@news.example']);
+  });
+});

@@ -96,3 +96,16 @@ describe('adding and removing a password Account', () => {
     expect(secrets.m.size).toBe(0);
   });
 });
+
+describe('Identities', () => {
+  it('are the login address until set, then the list given, default first, checked and without duplicates', async () => {
+    const { accounts, list } = setup();
+    const { identitiesOf } = await import('../src/main/auth/accounts');
+    const a = await accounts.addPassword({ provider: 'icloud', email: 'me@icloud.com', password: 'pw' }, async () => {});
+    expect(identitiesOf(a)).toEqual([{ address: 'me@icloud.com' }]);
+    accounts.setIdentities(a.id, [{ name: 'Chris', address: 'chris@srcery.example' }, { address: 'me@icloud.com' }, { address: 'CHRIS@srcery.example' }]);
+    expect(list.saved[0]!.identities).toEqual([{ name: 'Chris', address: 'chris@srcery.example' }, { address: 'me@icloud.com' }]);
+    expect(() => accounts.setIdentities(a.id, [{ address: 'nope' }])).toThrow(/isn’t an email address/);
+    expect(() => accounts.setIdentities(a.id, [])).toThrow(/at least one/);
+  });
+});
