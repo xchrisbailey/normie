@@ -42,8 +42,17 @@ export function roleOf(entry: Pick<ListResponse, 'path' | 'specialUse' | 'specia
 
 const addr = (a?: MessageAddressObject): Address | undefined => (a?.address ? { address: a.address, ...(a.name ? { name: a.name } : {}) } : undefined);
 
+/** Message-IDs in a References header, oldest first. */
+export function referencesOf(headers?: Buffer | string): string[] {
+  if (!headers) return [];
+  const text = headers.toString().replace(/\r?\n[ \t]+/g, ' ');
+  const line = /^references:(.*)$/im.exec(text)?.[1] ?? '';
+  return line.match(/<[^<>\s]+>/g) ?? [];
+}
+
 export function headerOf(m: FetchMessageObject, path: string, gmail: boolean): RemoteHeader {
   const env = m.envelope ?? ({} as NonNullable<FetchMessageObject['envelope']>);
+  const references = gmail ? [] : referencesOf(m.headers);
   const date = env.date ? new Date(env.date).getTime() : m.internalDate ? new Date(m.internalDate).getTime() : 0;
   return {
     uid: m.uid,
@@ -51,6 +60,7 @@ export function headerOf(m: FetchMessageObject, path: string, gmail: boolean): R
     threadId: gmail ? m.threadId : undefined,
     messageId: env.messageId,
     inReplyTo: env.inReplyTo,
+    ...(references.length ? { references } : {}),
     subject: env.subject ?? '',
     from: addr(env.from?.[0]),
     to: (env.to ?? []).map(addr).filter((a): a is Address => !!a),
@@ -164,7 +174,8 @@ export class ImapProvider implements MailProvider {
 
   private async fetchHeaders(path: string, uids: number[]): Promise<RemoteHeader[]> {
     const out: RemoteHeader[] = [];
-    const query = this.gmail ? { ...HEADER_QUERY, labels: true, threadId: true, emailId: true } : HEADER_QUERY;
+    // Gmail supplies thread ids; elsewhere Threads are built from References (see Store.localThread).
+    const query = this.gmail ? { ...HEADER_QUERY, labels: true, threadId: true, emailId: true } : { ...HEADER_QUERY, headers: ['references'] };
     for (const part of chunks(uids, CHUNK)) {
       for await (const m of this.c.fetch(part.join(','), query, { uid: true })) out.push(headerOf(m, path, this.gmail));
     }
