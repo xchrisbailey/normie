@@ -13,6 +13,7 @@ import { buildMime } from '../../src/core/compose';
 import { newMessageId } from '../../src/core/ids';
 import { gmailConfig, ImapProvider } from '../../src/sync/imap-provider';
 import { gmailTransport } from '../../src/sync/smtp';
+import { sleep } from '../../src/core/sleep';
 
 const user = process.env.GMAIL_USER;
 const DAY = 86_400_000;
@@ -42,8 +43,7 @@ describe.skipIf(!user)('Gmail provider against the real server', () => {
     expect(allMail).toBe('[Gmail]/All Mail');
     expect(boxes.find((b) => b.role === 'sent')?.path).toBe('[Gmail]/Sent Mail');
     for (const lookAlike of ['Sent Messages', 'Deleted Messages', '[Gmail]All Mail', '[Gmail]Trash']) {
-      const b = boxes.find((x) => x.path === lookAlike);
-      if (b) expect(b.role, lookAlike).toBeUndefined();
+      expect(boxes.find((x) => x.path === lookAlike)?.role, lookAlike).toBeUndefined();
     }
   });
 
@@ -53,7 +53,7 @@ describe.skipIf(!user)('Gmail provider against the real server', () => {
     expect(cs.state.highestModseq).toBeDefined();
     expect(cs.headers.length).toBeGreaterThan(0);
     expect(cs.headers.every((h) => h.threadId && h.remoteId)).toBe(true);
-    expect(cs.headers.some((h) => h.labels.includes('\\Inbox'))).toBe(true);
+    expect(cs.headers.some((h) => h.labels.includes(String.raw`\Inbox`))).toBe(true);
   });
 
   it('reports flag changes since a modseq with CHANGEDSINCE', async () => {
@@ -73,16 +73,16 @@ describe.skipIf(!user)('Gmail provider against the real server', () => {
 
   it.skipIf(process.env.GMAIL_LIVE_WRITE !== '1')('marks a message Done by removing the Inbox label, then puts it back', async () => {
     const recent = await p.changes(allMail, null, { windowStart: Date.now() - 7 * DAY });
-    const target = recent.headers.filter((h) => h.labels.includes('\\Inbox')).sort((a, b) => b.date - a.date)[0];
+    const target = recent.headers.filter((h) => h.labels.includes(String.raw`\Inbox`)).sort((a, b) => b.date - a.date)[0];
     expect(target, 'an Inbox message from the last 7 days').toBeDefined();
     const labelsNow = async () => (await p.headers(allMail, [target!.uid]))[0]!.labels;
     try {
-      await p.edit(allMail, [target!.uid], { removeLabels: ['\\Inbox'] });
-      expect(await labelsNow()).not.toContain('\\Inbox');
+      await p.edit(allMail, [target!.uid], { removeLabels: [String.raw`\Inbox`] });
+      expect(await labelsNow()).not.toContain(String.raw`\Inbox`);
     } finally {
-      await p.edit(allMail, [target!.uid], { addLabels: ['\\Inbox'] });
+      await p.edit(allMail, [target!.uid], { addLabels: [String.raw`\Inbox`] });
     }
-    expect(await labelsNow()).toContain('\\Inbox');
+    expect(await labelsNow()).toContain(String.raw`\Inbox`);
   });
 
   it.skipIf(process.env.GMAIL_LIVE_SEND !== '1')('sends a message to yourself over SMTP, and Gmail files it in Sent', async () => {
@@ -93,9 +93,9 @@ describe.skipIf(!user)('Gmail provider against the real server', () => {
     // Gmail files SMTP mail in Sent itself (savesSent), so it shows up in All Mail with the \Sent label.
     let found = false;
     for (let i = 0; i < 10 && !found; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
+      await sleep(2000);
       const recent = await p.changes(allMail, null, { windowStart: Date.now() - DAY });
-      found = recent.headers.some((h) => h.messageId === messageId && h.labels.includes('\\Sent'));
+      found = recent.headers.some((h) => h.messageId === messageId && h.labels.includes(String.raw`\Sent`));
     }
     expect(found).toBe(true);
   }, 60_000);
@@ -111,7 +111,7 @@ describe.skipIf(!user)('Gmail provider against the real server', () => {
     const ac = new AbortController();
     const it = p.watch('INBOX', ac.signal)[Symbol.asyncIterator]();
     const nextEvent = it.next();
-    await new Promise((r) => setTimeout(r, 3000));
+    await sleep(3000);
     ac.abort();
     const res = await nextEvent;
     expect(res.done).toBe(true);

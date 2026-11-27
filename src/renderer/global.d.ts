@@ -1,3 +1,5 @@
+import type { ThreadRow } from '../core/types';
+
 export {};
 
 declare global {
@@ -13,18 +15,18 @@ declare global {
       smtp: { host: string; port: number; security: 'tls' | 'starttls' | 'none' };
     };
     /** From names and addresses this Account sends as, the default first. Absent: just the login address. */
-    identities?: { name?: string; address: string }[];
+    identities?: Array<{ name?: string; address: string }>;
   }
 
   interface Window {
     normie: {
       firstPaint(info: { rows: number; fromSnapshot: boolean }): void;
       ready(info: { rows: number; view: 'list' | 'empty'; fromSnapshot: boolean }): void;
-      snapshot(): import('../core/types').ThreadRow[];
-      saveSnapshot(rows: import('../core/types').ThreadRow[]): void;
+      snapshot(): Array<ThreadRow>;
+      saveSnapshot(rows: Array<ThreadRow>): void;
       platform: string;
       fake: boolean;
-      onMenuAction(fn: (ids: string[]) => void): () => void;
+      onMenuAction(fn: (ids: Array<string>) => void): () => void;
       notify(n: { key: string; title: string; body: string }): void;
       setInboxCount(n: number): void;
       setTheme(t: 'mocha' | 'latte' | 'system'): void;
@@ -41,16 +43,16 @@ declare global {
       onSplitsChanged(fn: (k: { file?: unknown; error?: string }) => void): () => void;
       onSnippetsChanged(fn: (k: { file?: unknown; error?: string }) => void): () => void;
       accounts: {
-        list(): Promise<AccountRecord[]>;
+        list(): Promise<Array<AccountRecord>>;
         addGmail(loginHint?: string): Promise<AccountRecord>;
         remove(id: string): Promise<void>;
-        setIdentities(id: string, identities: { name?: string; address: string }[]): Promise<{ ok: true } | { ok: false; error: string }>;
+        setIdentities(id: string, identities: Array<{ name?: string; address: string }>): Promise<{ ok: true } | { ok: false; error: string }>;
         addPassword(input: {
           provider: 'icloud' | 'imap'; email: string; user?: string; password: string; savesSent?: boolean;
           imap?: { host: string; port: number; security: 'tls' | 'starttls' | 'none' };
           smtp?: { host: string; port: number; security: 'tls' | 'starttls' | 'none' };
         }): Promise<{ ok: true; account: AccountRecord } | { ok: false; error: string; field?: string }>;
-        onChanged(fn: (list: AccountRecord[]) => void): () => void;
+        onChanged(fn: (list: Array<AccountRecord>) => void): () => void;
       };
     };
   }

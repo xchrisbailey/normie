@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 
 const SIZE = 1024;
 app.dock?.hide();
-app.whenReady().then(async () => {
+async function render() {
   const svg = readFileSync('build/icon.svg', 'base64');
   const win = new BrowserWindow({
     width: SIZE,
@@ -24,9 +24,19 @@ app.whenReady().then(async () => {
         `<style>html,body{margin:0;background:transparent}</style><img src="data:image/svg+xml;base64,${svg}" width="${SIZE}" height="${SIZE}">`,
       ),
   );
-  await new Promise((r) => setTimeout(r, 300));
+  await new Promise((resolve) => {
+    setTimeout(resolve, 300);
+  });
   const image = await win.webContents.capturePage();
   writeFileSync('build/icon.png', image.resize({ width: SIZE, height: SIZE, quality: 'best' }).toPNG());
   console.log('build/icon.png written');
-  app.quit();
-});
+}
+
+/** @param {unknown} error */
+function fail(error) {
+  console.error(error);
+  app.exit(1);
+}
+
+// oxlint-disable-next-line unicorn/prefer-top-level-await -- top-level await on whenReady never resolves in Electron's main module
+app.whenReady().then(render).then(() => app.quit()).catch(fail);

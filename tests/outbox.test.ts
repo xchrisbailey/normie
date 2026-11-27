@@ -3,15 +3,17 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCore, type TestCore } from '../src/core/core';
+import { createCore } from '../src/core/core';
+import type { TestCore } from '../src/core/core';
 import { FakeProvider, FakeTransport, fakeExtractText, ICLOUD_CAPS } from '../src/core/fake-provider';
 import type { OutgoingMessage } from '../src/core/types';
+import { sleep } from '../src/core/sleep';
 
-const cores: TestCore[] = [];
-const dirs: string[] = [];
+const cores: Array<TestCore> = [];
+const dirs: Array<string> = [];
 afterEach(async () => {
-  for (const c of cores.splice(0)) await c.close();
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const c of cores.splice(0)) {await c.close();}
+  for (const d of dirs.splice(0)) {rmSync(d, { recursive: true, force: true });}
 });
 
 let now = Date.UTC(2026, 10, 27, 12);
@@ -35,8 +37,8 @@ const message = (over: Partial<OutgoingMessage> = {}): OutgoingMessage => ({
 const waitFor = async (cond: () => boolean, ms = 2000) => {
   const end = Date.now() + ms;
   while (!cond()) {
-    if (Date.now() > end) throw new Error('timed out');
-    await new Promise((r) => setTimeout(r, 5));
+    if (Date.now() > end) {throw new Error('timed out');}
+    await sleep(5);
   }
 };
 
@@ -132,7 +134,7 @@ describe('the Outbox', () => {
     now += 5000;
     await folders.c.engine.sendOutbox();
     expect(folders.provider.appends).toHaveLength(1);
-    expect(folders.provider.appends[0]).toMatchObject({ mailbox: 'Sent Messages', flags: ['\\Seen'] });
+    expect(folders.provider.appends[0]).toMatchObject({ mailbox: 'Sent Messages', flags: [String.raw`\Seen`] });
     expect(folders.provider.appends[0]!.raw).toMatch(/^Subject: Lunch\?/m);
   });
 
@@ -156,7 +158,7 @@ describe('replying through the core', () => {
     const send = transport.send.bind(transport);
     transport.send = async (raw, env) => {
       await send(raw, env);
-      provider.deliver({ subject: 'Re: Lunch', raw: new TextDecoder().decode(raw), labels: ['\\Sent'], flags: ['\\Seen'] });
+      provider.deliver({ subject: 'Re: Lunch', raw: new TextDecoder().decode(raw), labels: [String.raw`\Sent`], flags: [String.raw`\Seen`] });
     };
     provider.deliver({
       subject: 'Lunch', threadId: 't-lunch', date: now - 3_600_000,

@@ -4,6 +4,7 @@
 // Each message sits in its own shadow root, so one newsletter's <style> can't restyle another message.
 import { memo, useLayoutEffect, useRef } from 'react';
 import type { Address, ThreadMessage } from '../core/types';
+import { isElement, isHtmlElement } from './dom';
 import { sanitized } from './sanitize-cache';
 
 const full = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -39,13 +40,15 @@ function themeColors() {
   return { colors: { base: v('base'), text: v('text'), surface0: v('surface0'), surface1: v('surface1'), overlay: v('overlay') }, dark: css.colorScheme !== 'light' };
 }
 const sizeOf = (n: number) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
+// The tag as a name, so the type set on the next line is what the button-has-type check can't see through a literal.
+const BUTTON = 'button';
 const PAPER_CSS = `:host { display: block; } img { max-width: 100%; height: auto; } table { max-width: 100%; }`;
 
 const shell = (remote: boolean, theme: ReturnType<typeof themeColors>) =>
   `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp(remote)}"><style>${shellCss(theme.colors, theme.dark)}</style></head><body></body></html>`;
 
 /** Fill the frame's document with the Thread's messages. */
-function render(doc: Document, messages: ThreadMessage[], allow: (m: ThreadMessage) => boolean) {
+function render(doc: Document, messages: Array<ThreadMessage>, allow: (m: ThreadMessage) => boolean) {
   const body = doc.body;
   body.replaceChildren();
   for (const m of messages) {
@@ -91,7 +94,8 @@ function render(doc: Document, messages: ThreadMessage[], allow: (m: ThreadMessa
         size.textContent = sizeOf(a.size);
         chip.append(name, size);
         for (const [label, action] of [['Open', 'open'], ['Save', 'save']] as const) {
-          const b = doc.createElement('button');
+          const b = doc.createElement(BUTTON);
+          b.type = 'button';
           b.textContent = label;
           b.dataset.attachment = `${action}:${m.id}:${a.index}`;
           chip.append(b);
@@ -113,7 +117,7 @@ export type AttachmentAction = (action: 'open' | 'save', messageId: number, inde
 
 export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, remote, handle, onAttachment, theme }: {
   threadKey: string;
-  messages: ThreadMessage[];
+  messages: Array<ThreadMessage>;
   allow: (m: ThreadMessage) => boolean;
   /** Any message in view may load remote images: the frame's CSP lets them through. */
   remote: boolean;
@@ -130,34 +134,35 @@ export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, r
 
   const fill = () => {
     const doc = frame.current?.contentDocument;
-    if (ready.current && doc?.body) render(doc, latest.current.messages, latest.current.allow);
+    if (ready.current && doc?.body) {render(doc, latest.current.messages, latest.current.allow);}
   };
 
   // Hook up the frame's document once it has loaded: keys go to the app, links to the system browser.
   const onLoad = () => {
     const doc = frame.current?.contentDocument;
-    if (!doc) return;
+    if (!doc) {return;}
     ready.current = true;
     doc.addEventListener('keydown', (e) => {
       const forwarded = new KeyboardEvent('keydown', {
         key: e.key, code: e.code, shiftKey: e.shiftKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, cancelable: true,
       });
       window.dispatchEvent(forwarded);
-      if (forwarded.defaultPrevented) e.preventDefault();
+      if (forwarded.defaultPrevented) {e.preventDefault();}
     });
     doc.addEventListener('click', (e) => {
-      const button = e.composedPath().find((n) => (n as HTMLElement).dataset?.attachment) as HTMLElement | undefined;
+      const path = e.composedPath();
+      const button = path.find((n): n is HTMLElement => isHtmlElement(n) && !!n.dataset.attachment);
       if (button) {
         e.preventDefault();
-        const [action, id, index] = button.dataset.attachment!.split(':');
-        latest.current.onAttachment?.(action as 'open' | 'save', Number(id), Number(index));
+        const [action, id, index] = (button.dataset.attachment ?? '').split(':');
+        if (action === 'open' || action === 'save') {latest.current.onAttachment?.(action, Number(id), Number(index));}
         return;
       }
-      const a = (e.composedPath().find((n) => (n as Element).tagName === 'A') as HTMLAnchorElement | undefined) ?? null;
-      if (!a) return;
+      const a = path.find((n): n is HTMLAnchorElement => isElement(n) && n.tagName === 'A');
+      if (!a) {return;}
       e.preventDefault();
       const href = a.getAttribute('href');
-      if (href && /^(https?:|mailto:)/i.test(href.trim())) window.normie.openLink(href.trim());
+      if (href && /^(https?:|mailto:)/i.test(href.trim())) {window.normie.openLink(href.trim());}
     }, true);
     fill();
   };
@@ -169,7 +174,7 @@ export const MailFrame = memo(function MailFrame({ threadKey, messages, allow, r
     handle.current = {
       scrollPage: (d) => {
         const w = frame.current?.contentWindow;
-        if (w) w.scrollBy({ top: d * w.innerHeight * 0.85 });
+        if (w) {w.scrollBy({ top: d * w.innerHeight * 0.85 });}
       },
     };
   }

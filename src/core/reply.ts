@@ -4,38 +4,42 @@ import type { Address, OutgoingMessage } from './types';
 /** The message being replied to or forwarded, as read from the store. */
 export interface Original {
   messageId?: string;
-  references: string[];
+  references: Array<string>;
   from?: Address;
-  replyTo: Address[];
-  to: Address[];
-  cc: Address[];
+  replyTo: Array<Address>;
+  to: Array<Address>;
+  cc: Array<Address>;
   subject: string;
   date: number;
   text: string;
-  attachments: { filename: string; contentType: string; content: Uint8Array }[];
+  attachments: Array<{ filename: string; contentType: string; content: Uint8Array }>;
 }
 
 export type ReplyKind = 'reply' | 'replyAll' | 'forward';
 
+/** What a reply or forward fills in on an outgoing message; the composer adds the rest. */
+export type ReplyPlan = Pick<OutgoingMessage, 'to' | 'cc' | 'bcc' | 'subject' | 'body'> & Partial<Pick<OutgoingMessage, 'from' | 'inReplyTo' | 'references' | 'attachments'>>;
+
 const same = (a: Address, b: Address) => a.address.toLowerCase() === b.address.toLowerCase();
-const dedupe = (list: Address[]) => list.filter((a, i) => list.findIndex((b) => same(a, b)) === i);
-const without = (list: Address[], drop: Address[]) => list.filter((a) => !drop.some((d) => same(a, d)));
+const dedupe = (list: Array<Address>) => list.filter((a, i) => list.findIndex((b) => same(a, b)) === i);
+const without = (list: Array<Address>, drop: Array<Address>) => list.filter((a) => !drop.some((d) => same(a, d)));
 const label = (a?: Address) => (a ? (a.name ? `${a.name} <${a.address}>` : a.address) : 'someone');
 
 export function prefixed(subject: string, kind: ReplyKind): string {
   const s = subject.trim();
-  if (kind === 'forward') return /^(fwd?|fw):/i.test(s) ? s : `Fwd: ${s}`;
+  if (kind === 'forward') {return /^(fwd?|fw):/i.test(s) ? s : `Fwd: ${s}`;}
   return /^re:/i.test(s) ? s : `Re: ${s}`;
 }
 
-const quote = (text: string) => text.replace(/\r\n/g, '\n').trimEnd().split('\n').map((l) => (l ? `> ${l}` : '>')).join('\n');
+const quote = (text: string) => text.replaceAll('\r\n', '\n').trimEnd().split('\n').map((l) => (l ? `> ${l}` : '>')).join('\n');
 
 /**
  * Plan a reply or forward. `mine` are my Identities' addresses, for leaving myself out and for picking the From:
  * a reply goes out from the Identity the original was sent to.
  */
-export function planReply(kind: ReplyKind, o: Original, mine: Address[], when = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' })) {
-  const fromMe = !!o.from && mine.some((m) => same(m, o.from!));
+export function planReply(kind: ReplyKind, o: Original, mine: Array<Address>, when = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' })): ReplyPlan {
+  const sender = o.from;
+  const fromMe = !!sender && mine.some((m) => same(m, sender));
   const identity = mine.find((m) => [...o.to, ...o.cc].some((a) => same(a, m))) ?? (fromMe ? o.from : undefined);
   const date = when.format(o.date);
   const threading = o.messageId
@@ -51,29 +55,29 @@ export function planReply(kind: ReplyKind, o: Original, mine: Address[], when = 
       `To: ${o.to.map(label).join(', ')}`,
       ...(o.cc.length ? [`Cc: ${o.cc.map(label).join(', ')}`] : []),
     ].join('\n');
-    return {
-      ...(identity ? { from: identity } : {}),
+    const forward = {
       to: [], cc: [], bcc: [],
       subject: prefixed(o.subject, 'forward'),
       body: `\n\n${header}\n\n${o.text.trimEnd()}`,
       attachments: o.attachments,
     } satisfies Partial<OutgoingMessage>;
+    return identity ? { ...forward, from: identity } : forward;
   }
 
   // Replying to my own message goes to the people I wrote to.
   const primary = fromMe ? o.to : o.replyTo.length ? o.replyTo : o.from ? [o.from] : [];
   let to = dedupe(primary);
-  let cc: Address[] = [];
+  let cc: Array<Address> = [];
   if (kind === 'replyAll') {
     to = dedupe([...to, ...(fromMe ? [] : without(o.to, mine))]);
     cc = without(dedupe(o.cc), [...mine, ...to]);
   }
-  if (!fromMe) to = without(to, mine);
-  return {
-    ...(identity ? { from: identity } : {}),
+  if (!fromMe) {to = without(to, mine);}
+  const reply = {
     to, cc, bcc: [],
     subject: prefixed(o.subject, 'reply'),
     body: `\n\nOn ${date}, ${label(o.from)} wrote:\n${quote(o.text)}`,
     ...threading,
   } satisfies Partial<OutgoingMessage>;
+  return identity ? { ...reply, from: identity } : reply;
 }

@@ -10,11 +10,11 @@ export function SyncBadge({ core }: { core: CoreClient | null }) {
   const [note, setNote] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!core) return;
+    if (!core) {return;}
     void core.pending().then(setStatus);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const off = core.onNotice((n) => {
-      if (n.type === 'pending') setStatus({ count: n.count, waiting: n.waiting });
+      if (n.type === 'pending') {setStatus({ count: n.count, waiting: n.waiting });}
       if (n.type === 'change-failed') {
         setNote(`Couldn't change "${n.subject}" on the server, so it's back as it was`);
         clearTimeout(timer);

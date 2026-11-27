@@ -26,5 +26,5 @@ for (const r of rules) {
     }
   }
 }
-if (failed) process.exit(1);
+if (failed) {process.exit(1);}
 console.log(`check-bundles: ok (${rules.reduce((n, r) => n + r.files.length, 0)} bundles)`);

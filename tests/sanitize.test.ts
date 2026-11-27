@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { createSanitizer } from '../src/renderer/sanitize';
 
-const clean = createSanitizer(window as Window & typeof globalThis);
+const clean = createSanitizer(window);
 
 describe('sanitizing HTML mail', () => {
   it('removes scripts, handlers, forms, frames and javascript: links', () => {

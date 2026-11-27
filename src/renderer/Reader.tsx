@@ -1,18 +1,19 @@
 // The reader: the Thread's subject, a quiet bar when remote images are hidden, and the sandboxed mail frame.
 import { memo, useCallback } from 'react';
 import type { ThreadMessage } from '../core/types';
-import { MailFrame, type AttachmentAction, type FrameHandle } from './MailFrame';
+import { MailFrame } from './MailFrame';
+import type { AttachmentAction, FrameHandle } from './MailFrame';
 import { sanitized } from './sanitize-cache';
 
 /** Messages whose remote images are hidden right now. */
-export function blockedMessages(messages: ThreadMessage[] | undefined, allowed: ReadonlySet<number>): ThreadMessage[] {
+export function blockedMessages(messages: Array<ThreadMessage> | undefined, allowed: ReadonlySet<number>): Array<ThreadMessage> {
   return (messages ?? []).filter((m) => m.html && !m.imagesAllowed && !allowed.has(m.id) && sanitized(m, false).remoteImages > 0);
 }
 
 export const Reader = memo(function Reader({ threadKey, subject, messages, allowed, frame, onLoadImages, onAlwaysLoadImages, onAttachment, theme }: {
   threadKey: string;
   subject: string;
-  messages: ThreadMessage[] | undefined;
+  messages: Array<ThreadMessage> | undefined;
   /** Messages whose images the user loaded this session. */
   allowed: ReadonlySet<number>;
   frame: React.MutableRefObject<FrameHandle | null>;
@@ -30,8 +31,8 @@ export const Reader = memo(function Reader({ threadKey, subject, messages, allow
       {blocked.length > 0 && (
         <div className="images-bar" role="note">
           <span>Remote images are hidden. Loading them tells the sender you opened this.</span>
-          <button onClick={onLoadImages}>Load images <kbd>I</kbd></button>
-          <button onClick={onAlwaysLoadImages}>Always from {blocked.length === 1 ? 'this sender' : 'these senders'} <kbd>⇧I</kbd></button>
+          <button type="button" onClick={onLoadImages}>Load images <kbd>I</kbd></button>
+          <button type="button" onClick={onAlwaysLoadImages}>Always from {blocked.length === 1 ? 'this sender' : 'these senders'} <kbd>⇧I</kbd></button>
         </div>
       )}
       {messages ? <MailFrame threadKey={threadKey} messages={messages} allow={allow} remote={remote} handle={frame} onAttachment={onAttachment} theme={theme} /> : <p className="pending">Loading…</p>}

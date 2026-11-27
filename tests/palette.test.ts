@@ -31,7 +31,7 @@ describe('palette items', () => {
   it('offers every action that applies in a context, once per name, with its key', () => {
     for (const ctx of ['list', 'reader'] as const) {
       const items = actionItems(ACTIONS, ctx);
-      const want = new Set(ACTIONS.filter((a) => (a.contexts as readonly string[]).includes(ctx)).map((a) => a.name));
+      const want = new Set(ACTIONS.filter((a) => (a.contexts as ReadonlyArray<string>).includes(ctx)).map((a) => a.name));
       expect(new Set(items.map((i) => i.name))).toEqual(want);
     }
     expect(actionItems(ACTIONS, 'list').find((i) => i.id === 'thread.done')?.hint).toBe('E');

@@ -9,6 +9,7 @@ A keyboard-first desktop mail client for Gmail, iCloud and any IMAP/SMTP server.
 | `npm start` | Build and run the app |
 | `npm run start:fake` | Run against a fake mailbox, no Account needed |
 | `npm run verify` | Typecheck, tests, process-boundary check and smoke: what the pre-push hook runs |
+| `npm run lint` | oxlint with `@cloudflare/oxlint-config` (`oxlint.config.mts`), type-aware; warnings fail too |
 | `npm test` | Core tests over the fake provider |
 | `npm run typecheck` | TypeScript |
 | `npm run smoke` | Launch the app hidden with the fake provider and check the Inbox renders |

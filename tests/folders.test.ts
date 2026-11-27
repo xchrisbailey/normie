@@ -1,6 +1,7 @@
 // Folder servers sync Sent, Archive and Trash too (#56). At the core seam over the iCloud-like fake.
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCore, type TestCore } from '../src/core/core';
+import { createCore } from '../src/core/core';
+import type { TestCore } from '../src/core/core';
 import { FakeProvider, fakeExtractText, ICLOUD_CAPS } from '../src/core/fake-provider';
 
 const NOW = Date.UTC(2026, 10, 27, 12);

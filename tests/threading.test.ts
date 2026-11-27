@@ -1,14 +1,15 @@
 // Threads built locally on folder servers (#55), at the core seam over the iCloud-like fake.
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCore, type TestCore } from '../src/core/core';
+import { createCore } from '../src/core/core';
+import type { TestCore } from '../src/core/core';
 import { FakeProvider, fakeExtractText, ICLOUD_CAPS } from '../src/core/fake-provider';
 import { referencesOf } from '../src/sync/imap-provider';
 
 const NOW = Date.UTC(2026, 10, 27, 12);
 const HOUR = 3_600_000;
-const cores: TestCore[] = [];
+const cores: Array<TestCore> = [];
 afterEach(async () => {
-  for (const c of cores.splice(0)) await c.close();
+  for (const c of cores.splice(0)) {await c.close();}
 });
 
 async function sync(p: FakeProvider, accountId = 'icloud:me@icloud.com@imap.mail.me.com') {

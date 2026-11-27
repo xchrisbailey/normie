@@ -1,7 +1,9 @@
 // Reminders (#79): a Thread I wrote comes back if nobody answers by the date. At the core seam.
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCore, type TestCore } from '../src/core/core';
+import { createCore } from '../src/core/core';
+import type { TestCore } from '../src/core/core';
 import { FakeProvider, FakeTransport, fakeExtractText } from '../src/core/fake-provider';
+import { expected } from '../src/core/errors';
 
 const HOUR = 3_600_000;
 let now = Date.UTC(2026, 10, 27, 12);
@@ -19,7 +21,7 @@ async function start() {
   t.send = async (raw, env) => {
     await send(raw, env);
     const text = new TextDecoder().decode(raw);
-    p.deliver({ subject: /^Subject: (.*)$/m.exec(text)![1]!.trim(), raw: text, from: { address: 'me@example.com' }, labels: ['\\Sent'], flags: ['\\Seen'], date: now });
+    p.deliver({ subject: /^Subject: (.*)$/m.exec(text)![1]!.trim(), raw: text, from: { address: 'me@example.com' }, labels: [String.raw`\Sent`], flags: [String.raw`\Seen`], date: now });
   };
   core = await createCore({ provider: p, transport: t, extractText: fakeExtractText, now: () => now, email: 'me@example.com' });
   await core.engine.syncOnce();
@@ -53,7 +55,7 @@ describe('Reminders', () => {
   it('clear themselves when someone else answers first', async () => {
     const { c, p } = await start();
     await sendWithReminder(c, now + 2 * 24 * HOUR);
-    const sentId = (c.data.store.db.prepare(`select message_id from messages where subject = 'Proposal'`).pluck().get()) as string;
+    const sentId = expected(c.data.store.db.prepare<[], string>(`select message_id from messages where subject = 'Proposal'`).pluck().get(), 'the sent message id');
     now += HOUR;
     p.deliver({ subject: 'Re: Proposal', from: { address: 'ada@example.com' }, inReplyTo: sentId, date: now });
     await c.engine.syncOnce();
@@ -66,9 +68,9 @@ describe('Reminders', () => {
   it("don't count my own follow-up as an answer", async () => {
     const { c, p } = await start();
     await sendWithReminder(c, now + 2 * 24 * HOUR);
-    const sentId = (c.data.store.db.prepare(`select message_id from messages where subject = 'Proposal'`).pluck().get()) as string;
+    const sentId = expected(c.data.store.db.prepare<[], string>(`select message_id from messages where subject = 'Proposal'`).pluck().get(), 'the sent message id');
     now += HOUR;
-    p.deliver({ subject: 'Re: Proposal', from: { address: 'me@example.com' }, inReplyTo: sentId, labels: ['\\Sent'], date: now });
+    p.deliver({ subject: 'Re: Proposal', from: { address: 'me@example.com' }, inReplyTo: sentId, labels: [String.raw`\Sent`], date: now });
     await c.engine.syncOnce();
     now += 2 * 24 * HOUR;
     c.data.runDue();

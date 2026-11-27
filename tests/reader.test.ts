@@ -1,8 +1,10 @@
 // Opening Threads (#9), at the core seam over the fake provider.
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCore, type TestCore } from '../src/core/core';
+import { createCore } from '../src/core/core';
+import type { TestCore } from '../src/core/core';
 import { FakeProvider, fakeExtractText } from '../src/core/fake-provider';
 import type { CoreNotice } from '../src/core/types';
+import { sleep } from '../src/core/sleep';
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 10, 26, 12);
@@ -57,10 +59,16 @@ describe('opening a Thread', () => {
     const fetchesAfterSync = p.calls.filter((x) => x === 'fetchBodies').length;
     const [row] = await c.rows('inbox');
     await c.thread(row!.key);
-    await new Promise((r) => setTimeout(r, 10));
+    await sleep(10);
     expect(p.calls.filter((x) => x === 'fetchBodies')).toHaveLength(fetchesAfterSync);
   });
 });
+
+const startReal = async (p: FakeProvider) => {
+  const { readMessage, attachmentContent } = await import('../src/core/mime');
+  const { extractText } = await import('../src/sync/extract-text');
+  return (core = await createCore({ provider: p, extractText, mime: { readMessage, attachmentContent }, now: () => NOW }));
+};
 
 describe('HTML mail', () => {
   const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -73,12 +81,6 @@ describe('HTML mail', () => {
     '--rel', 'Content-Type: image/png', 'Content-Transfer-Encoding: base64', 'Content-ID: <logo@x>', 'Content-Disposition: inline', '', PNG, '',
     '--rel--', '',
   ].join('\r\n');
-
-  const startReal = async (p: FakeProvider) => {
-    const { readMessage, attachmentContent } = await import('../src/core/mime');
-    const { extractText } = await import('../src/sync/extract-text');
-    return (core = await createCore({ provider: p, extractText, mime: { readMessage, attachmentContent }, now: () => NOW }));
-  };
 
   it('gives the reader the HTML part, with inline images embedded, and plain text alongside', async () => {
     const p = new FakeProvider();
@@ -126,12 +128,6 @@ describe('attachments', () => {
     'Content-Transfer-Encoding: base64', '', Buffer.from('%PDF-1.4 fake').toString('base64'), '',
     '--mix--', '',
   ].join('\r\n');
-
-  const startReal = async (p: FakeProvider) => {
-    const { readMessage, attachmentContent } = await import('../src/core/mime');
-    const { extractText } = await import('../src/sync/extract-text');
-    return (core = await createCore({ provider: p, extractText, mime: { readMessage, attachmentContent }, now: () => NOW }));
-  };
 
   it('lists files attached, leaving out images shown in the body', async () => {
     const p = new FakeProvider();

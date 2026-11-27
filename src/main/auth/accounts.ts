@@ -1,6 +1,26 @@
 // Accounts and their sign-in state. Pure: storage, sign-in and the clock are injected.
-import { refreshGoogle, SignInRequiredError, signInWithGoogle, gmailAddress, type Fetch, type GoogleClient, type TokenSet } from './google-oauth';
-import { accountIdOf, settingsFrom, type PasswordAccountInput, type PasswordAccountSettings } from './password-accounts';
+import { expected } from '../../core/errors';
+import { parseJson } from '../../core/json';
+import { refreshGoogle, SignInRequiredError, signInWithGoogle, gmailAddress } from './google-oauth';
+import type { Fetch, GoogleClient, TokenSet } from './google-oauth';
+import { accountIdOf, settingsFrom } from './password-accounts';
+import type { PasswordAccountInput, PasswordAccountSettings } from './password-accounts';
+
+/** The stored sign-in, if what's in the secret store is one. */
+function tokenSetFrom(raw: string): TokenSet | undefined {
+  const v = parseJson(raw);
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) {return undefined;}
+  const { accessToken, refreshToken, expiresAt } = v;
+  if (typeof accessToken !== 'string' || typeof refreshToken !== 'string' || typeof expiresAt !== 'number') {return undefined;}
+  return { accessToken, refreshToken, expiresAt };
+}
+
+/** The stored password, if what's in the secret store holds one. */
+function passwordFrom(raw: string): string | undefined {
+  const v = parseJson(raw);
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) {return undefined;}
+  return typeof v.password === 'string' ? v.password : undefined;
+}
 
 export type AccountStatus = 'ok' | 'needs-sign-in';
 
@@ -15,7 +35,7 @@ type Common = {
   email: string;
   status: AccountStatus;
   /** The Identities this Account sends as, the default first. Absent means just the login address. */
-  identities?: Identity[];
+  identities?: Array<Identity>;
 };
 
 export type AccountRecord =
@@ -24,7 +44,7 @@ export type AccountRecord =
   | (Common & { kind: 'imap'; settings: PasswordAccountSettings });
 
 /** An Account's Identities, the default first; the login address when none were set. */
-export const identitiesOf = (a: AccountRecord): Identity[] => (a.identities?.length ? a.identities : [{ address: a.email }]);
+export const identitiesOf = (a: AccountRecord): Array<Identity> => (a.identities?.length ? a.identities : [{ address: a.email }]);
 
 const IDENTITY_ADDRESS = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 
@@ -37,8 +57,8 @@ export interface SecretStore {
 
 /** Where the non-secret Account list lives. In the app: a JSON file in userData. */
 export interface AccountList {
-  load(): AccountRecord[];
-  save(accounts: AccountRecord[]): void;
+  load(): Array<AccountRecord>;
+  save(accounts: Array<AccountRecord>): void;
 }
 
 export interface AccountsOptions {
@@ -54,10 +74,10 @@ export interface AccountsOptions {
 }
 
 export class Accounts {
-  private accounts: AccountRecord[];
+  private accounts: Array<AccountRecord>;
   private tokens = new Map<string, TokenSet>();
   private refreshing = new Map<string, Promise<string>>();
-  private listeners = new Set<(a: AccountRecord[]) => void>();
+  private listeners = new Set<(a: Array<AccountRecord>) => void>();
   private readonly now: () => number;
   private readonly margin: number;
 
@@ -67,11 +87,11 @@ export class Accounts {
     this.margin = o.refreshMarginMs ?? 5 * 60_000;
   }
 
-  list(): AccountRecord[] {
+  list(): Array<AccountRecord> {
     return this.accounts.map((a) => ({ ...a }));
   }
 
-  onChange(fn: (a: AccountRecord[]) => void) {
+  onChange(fn: (a: Array<AccountRecord>) => void) {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   }
@@ -79,7 +99,7 @@ export class Accounts {
   private commit() {
     this.o.list.save(this.accounts);
     const snapshot = this.list();
-    for (const fn of this.listeners) fn(snapshot);
+    for (const fn of this.listeners) {fn(snapshot);}
   }
 
   /** Sign in to Gmail in the browser and add (or re-authorize) the Account. */
@@ -91,10 +111,10 @@ export class Accounts {
     await this.o.secrets.set(id, JSON.stringify(tokens));
     this.tokens.set(id, tokens);
     const existing = this.accounts.find((a) => a.id === id);
-    if (existing) existing.status = 'ok';
-    else this.accounts.push({ id, kind: 'gmail', email, status: 'ok' });
+    if (existing) {existing.status = 'ok';}
+    else {this.accounts.push({ id, kind: 'gmail', email, status: 'ok' });}
     this.commit();
-    return { ...this.accounts.find((a) => a.id === id)! };
+    return { ...expected(this.accounts.find((a) => a.id === id), 'the Account just saved') };
   }
 
   /**
@@ -108,8 +128,8 @@ export class Accounts {
     await this.o.secrets.set(id, JSON.stringify({ password: input.password }));
     const record: AccountRecord = { id, kind: 'imap', email: settings.email, status: 'ok', settings };
     const i = this.accounts.findIndex((a) => a.id === id);
-    if (i >= 0) this.accounts[i] = record;
-    else this.accounts.push(record);
+    if (i >= 0) {this.accounts[i] = record;}
+    else {this.accounts.push(record);}
     this.commit();
     return { ...record };
   }
@@ -117,28 +137,30 @@ export class Accounts {
   /** The password of an iCloud or IMAP Account. */
   async password(id: string): Promise<string> {
     const acct = this.accounts.find((a) => a.id === id);
-    if (!acct) throw new Error(`No Account ${id}`);
+    if (!acct) {throw new Error(`No Account ${id}`);}
     const raw = await this.o.secrets.get(id);
-    if (!raw) return this.markNeedsSignIn(acct, 'no stored password');
-    return (JSON.parse(raw) as { password: string }).password;
+    if (!raw) {return this.markNeedsSignIn(acct, 'no stored password');}
+    const password = passwordFrom(raw);
+    if (password === undefined) {return this.markNeedsSignIn(acct, 'no stored password');}
+    return password;
   }
 
   /**
    * Replace an Account's Identities; the first is the default. Addresses are checked, duplicates dropped, and at
    * least one must stay.
    */
-  setIdentities(id: string, identities: Identity[]): AccountRecord {
+  setIdentities(id: string, identities: Array<Identity>): AccountRecord {
     const acct = this.accounts.find((a) => a.id === id);
-    if (!acct) throw new Error(`No Account ${id}`);
-    const clean: Identity[] = [];
+    if (!acct) {throw new Error(`No Account ${id}`);}
+    const clean: Array<Identity> = [];
     for (const i of identities) {
       const address = i.address.trim();
-      if (!IDENTITY_ADDRESS.test(address)) throw new Error(`“${address || '(empty)'}” isn’t an email address.`);
-      if (clean.some((c) => c.address.toLowerCase() === address.toLowerCase())) continue;
+      if (!IDENTITY_ADDRESS.test(address)) {throw new Error(`“${address || '(empty)'}” isn’t an email address.`);}
+      if (clean.some((c) => c.address.toLowerCase() === address.toLowerCase())) {continue;}
       const name = i.name?.trim();
       clean.push(name ? { name, address } : { address });
     }
-    if (!clean.length) throw new Error('An Account needs at least one Identity to send from.');
+    if (!clean.length) {throw new Error('An Account needs at least one Identity to send from.');}
     acct.identities = clean;
     this.commit();
     return { ...acct };
@@ -154,16 +176,17 @@ export class Accounts {
   /** A valid access token, refreshed silently when it's close to expiring. */
   async accessToken(id: string): Promise<string> {
     const acct = this.accounts.find((a) => a.id === id);
-    if (!acct) throw new Error(`No Account ${id}`);
-    if (acct.status === 'needs-sign-in') throw new SignInRequiredError(acct.email);
+    if (!acct) {throw new Error(`No Account ${id}`);}
+    if (acct.status === 'needs-sign-in') {throw new SignInRequiredError(acct.email);}
     let t = this.tokens.get(id);
     if (!t) {
       const raw = await this.o.secrets.get(id);
-      if (!raw) return this.markNeedsSignIn(acct, 'no stored sign-in');
-      t = JSON.parse(raw) as TokenSet;
+      if (!raw) {return this.markNeedsSignIn(acct, 'no stored sign-in');}
+      t = tokenSetFrom(raw);
+      if (!t) {return this.markNeedsSignIn(acct, 'no stored sign-in');}
       this.tokens.set(id, t);
     }
-    if (t.expiresAt - this.now() > this.margin) return t.accessToken;
+    if (t.expiresAt - this.now() > this.margin) {return t.accessToken;}
     // One refresh at a time per Account; concurrent callers share it.
     let p = this.refreshing.get(id);
     if (!p) {
@@ -179,9 +202,9 @@ export class Accounts {
       this.tokens.set(acct.id, fresh);
       await this.o.secrets.set(acct.id, JSON.stringify(fresh));
       return fresh.accessToken;
-    } catch (e) {
-      if (e instanceof SignInRequiredError) return this.markNeedsSignIn(acct, e.message);
-      throw e;
+    } catch (error) {
+      if (error instanceof SignInRequiredError) {return this.markNeedsSignIn(acct, error.message);}
+      throw error;
     }
   }
 

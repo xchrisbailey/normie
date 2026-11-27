@@ -8,9 +8,9 @@ export interface ActionDef {
   /** Shown in the palette and menus. */
   name: string;
   /** Default keys. Each entry is a token or a space-separated sequence, e.g. "j", "Shift-H", "Cmd-K", "g i". */
-  keys: readonly string[];
+  keys: ReadonlyArray<string>;
   /** Contexts where the keys work. */
-  contexts: readonly Context[];
+  contexts: ReadonlyArray<Context>;
 }
 
 export interface KeyLike {
@@ -28,15 +28,15 @@ const MODIFIER_KEYS = new Set(['Shift', 'Meta', 'Control', 'Alt', 'CapsLock']);
  * A shifted letter becomes "Shift-H"; shifted symbols keep their own character ("#").
  */
 export function tokenOf(e: KeyLike, platform = 'darwin'): string | null {
-  if (MODIFIER_KEYS.has(e.key)) return null;
+  if (MODIFIER_KEYS.has(e.key)) {return null;}
   const cmd = platform === 'darwin' ? e.metaKey : e.ctrlKey;
   let key = e.key === ' ' ? 'Space' : e.key;
-  const parts: string[] = [];
-  if (cmd) parts.push('Cmd');
-  if (e.altKey) parts.push('Alt');
+  const parts: Array<string> = [];
+  if (cmd) {parts.push('Cmd');}
+  if (e.altKey) {parts.push('Alt');}
   const isLetter = /^[a-z]$/i.test(key);
-  if (e.shiftKey && (isLetter || key.length > 1)) parts.push('Shift');
-  if (isLetter) key = parts.length ? key.toUpperCase() : key.toLowerCase();
+  if (e.shiftKey && (isLetter || key.length > 1)) {parts.push('Shift');}
+  if (isLetter) {key = parts.length ? key.toUpperCase() : key.toLowerCase();}
   return [...parts, key].join('-');
 }
 
@@ -44,16 +44,20 @@ export type Resolution = { type: 'action'; id: string } | { type: 'pending' } | 
 
 /** Resolves tokens to actions, holding a partial sequence until it completes, fails or times out. */
 export class KeyResolver {
-  private bindings: { seq: string[]; id: string; contexts: readonly Context[] }[] = [];
-  private pending: string[] = [];
+  private bindings: Array<{ seq: Array<string>; id: string; contexts: ReadonlyArray<Context> }> = [];
+  private pending: Array<string> = [];
   private pendingAt = 0;
 
-  constructor(actions: readonly ActionDef[], private readonly timeoutMs = 1000, private readonly now = () => performance.now()) {
-    for (const a of actions) for (const k of a.keys) this.bindings.push({ seq: k.split(' '), id: a.id, contexts: a.contexts });
+  constructor(actions: ReadonlyArray<ActionDef>, private readonly timeoutMs = 1000, private readonly now = () => performance.now()) {
+    for (const a of actions) {
+      for (const k of a.keys) {
+        this.bindings.push({ seq: k.split(' '), id: a.id, contexts: a.contexts });
+      }
+    }
   }
 
   feed(token: string, context: Context): Resolution {
-    if (this.pending.length && this.now() - this.pendingAt > this.timeoutMs) this.pending = [];
+    if (this.pending.length && this.now() - this.pendingAt > this.timeoutMs) {this.pending = [];}
     const seq = [...this.pending, token];
     const live = this.bindings.filter((b) => b.contexts.includes(context) && seq.every((t, i) => b.seq[i] === t));
     const exact = live.find((b) => b.seq.length === seq.length);

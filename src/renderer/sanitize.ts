@@ -1,6 +1,7 @@
 // HTML mail is the main attack surface (#3, Risks). DOMPurify is the last step: nothing changes the HTML after it.
 // The result is shown in a sandboxed frame without scripts and under a default-src 'none' CSP (see MailFrame).
-import createDOMPurify, { type DOMPurify } from 'dompurify';
+import createDOMPurify from 'dompurify';
+import type { DOMPurify } from 'dompurify';
 
 export interface SanitizedMail {
   html: string;
@@ -27,7 +28,7 @@ export function createSanitizer(win: Window & typeof globalThis = window) {
   purify.addHook('uponSanitizeElement', (node) => {
     // <style> blocks: remote url()s are counted and, when blocked, removed.
     if (node.nodeName === 'STYLE' && node.textContent) {
-      node.textContent = node.textContent.replace(/@import[^;]*;?/gi, '').replace(CSS_REMOTE_URL, (m) => {
+      node.textContent = node.textContent.replaceAll(/@import[^;]*;?/gi, '').replace(CSS_REMOTE_URL, (m) => {
         remote++;
         return blockRemote ? 'none' : m;
       });
@@ -35,14 +36,14 @@ export function createSanitizer(win: Window & typeof globalThis = window) {
   });
 
   purify.addHook('afterSanitizeAttributes', (node) => {
-    const el = node as Element;
+    const el = node;
     for (const attr of ['src', 'srcset']) {
       const v = el.getAttribute?.(attr);
-      if (!v) continue;
-      if (/^\s*cid:/i.test(v) || /^\s*data:image\//i.test(v)) continue;
+      if (!v) {continue;}
+      if (/^\s*cid:/i.test(v) || /^\s*data:image\//i.test(v)) {continue;}
       if (REMOTE.test(v) || v.split(',').some((part) => REMOTE.test(part))) {
         remote++;
-        if (blockRemote) el.removeAttribute(attr);
+        if (blockRemote) {el.removeAttribute(attr);}
       } else {
         el.removeAttribute(attr);
       }
@@ -58,7 +59,7 @@ export function createSanitizer(win: Window & typeof globalThis = window) {
     CSS_REMOTE_URL.lastIndex = 0;
     if (el.nodeName === 'A') {
       const href = el.getAttribute('href');
-      if (href && !SAFE_LINK.test(href.trim())) el.removeAttribute('href');
+      if (href && !SAFE_LINK.test(href.trim())) {el.removeAttribute('href');}
       el.removeAttribute('target');
     }
   });
@@ -69,7 +70,7 @@ export function createSanitizer(win: Window & typeof globalThis = window) {
     const out = purify.sanitize(html, {
       FORBID_TAGS, FORBID_ATTR, FORCE_BODY: true, ALLOW_DATA_ATTR: false, ALLOW_UNKNOWN_PROTOCOLS: false,
       ADD_TAGS: ['style'], USE_PROFILES: { html: true },
-    }) as string;
+    });
     return { html: out, remoteImages: remote };
   };
 }

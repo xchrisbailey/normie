@@ -1,6 +1,7 @@
 // Tests at the core's command and query seam, over the fake MailProvider.
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCore, type TestCore } from '../src/core/core';
+import { createCore } from '../src/core/core';
+import type { TestCore } from '../src/core/core';
 import { FakeProvider, fakeExtractText, seedDemo } from '../src/core/fake-provider';
 
 const NOW = Date.UTC(2026, 10, 26, 12);
@@ -40,7 +41,7 @@ describe('Inbox Split', () => {
 
   it('groups messages that share a server thread id into one Thread', async () => {
     const p = new FakeProvider();
-    p.deliver({ subject: 'Trip', threadId: 'trip', date: NOW - 3 * HOUR, flags: ['\\Seen'] });
+    p.deliver({ subject: 'Trip', threadId: 'trip', date: NOW - 3 * HOUR, flags: [String.raw`\Seen`] });
     p.deliver({ subject: 'Re: Trip', threadId: 'trip', date: NOW - HOUR, from: { name: 'Grace', address: 'g@example.com' } });
     const c = await start(p);
     await c.engine.syncOnce();
@@ -67,7 +68,7 @@ describe('Accounts in the store', () => {
     const before = await c.rows('inbox');
     expect(before.length).toBeGreaterThan(0);
     c.data.upsertAccount('gone', 'fake', 'old@example.com');
-    const notices: unknown[] = [];
+    const notices: Array<unknown> = [];
     c.onNotice((n) => notices.push(n));
 
     expect(c.data.pruneAccounts(['gmail:me@example.com', 'never-synced'])).toEqual(['gone']);

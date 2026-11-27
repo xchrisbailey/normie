@@ -1,6 +1,7 @@
 // New-mail notifications (#62): what the core reports as news, and what the renderer notifies about.
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCore, type TestCore } from '../src/core/core';
+import { createCore } from '../src/core/core';
+import type { TestCore } from '../src/core/core';
 import { FakeProvider, fakeExtractText } from '../src/core/fake-provider';
 import type { CoreNotice, ThreadRow } from '../src/core/types';
 import { NOTIFY_QUIET_MS, toNotify } from '../src/renderer/notify';
@@ -49,11 +50,12 @@ describe('news from the core', () => {
   });
 });
 
+const row = (key: string, over: Partial<ThreadRow['tags']> = {}): ThreadRow => ({
+  key, accountId: 'a', subject: `Subject ${key}`, from: `From ${key}`, date: NOW, snippet: '', unread: true, starred: false, count: 1,
+  tags: { newsletter: false, vip: false, known: false, ...over },
+});
+
 describe('what notifies', () => {
-  const row = (key: string, over: Partial<ThreadRow['tags']> = {}): ThreadRow => ({
-    key, accountId: 'a', subject: `Subject ${key}`, from: `From ${key}`, date: NOW, snippet: '', unread: true, starred: false, count: 1,
-    tags: { newsletter: false, vip: false, known: false, ...over },
-  });
   const rows = [row('known', { known: true }), row('stranger'), row('news', { known: true, newsletter: true })];
 
   it('only Threads in a notifying Split (Important by default)', () => {

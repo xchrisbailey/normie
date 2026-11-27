@@ -5,7 +5,8 @@ import { formatAddresses, parseAddresses } from '../core/addresses';
 import { AddressField } from './AddressField';
 import { WhenPicker } from './WhenPicker';
 import { describeWhen } from '../core/when';
-import { expandAt, insertAt, type Snippet } from './commands/snippets';
+import { expandAt, insertAt } from './commands/snippets';
+import type { Snippet } from './commands/snippets';
 import type { Address, DraftContent, OutgoingMessage } from '../core/types';
 
 export interface Identity {
@@ -30,9 +31,10 @@ const DRAFT_SAVE_MS = 800;
 const ATTACHMENT_LIMIT = 25 * 1024 * 1024;
 
 type Attachment = NonNullable<OutgoingMessage['attachments']>[number];
+const same = (a?: Address, b?: Address) => !!a && !!b && a.address.toLowerCase() === b.address.toLowerCase();
 const sizeOf = (n: number) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
 
-async function readFiles(files: FileList | File[]): Promise<Attachment[]> {
+async function readFiles(files: FileList | Array<File>): Promise<Array<Attachment>> {
   return Promise.all([...files].map(async (f) => ({ filename: f.name, contentType: f.type || 'application/octet-stream', content: new Uint8Array(await f.arrayBuffer()) })));
 }
 
@@ -41,9 +43,9 @@ export interface ComposerHandle {
   insert(text: string): void;
 }
 
-export default function Composer({ start, identities, onSend, onClose, onSaveDraft, onDiscard, suggest, snippets, handle }: {
+export default function Composer({ start, identities, onSend, onClose, onSaveDraft, onDiscard, suggest, snippets, handle: handleRef }: {
   start: ComposeStart;
-  identities: Identity[];
+  identities: Array<Identity>;
   /** `sendAt` for Send Later. */
   onSend: (m: OutgoingMessage, draftId?: number, sendAt?: number) => void;
   onClose: () => void;
@@ -51,11 +53,10 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
   onSaveDraft: (draftId: number | null, content: DraftContent) => Promise<number>;
   onDiscard: (draftId: number | null) => void;
   /** People to suggest in address fields. */
-  suggest: (query: string) => Promise<Address[]>;
-  snippets: readonly Snippet[];
+  suggest: (query: string) => Promise<Array<Address>>;
+  snippets: ReadonlyArray<Snippet>;
   handle?: React.MutableRefObject<ComposerHandle | null>;
 }) {
-  const same = (a?: Address, b?: Address) => !!a && !!b && a.address.toLowerCase() === b.address.toLowerCase();
   const first = identities.find((i) => i.accountId === start.accountId && same(i.from, start.from))
     ?? identities.find((i) => i.accountId === start.accountId) ?? identities[0];
   const [identity, setIdentity] = useState(first ? identities.indexOf(first) : 0);
@@ -66,39 +67,42 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
   const [subject, setSubject] = useState(start.subject ?? '');
   const [body, setBody] = useState(start.body ?? '');
   const [error, setError] = useState<string | null>(null);
-  const [attachments, setAttachments] = useState<Attachment[]>(start.attachments ?? []);
+  const [attachments, setAttachments] = useState<Array<Attachment>>(start.attachments ?? []);
   const [dragging, setDragging] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
-  const attach = (files: FileList | File[] | null) => {
-    if (files?.length) void readFiles(files).then((list) => setAttachments((a) => [...a, ...list]));
+  const attach = (files: FileList | Array<File> | null) => {
+    if (files?.length) {void readFiles(files).then((list) => setAttachments((a) => [...a, ...list]));}
   };
   const toField = useRef<HTMLInputElement>(null);
   const bodyField = useRef<HTMLTextAreaElement>(null);
   /** Where to put the cursor after the body changes from code (a snippet). */
   const nextCursor = useRef<number | null>(null);
   useLayoutEffect(() => {
-    if (nextCursor.current === null || !bodyField.current) return;
+    if (nextCursor.current === null || !bodyField.current) {return;}
     bodyField.current.focus();
     bodyField.current.setSelectionRange(nextCursor.current, nextCursor.current);
     nextCursor.current = null;
   }, [body]);
   const lastSelection = useRef({ start: (start.body ?? '').length, end: (start.body ?? '').length });
-  if (handle) {
-    handle.current = {
-      insert: (text) => {
-        const { start: s, end } = lastSelection.current;
-        const r = insertAt(body, Math.min(s, body.length), Math.min(end, body.length), text);
-        nextCursor.current = r.cursor;
-        setBody(r.text);
-      },
-    };
-  }
+  // After every commit, so `insert` always sees the current body.
+  useLayoutEffect(() => {
+    if (handleRef) {
+      handleRef.current = {
+        insert: (text) => {
+          const { start: s, end } = lastSelection.current;
+          const r = insertAt(body, Math.min(s, body.length), Math.min(end, body.length), text);
+          nextCursor.current = r.cursor;
+          setBody(r.text);
+        },
+      };
+    }
+  });
   const onBodyKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key !== 'Tab' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key !== 'Tab' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) {return;}
     const el = e.currentTarget;
-    if (el.selectionStart !== el.selectionEnd) return;
+    if (el.selectionStart !== el.selectionEnd) {return;}
     const r = expandAt(body, el.selectionStart, snippets);
-    if (!r) return;
+    if (!r) {return;}
     e.preventDefault();
     nextCursor.current = r.cursor;
     setBody(r.text);
@@ -111,27 +115,32 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const content = (): DraftContent => {
     const id = identities[identity];
-    return {
-      accountId: id?.accountId ?? start.accountId ?? '', ...(id ? { from: id.from } : {}), to, cc, bcc, subject, body,
-      ...(start.inReplyTo ? { inReplyTo: start.inReplyTo } : {}), ...(start.references ? { references: start.references } : {}),
-      ...(attachments.length ? { attachments } : {}),
-    };
+    const draft: DraftContent = { accountId: id?.accountId ?? start.accountId ?? '', to, cc, bcc, subject, body };
+    if (id) {draft.from = id.from;}
+    if (start.inReplyTo) {draft.inReplyTo = start.inReplyTo;}
+    if (start.references) {draft.references = start.references;}
+    if (attachments.length) {draft.attachments = attachments;}
+    return draft;
   };
   const latestContent = useRef(content);
-  latestContent.current = content;
+  // After every commit, so a save (a timer, a promise) reads what's on screen.
+  useLayoutEffect(() => {
+    latestContent.current = content;
+  });
   const saveNow = () => {
     clearTimeout(timer.current);
-    if (!dirty.current) return;
+    if (!dirty.current) {return;}
     dirty.current = false;
     const after = saving.current ?? Promise.resolve(draftId.current);
     saving.current = after.then((id) => onSaveDraft(id, latestContent.current())).then((id) => (draftId.current = id));
   };
   const mounted = useRef(true);
   useEffect(() => {
-    if (mounted.current) return void (mounted.current = false);
+    if (mounted.current) {return void (mounted.current = false);}
     dirty.current = true;
     clearTimeout(timer.current);
     timer.current = setTimeout(saveNow, DRAFT_SAVE_MS);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs when the content changes; saveNow reads refs
   }, [to, cc, bcc, subject, body, identity, attachments]);
   const close = () => {
     saveNow();
@@ -148,33 +157,39 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
     const field = start.to?.length ? bodyField.current : toField.current;
     field?.focus();
     // A reply starts above the quote.
-    if (field === bodyField.current) bodyField.current?.setSelectionRange(0, 0);
+    if (field === bodyField.current) {bodyField.current?.setSelectionRange(0, 0);}
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- place the cursor once, when the Composer opens
   }, []);
 
   const [picking, setPicking] = useState<null | 'later' | 'reminder'>(null);
   /** A Reminder: bring the Thread back if nobody answers by then. */
   const [remindAt, setRemindAt] = useState<number | undefined>(start.remindAt);
+  /** When the Reminder was set or the composer opened: what its time reads relative to (the clock isn't read in render). */
+  const [remindShownAt, setRemindShownAt] = useState(() => Date.now());
   const send = (sendAt?: number) => {
     const id = identities[identity];
-    if (!id) return setError('Add an Account before sending.');
-    const lists = [parseAddresses(to), parseAddresses(cc), parseAddresses(bcc)];
+    if (!id) {return setError('Add an Account before sending.');}
+    const toList = parseAddresses(to);
+    const ccList = parseAddresses(cc);
+    const bccList = parseAddresses(bcc);
+    const lists = [toList, ccList, bccList];
     const invalid = lists.flatMap((l) => l.invalid);
-    if (invalid.length) return setError(`Not an address: ${invalid.join(', ')}`);
-    if (!lists.some((l) => l.addresses.length)) return setError('Add at least one recipient.');
+    if (invalid.length) {return setError(`Not an address: ${invalid.join(', ')}`);}
+    if (!lists.some((l) => l.addresses.length)) {return setError('Add at least one recipient.');}
     const total = attachments.reduce((n, a) => n + a.content.length, 0);
-    if (total > ATTACHMENT_LIMIT) return setError(`Attachments come to ${sizeOf(total)}; the limit is 25 MB.`);
+    if (total > ATTACHMENT_LIMIT) {return setError(`Attachments come to ${sizeOf(total)}; the limit is 25 MB.`);}
     clearTimeout(timer.current);
     dirty.current = false;
     const message: OutgoingMessage = {
-      accountId: id.accountId, from: id.from, to: lists[0]!.addresses, cc: lists[1]!.addresses, bcc: lists[2]!.addresses, subject, body,
-      ...(start.inReplyTo ? { inReplyTo: start.inReplyTo } : {}),
-      ...(start.references?.length ? { references: start.references } : {}),
-      ...(attachments.length ? { attachments } : {}),
-      ...(remindAt !== undefined ? { remindAt } : {}),
+      accountId: id.accountId, from: id.from, to: toList.addresses, cc: ccList.addresses, bcc: bccList.addresses, subject, body,
     };
+    if (start.inReplyTo) {message.inReplyTo = start.inReplyTo;}
+    if (start.references?.length) {message.references = start.references;}
+    if (attachments.length) {message.attachments = attachments;}
+    if (remindAt !== undefined) {message.remindAt = remindAt;}
     // Wait for a save in flight, so the draft it creates is the one removed.
-    if (saving.current) void saving.current.then((d) => onSend(message, d, sendAt));
-    else onSend(message, draftId.current ?? undefined, sendAt);
+    if (saving.current) {void saving.current.then((d) => onSend(message, d, sendAt));}
+    else {onSend(message, draftId.current ?? undefined, sendAt);}
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -206,7 +221,7 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
       aria-label="Compose"
       onKeyDown={onKeyDown}
       onDragOver={(e) => {
-        if (![...e.dataTransfer.types].includes('Files')) return;
+        if (![...e.dataTransfer.types].includes('Files')) {return;}
         e.preventDefault();
         setDragging(true);
       }}
@@ -270,9 +285,10 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
           onClose={() => { setPicking(null); bodyField.current?.focus(); }}
           onPick={(at) => {
             setPicking(null);
-            if (picking === 'later') send(at);
+            if (picking === 'later') {send(at);}
             else {
               setRemindAt(at);
+              setRemindShownAt(Date.now());
               bodyField.current?.focus();
             }
           }}
@@ -280,7 +296,7 @@ export default function Composer({ start, identities, onSend, onClose, onSaveDra
       )}
       {remindAt !== undefined && (
         <div className="reminder-line">
-          ⏰ Back in the Inbox {describeWhen(new Date(remindAt), new Date())} if nobody replies
+          ⏰ Back in the Inbox {describeWhen(new Date(remindAt), new Date(remindShownAt))} if nobody replies
           <button type="button" className="quiet" onClick={() => setRemindAt(undefined)} aria-label="Remove the Reminder">×</button>
         </div>
       )}

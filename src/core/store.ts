@@ -1,13 +1,16 @@
 // The local store: one SQLite file in WAL mode, owned by the data process.
 import Database from 'better-sqlite3';
+import { expected } from './errors';
+import { isJsonObject, numberList, stringList } from './json';
 import { ftsQuery } from './search-query';
+import { parseAddress, parseAddressList, parseAttachmentInfos, parseEdit, parseObject, parseResult, stringField, toAddressList } from './stored-json';
 import { SNOOZED } from './types';
 import type {
   AccountId, Address, AttachmentInfo, ChangeResult, ScheduledSummary, DraftContent, LabelSet, DraftSummary, DraftToSync, FlagChange, OutboxItem, OutgoingMessage, MailboxRole, MessageEdit, PendingChange, RemoteHeader, SplitId, SyncState, ThreadAction,
-  ThreadMessage, ThreadRow,
+  RowTags, ThreadMessage, ThreadRow,
 } from './types';
 
-const INBOX_LABEL = '\\Inbox';
+const INBOX_LABEL = String.raw`\Inbox`;
 
 /**
  * Contacts from every stored message: senders, and the people on mail I sent (counted as sent-to) or received
@@ -42,7 +45,7 @@ const REBUILD_CONTACTS_V1 = `
   group by address;
 `;
 
-const MIGRATIONS: string[] = [
+const MIGRATIONS: Array<string> = [
   `
   create table accounts (
     id text primary key,
@@ -295,15 +298,15 @@ type RowData = {
 };
 
 function toThreadRow(r: RowData): ThreadRow {
+  const tags: RowTags = { newsletter: r.is_list === 1, vip: r.vip === 1, known: r.known === 1 };
+  if (r.wake_at !== undefined && r.wake_at !== null) {tags.snoozedUntil = r.wake_at;}
+  if (r.reminded) {tags.reminder = true;}
+  if (r.sender) {tags.sender = r.sender;}
+  if (r.labels_json !== '[]') {tags.labels = stringList(r.labels_json);}
   return {
     key: threadRowKey(r.account_id, r.thread_key), accountId: r.account_id, subject: r.subject, from: r.from_label,
     date: Math.max(r.last_date, r.woke_at ?? 0), snippet: r.snippet, unread: r.unread === 1, starred: r.starred === 1, count: r.count,
-    tags: {
-      ...(r.wake_at !== undefined && r.wake_at !== null ? { snoozedUntil: r.wake_at } : {}),
-      ...(r.reminded ? { reminder: true } : {}),
-      newsletter: r.is_list === 1, vip: r.vip === 1, known: r.known === 1, ...(r.sender ? { sender: r.sender } : {}),
-      ...(r.labels_json !== '[]' ? { labels: JSON.parse(r.labels_json) as string[] } : {}),
-    },
+    tags,
   };
 }
 
@@ -320,23 +323,25 @@ const NEWS_SLACK_MS = 10 * 60_000;
 /** How long a delete waits before it's sent, so it can still be undone. */
 export const DELETE_HOLD_MS = 10_000;
 
-const FLAGGED = '\\Flagged';
+const FLAGGED = String.raw`\Flagged`;
 
-const DRAFT = '\\Draft';
-const SEEN = '\\Seen';
-const TRASH = '\\Trash';
+const DRAFT = String.raw`\Draft`;
+const SEEN = String.raw`\Seen`;
+const TRASH = String.raw`\Trash`;
 
 /** Changes kept after they reach the server, so recent actions can still be undone. */
 const KEEP_APPLIED = 500;
 
-const inverseOf = (e: MessageEdit): MessageEdit => ({
-  ...(e.removeFlags ? { addFlags: e.removeFlags } : {}),
-  ...(e.addFlags ? { removeFlags: e.addFlags } : {}),
-  ...(e.removeLabels ? { addLabels: e.removeLabels } : {}),
-  ...(e.addLabels ? { removeLabels: e.addLabels } : {}),
-});
+const inverseOf = (e: MessageEdit): MessageEdit => {
+  const inverse: MessageEdit = {};
+  if (e.removeFlags) {inverse.addFlags = e.removeFlags;}
+  if (e.addFlags) {inverse.removeFlags = e.addFlags;}
+  if (e.removeLabels) {inverse.addLabels = e.removeLabels;}
+  if (e.addLabels) {inverse.removeLabels = e.addLabels;}
+  return inverse;
+};
 
-type WithAttachments = { attachments?: { filename: string; contentType: string; content: Uint8Array }[] };
+type WithAttachments = { attachments?: Array<{ filename: string; contentType: string; content: Uint8Array }> };
 
 /** Outgoing messages and drafts are stored as JSON, attachments as base64. */
 function encodeMessage<T extends WithAttachments>(m: T): string {
@@ -344,15 +349,20 @@ function encodeMessage<T extends WithAttachments>(m: T): string {
 }
 
 function decodeMessage<T extends WithAttachments = OutgoingMessage>(json: string): T {
-  const m = JSON.parse(json) as Omit<T, 'attachments'> & { attachments: { filename: string; contentType: string; content: string }[] };
-  return { ...m, attachments: m.attachments.map((a) => ({ ...a, content: new Uint8Array(Buffer.from(a.content, 'base64')) })) } as unknown as T;
+  const stored = parseObject(json);
+  const attachments = (Array.isArray(stored.attachments) ? stored.attachments : []).flatMap((a) => {
+    if (!isJsonObject(a) || typeof a.filename !== 'string' || typeof a.contentType !== 'string' || typeof a.content !== 'string') {return [];}
+    return [{ filename: a.filename, contentType: a.contentType, content: new Uint8Array(Buffer.from(a.content, 'base64')) }];
+  });
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the JSON was written by encodeMessage from a T; its other fields come back as stored
+  return { ...stored, attachments } as T;
 }
 
 /** Applies an edit to a list of flags or Labels. */
-function edited(xs: string[], add?: string[], remove?: string[]): string[] {
+function edited(xs: Array<string>, add?: Array<string>, remove?: Array<string>): Array<string> {
   const s = new Set(xs);
-  for (const x of remove ?? []) s.delete(x);
-  for (const x of add ?? []) s.add(x);
+  for (const x of remove ?? []) {s.delete(x);}
+  for (const x of add ?? []) {s.add(x);}
   return [...s];
 }
 
@@ -381,13 +391,13 @@ interface Folders {
   snoozed: string;
 }
 
-function planAction(action: ThreadAction, msgs: ActionMessage[], folders?: Folders): { pick: ActionMessage[]; edit: MessageEdit }[] {
+function planAction(action: ThreadAction, msgs: Array<ActionMessage>, folders?: Folders): Array<{ pick: Array<ActionMessage>; edit: MessageEdit }> {
   if (folders) {
     const plan = planFolderAction(action, msgs, folders);
-    if (plan) return plan;
+    if (plan) {return plan;}
   }
   const labelled = msgs.filter((m) => m.role !== 'inbox');
-  const inInbox = labelled.filter((m) => (JSON.parse(m.labels_json) as string[]).includes(INBOX_LABEL));
+  const inInbox = labelled.filter((m) => stringList(m.labels_json).includes(INBOX_LABEL));
   const latest = msgs.at(-1);
   switch (action.type) {
     case 'done':
@@ -395,7 +405,7 @@ function planAction(action: ThreadAction, msgs: ActionMessage[], folders?: Folde
       return [{ pick: inInbox, edit: { removeLabels: [INBOX_LABEL] } }];
     case 'label': {
       // Gmail labels the whole Thread: every message that lacks the Label gets it; removing takes it off all.
-      const has = (m: ActionMessage) => (JSON.parse(m.labels_json) as string[]).includes(action.label);
+      const has = (m: ActionMessage) => stringList(m.labels_json).includes(action.label);
       return [action.on
         ? { pick: labelled.filter((m) => !has(m)), edit: { addLabels: [action.label] } }
         : { pick: labelled.filter(has), edit: { removeLabels: [action.label] } }];
@@ -428,7 +438,7 @@ function planAction(action: ThreadAction, msgs: ActionMessage[], folders?: Folde
  * Done, delete, mute and Labels on folder servers, where they're moves. Flags (star, read) are the same as on Gmail,
  * so those return null and planAction handles them.
  */
-function planFolderAction(action: ThreadAction, msgs: ActionMessage[], f: Folders): { pick: ActionMessage[]; edit: MessageEdit }[] | null {
+function planFolderAction(action: ThreadAction, msgs: Array<ActionMessage>, f: Folders): Array<{ pick: Array<ActionMessage>; edit: MessageEdit }> | null {
   const inInbox = msgs.filter((m) => m.role === 'inbox');
   switch (action.type) {
     case 'done':
@@ -442,7 +452,7 @@ function planFolderAction(action: ThreadAction, msgs: ActionMessage[], f: Folder
       return [{ pick: msgs.filter((m) => m.mailbox !== f.trash), edit: { moveTo: f.trash } }];
     case 'label':
       // A folder is a place: the Thread's mail (not Sent, Drafts or Trash) moves there. Taking a "Label" off moves nothing.
-      if (!action.on) return [];
+      if (!action.on) {return [];}
       return [{ pick: msgs.filter((m) => (m.role === null || m.role === 'inbox' || m.role === 'archive') && m.mailbox !== action.label), edit: { moveTo: action.label } }];
     default:
       return null;
@@ -459,6 +469,16 @@ export interface BodyInput {
   uid: number;
   raw: Uint8Array;
   text: string;
+}
+
+/** A message as the store knows it, for replying when its body isn't downloaded. */
+export interface MessageSummary {
+  messageId?: string;
+  from?: Address;
+  to: Array<Address>;
+  subject: string;
+  date: number;
+  text: string | null;
 }
 
 const addressLabel = (a?: Address) => (a ? a.name || a.address : '');
@@ -487,10 +507,11 @@ export class Store {
   }
 
   private migrate() {
-    const version = this.db.pragma('user_version', { simple: true }) as number;
+    const stored = this.db.pragma('user_version', { simple: true });
+    const version = typeof stored === 'number' ? stored : 0;
     for (let v = version; v < MIGRATIONS.length; v++) {
       this.db.transaction(() => {
-        this.db.exec(MIGRATIONS[v]!);
+        this.db.exec(expected(MIGRATIONS[v], 'a migration'));
         this.db.pragma(`user_version = ${v + 1}`);
       })();
     }
@@ -506,16 +527,22 @@ export class Store {
     this.db.pragma('shrink_memory');
   }
 
-  /** A prepared statement for this SQL, made once. Returned in its default mode; callers may .pluck() it. */
-  private sql(text: string): Database.Statement {
+  /**
+   * A prepared statement for this SQL, made once. Returned in its default mode; callers may .pluck() it.
+   * `Row` is what the SQL selects: a row object, or the one column's value for a plucked statement.
+   */
+  private sql<Row = unknown>(text: string): Database.Statement<Array<unknown>, Row> {
     let st = this.statements.get(text);
     if (!st) {
       // SQL built from parts (IN lists of varying length) can't grow this without bound.
-      if (this.statements.size > 1000) this.statements.clear();
+      if (this.statements.size > 1000) {this.statements.clear();}
       st = this.db.prepare(text);
       this.statements.set(text, st);
     }
-    return st.reader ? st.pluck(false) : st;
+    // The cache holds statements of every row type; this one was prepared from `text`, which selects `Row`.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the row type is the SQL's, given by the caller
+    const typed = st as Database.Statement<Array<unknown>, Row>;
+    return typed.reader ? typed.pluck(false) : typed;
   }
 
   // --- Accounts and mailboxes
@@ -530,31 +557,31 @@ export class Store {
   removeAccount(id: AccountId) {
     this.db.transaction(() => {
       this.sql('delete from bodies where message_id in (select id from messages where account_id = ?)').run(id);
-      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes', 'muted_threads', 'outbox', 'drafts', 'draft_deletions', 'thread_refs', 'identities', 'snoozes', 'reminders']) this.sql(`delete from ${t} where account_id = ?`).run(id);
+      for (const t of ['threads', 'messages', 'mailboxes', 'pending_changes', 'muted_threads', 'outbox', 'drafts', 'draft_deletions', 'thread_refs', 'identities', 'snoozes', 'reminders']) {this.sql(`delete from ${t} where account_id = ?`).run(id);}
       this.sql('delete from accounts where id = ?').run(id);
     })();
   }
 
   /** The addresses an Account sends as. They're mine: never suggested, and mail from them counts as sent. */
-  setIdentities(accountId: AccountId, addresses: string[]) {
+  setIdentities(accountId: AccountId, addresses: Array<string>) {
     this.db.transaction(() => {
       this.sql('delete from identities where account_id = ?').run(accountId);
       const put = this.sql('insert or ignore into identities(account_id, address) values (?, ?)');
-      for (const a of addresses) put.run(accountId, a.toLowerCase());
+      for (const a of addresses) {put.run(accountId, a.toLowerCase());}
       // Contacts that turn out to be me go.
-      for (const a of addresses) this.sql('delete from contacts where address = ?').run(a.toLowerCase());
+      for (const a of addresses) {this.sql('delete from contacts where address = ?').run(a.toLowerCase());}
     })();
     this.mine = undefined;
   }
 
   /** Delete every Account not in `keep`, with its mail. Returns the ids removed. */
-  pruneAccounts(keep: AccountId[]): AccountId[] {
-    const ids = (this.sql('select id from accounts').all() as { id: string }[]).map((r) => r.id).filter((id) => !keep.includes(id));
-    for (const id of ids) this.removeAccount(id);
+  pruneAccounts(keep: Array<AccountId>): Array<AccountId> {
+    const ids = this.sql<string>('select id from accounts').pluck().all().filter((id) => !keep.includes(id));
+    for (const id of ids) {this.removeAccount(id);}
     return ids;
   }
 
-  setMailboxes(accountId: AccountId, boxes: { path: string; role?: MailboxRole }[]) {
+  setMailboxes(accountId: AccountId, boxes: Array<{ path: string; role?: MailboxRole }>) {
     const up = this.sql(
       'insert into mailboxes(account_id, path, role) values (?, ?, ?) on conflict(account_id, path) do update set role = excluded.role',
     );
@@ -562,8 +589,10 @@ export class Store {
       boxes.forEach((b) => up.run(accountId, b.path, b.role ?? null));
       // Labels deleted elsewhere go too; a mailbox Normie syncs keeps its sync state until it's really gone.
       const keep = new Set(boxes.map((b) => b.path));
-      const known = this.sql('select path from mailboxes where account_id = ? and uid_validity is null').pluck().all(accountId) as string[];
-      for (const path of known) if (!keep.has(path)) this.sql('delete from mailboxes where account_id = ? and path = ?').run(accountId, path);
+      const known = this.sql<string>('select path from mailboxes where account_id = ? and uid_validity is null').pluck().all(accountId);
+      for (const path of known) {
+        if (!keep.has(path)) {this.sql('delete from mailboxes where account_id = ? and path = ?').run(accountId, path);}
+      }
     })();
   }
 
@@ -572,7 +601,7 @@ export class Store {
    * Folder servers have none until milestone 4.
    */
   labels(accountId: AccountId): LabelSet {
-    const boxes = this.sql('select path, role from mailboxes where account_id = ? order by path collate nocase').all(accountId) as { path: string; role: string | null }[];
+    const boxes = this.sql<{ path: string; role: string | null }>('select path, role from mailboxes where account_id = ? order by path collate nocase').all(accountId);
     // Gmail: Labels are its mailboxes, less the Inbox and system ones. Folder servers: their own folders, to move to.
     const names = boxes
       .filter((b) => b.role === null && b.path.toUpperCase() !== 'INBOX' && !/^\[(Gmail|Google Mail)\]\//.test(b.path))
@@ -582,26 +611,28 @@ export class Store {
 
   mailboxState(accountId: AccountId, path: string): SyncState | null {
     const r = this
-      .sql('select uid_validity, uid_next, highest_modseq from mailboxes where account_id = ? and path = ?')
-      .get(accountId, path) as { uid_validity: string | null; uid_next: number | null; highest_modseq: string | null } | undefined;
-    if (!r || r.uid_validity === null) return null;
-    return { uidValidity: r.uid_validity, uidNext: r.uid_next ?? 0, ...(r.highest_modseq ? { highestModseq: r.highest_modseq } : {}) };
+      .sql<{ uid_validity: string | null; uid_next: number | null; highest_modseq: string | null }>('select uid_validity, uid_next, highest_modseq from mailboxes where account_id = ? and path = ?')
+      .get(accountId, path);
+    if (!r || r.uid_validity === null) {return null;}
+    const state: SyncState = { uidValidity: r.uid_validity, uidNext: r.uid_next ?? 0 };
+    if (r.highest_modseq) {state.highestModseq = r.highest_modseq;}
+    return state;
   }
 
   /** UIDs already stored, optionally only those dated on or after `since`. */
-  knownUids(accountId: AccountId, mailbox: string, since = 0): number[] {
+  knownUids(accountId: AccountId, mailbox: string, since = 0): Array<number> {
     return this
-      .sql('select uid from messages where account_id = ? and mailbox = ? and date >= ? order by uid')
+      .sql<number>('select uid from messages where account_id = ? and mailbox = ? and date >= ? order by uid')
       .pluck()
-      .all(accountId, mailbox, since) as number[];
+      .all(accountId, mailbox, since);
   }
 
   /** UIDs of messages in the window that still need their body, newest first. */
-  uidsNeedingBodies(accountId: AccountId, mailbox: string, windowStart: number, limit: number): number[] {
+  uidsNeedingBodies(accountId: AccountId, mailbox: string, windowStart: number, limit: number): Array<number> {
     return this
-      .sql('select uid from messages where account_id = ? and mailbox = ? and has_body = 0 and date >= ? order by date desc limit ?')
+      .sql<number>('select uid from messages where account_id = ? and mailbox = ? and has_body = 0 and date >= ? order by date desc limit ?')
       .pluck()
-      .all(accountId, mailbox, windowStart, limit) as number[];
+      .all(accountId, mailbox, windowStart, limit);
   }
 
   // --- Writes from sync
@@ -610,7 +641,7 @@ export class Store {
   applyChanges(
     accountId: AccountId,
     mailbox: string,
-    batch: { state?: SyncState; reset?: boolean; headers?: RemoteHeader[]; flagChanges?: FlagChange[]; vanished?: number[] },
+    batch: { state?: SyncState; reset?: boolean; headers?: Array<RemoteHeader>; flagChanges?: Array<FlagChange>; vanished?: Array<number> },
     now = Date.now(),
   ): boolean {
     const touched = new Set<string>();
@@ -618,13 +649,13 @@ export class Store {
     const arrived = new Set<string>();
     /** Of those, the ones with news: mail from someone else, dated after the last check, in a mailbox already synced once. */
     const news = new Set<string>();
-    const checkedAt = this.sql('select checked_at from mailboxes where account_id = ? and path = ?').pluck().get(accountId, mailbox) as number | null | undefined;
+    const checkedAt = this.sql<number | null>('select checked_at from mailboxes where account_id = ? and path = ?').pluck().get(accountId, mailbox);
     const mine = this.myAddresses();
     let inboxChanged = false;
     // On folder servers, being in the Inbox mailbox is what puts a message in the Inbox; on Gmail it's the \Inbox label.
     const isInboxMailbox = this.sql('select role from mailboxes where account_id = ? and path = ?').pluck().get(accountId, mailbox) === 'inbox';
-    const inInbox = (labels: string[]) => (isInboxMailbox || labels.includes(INBOX_LABEL) ? 1 : 0);
-    const threadOf = this.sql('select thread_key from messages where account_id = ? and mailbox = ? and uid = ?').pluck();
+    const inInbox = (labels: Array<string>) => (isInboxMailbox || labels.includes(INBOX_LABEL) ? 1 : 0);
+    const threadOf = this.sql<string>('select thread_key from messages where account_id = ? and mailbox = ? and uid = ?').pluck();
     const insert = this.sql(`
       insert into messages(account_id, mailbox, uid, remote_id, thread_key, message_id, subject, from_json, to_json, date,
                            flags_json, labels_json, in_inbox, unread, starred, is_list)
@@ -642,23 +673,25 @@ export class Store {
 
     this.db.transaction(() => {
       if (batch.reset) {
-        const keys = this.sql('select distinct thread_key from messages where account_id = ? and mailbox = ?').pluck().all(accountId, mailbox) as string[];
+        const keys = this.sql<string>('select distinct thread_key from messages where account_id = ? and mailbox = ?').pluck().all(accountId, mailbox);
         keys.forEach((k) => touched.add(k));
         this.sql('delete from messages where account_id = ? and mailbox = ?').run(accountId, mailbox);
       }
       for (const h of batch.headers ?? []) {
-        const old = threadOf.get(accountId, mailbox, h.uid) as string | undefined;
-        if (old) touched.add(old);
+        const old = threadOf.get(accountId, mailbox, h.uid);
+        if (old) {touched.add(old);}
         // Drafts are Normie's own business (see the drafts table), not messages in a Thread.
         if (h.flags.includes(DRAFT)) {
-          if (old) del.run(accountId, mailbox, h.uid);
+          if (old) {del.run(accountId, mailbox, h.uid);}
           continue;
         }
         const threadKey = h.threadId ?? this.localThread(accountId, h, touched);
         if (!old) {
           arrived.add(threadKey);
           this.noteContacts(h.from, h.to, h.date);
-          if (!batch.reset && checkedAt && h.date >= checkedAt - NEWS_SLACK_MS && !(h.from && mine.has(h.from.address.toLowerCase()))) news.add(threadKey);
+          if (!batch.reset && checkedAt && h.date >= checkedAt - NEWS_SLACK_MS && !(h.from && mine.has(h.from.address.toLowerCase()))) {
+            news.add(threadKey);
+          }
         }
         touched.add(threadKey);
         insert.run({
@@ -670,8 +703,8 @@ export class Store {
         });
       }
       for (const f of batch.flagChanges ?? []) {
-        const key = threadOf.get(accountId, mailbox, f.uid) as string | undefined;
-        if (!key) continue;
+        const key = threadOf.get(accountId, mailbox, f.uid);
+        if (!key) {continue;}
         touched.add(key);
         if (f.flags.includes(DRAFT)) {
           del.run(accountId, mailbox, f.uid);
@@ -684,8 +717,8 @@ export class Store {
         );
       }
       for (const uid of batch.vanished ?? []) {
-        const key = threadOf.get(accountId, mailbox, uid) as string | undefined;
-        if (!key) continue;
+        const key = threadOf.get(accountId, mailbox, uid);
+        if (!key) {continue;}
         touched.add(key);
         del.run(accountId, mailbox, uid);
       }
@@ -693,9 +726,9 @@ export class Store {
       const written = new Set([...(batch.headers ?? []).map((h) => h.uid), ...(batch.flagChanges ?? []).map((f) => f.uid)]);
       if (written.size) {
         for (const c of this.listPending(accountId)) {
-          if (c.mailbox !== mailbox) continue;
+          if (c.mailbox !== mailbox) {continue;}
           const uids = c.uids.filter((u) => written.has(u));
-          if (uids.length) this.editMessages(accountId, mailbox, uids, c.edit).forEach((k) => touched.add(k));
+          if (uids.length) {this.editMessages(accountId, mailbox, uids, c.edit).forEach((k) => touched.add(k));}
         }
       }
       if (batch.state) {
@@ -704,16 +737,20 @@ export class Store {
           .sql('update mailboxes set uid_validity = ?, uid_next = ?, highest_modseq = ? where account_id = ? and path = ?')
           .run(batch.state.uidValidity, batch.state.uidNext, batch.state.highestModseq ?? null, accountId, mailbox);
       }
-      for (const key of touched) if (this.refreshThread(accountId, key)) inboxChanged = true;
+      for (const key of touched) {
+        if (this.refreshThread(accountId, key)) {inboxChanged = true;}
+      }
       // News, if the Thread is (still) in the Inbox; muted Threads are handled next and never notify.
       const inInboxNow = this.sql('select in_inbox from threads where account_id = ? and thread_key = ?').pluck();
       const muted0 = this.sql('select 1 from muted_threads where account_id = ? and thread_key = ?').pluck();
-      for (const key of news) if (inInboxNow.get(accountId, key) === 1 && !muted0.get(accountId, key)) this.arrivals.add(threadRowKey(accountId, key));
+      for (const key of news) {
+        if (inInboxNow.get(accountId, key) === 1 && !muted0.get(accountId, key)) {this.arrivals.add(threadRowKey(accountId, key));}
+      }
       // New mail in a muted Thread is marked Done straight away, so it never shows in the Inbox.
       const muted = this.sql('select 1 from muted_threads where account_id = ? and thread_key = ?').pluck();
       for (const key of arrived) {
-        if (!muted.get(accountId, key)) continue;
-        if (this.recordAction(threadRowKey(accountId, key), { type: 'done' }).changes.length) this.replayNeeded.add(accountId);
+        if (!muted.get(accountId, key)) {continue;}
+        if (this.recordAction(threadRowKey(accountId, key), { type: 'done' }).changes.length) {this.replayNeeded.add(accountId);}
       }
     })();
     return inboxChanged;
@@ -725,17 +762,17 @@ export class Store {
    * Record a triage action on a Thread: change the local copy at once and queue the change for the server.
    * Returns the pending changes made (none when the action changes nothing, such as Done on a Thread already out of the Inbox).
    */
-  recordAction(key: string, action: ThreadAction, now = Date.now(), holdMs = DELETE_HOLD_MS): { changes: PendingChange[]; inboxChanged: boolean } {
+  recordAction(key: string, action: ThreadAction, now = Date.now(), holdMs = DELETE_HOLD_MS) {
     const { accountId, threadKey } = parseThreadKey(key);
     const msgs = this
-      .sql(`select m.mailbox, m.uid, m.labels_json, m.unread, m.starred, mb.role from messages m
+      .sql<ActionMessage>(`select m.mailbox, m.uid, m.labels_json, m.unread, m.starred, mb.role from messages m
                 left join mailboxes mb on mb.account_id = m.account_id and mb.path = m.mailbox
                 where m.account_id = ? and m.thread_key = ? order by m.date asc, m.id asc`)
-      .all(accountId, threadKey) as { mailbox: string; uid: number; labels_json: string; unread: number; starred: number; role: string | null }[];
+      .all(accountId, threadKey);
     // A delete waits a little before it's sent, so z can still cancel it: once Gmail moves mail to Trash,
     // it leaves All Mail and an inverse change would find nothing there to put back.
     const sendAfter = action.type === 'delete' ? now + holdMs : 0;
-    const changes: PendingChange[] = [];
+    const changes: Array<PendingChange> = [];
     let inboxChanged = false;
     this.db.transaction(() => {
       if (action.type === 'mute') {
@@ -744,12 +781,14 @@ export class Store {
           : 'delete from muted_threads where account_id = ? and thread_key = ?').run(accountId, threadKey);
       }
       for (const { pick, edit } of planAction(action, msgs, this.foldersOf(accountId))) {
-        const targets = new Map<string, number[]>();
-        for (const m of pick) targets.set(m.mailbox, [...(targets.get(m.mailbox) ?? []), m.uid]);
+        const targets = new Map<string, Array<number>>();
+        for (const m of pick) {targets.set(m.mailbox, [...(targets.get(m.mailbox) ?? []), m.uid]);}
         for (const [mailbox, uids] of targets) {
           const id = this.queueChange(accountId, threadKey, mailbox, uids, edit, now, sendAfter);
           changes.push({ id, accountId, threadKey, mailbox, uids, edit, attempts: 0 });
-          for (const k of this.editMessages(accountId, mailbox, uids, edit)) if (this.refreshThread(accountId, k)) inboxChanged = true;
+          for (const k of this.editMessages(accountId, mailbox, uids, edit)) {
+            if (this.refreshThread(accountId, k)) {inboxChanged = true;}
+          }
         }
       }
       // Dealing with a Thread that came back on a Reminder (Done, delete, Snooze, a move) settles it.
@@ -766,8 +805,8 @@ export class Store {
 
   /** Where moves go, for a folder-server Account (none for Gmail, which has All Mail). */
   private foldersOf(accountId: AccountId): Folders | undefined {
-    const boxes = this.sql('select path, role from mailboxes where account_id = ?').all(accountId) as { path: string; role: string | null }[];
-    if (!boxes.length || boxes.some((b) => b.role === 'all')) return undefined;
+    const boxes = this.sql<{ path: string; role: string | null }>('select path, role from mailboxes where account_id = ?').all(accountId);
+    if (!boxes.length || boxes.some((b) => b.role === 'all')) {return undefined;}
     return {
       archive: boxes.find((b) => b.role === 'archive')?.path ?? 'Archive',
       trash: boxes.find((b) => b.role === 'trash')?.path ?? 'Trash',
@@ -776,24 +815,24 @@ export class Store {
   }
 
   /** Apply an edit to local messages. Returns the thread keys touched; the caller refreshes them. */
-  private editMessages(accountId: AccountId, mailbox: string, uids: number[], edit: MessageEdit): string[] {
-    const roleOf = this.sql('select role from mailboxes where account_id = ? and path = ?').pluck();
+  private editMessages(accountId: AccountId, mailbox: string, uids: Array<number>, edit: MessageEdit): Array<string> {
+    const roleOf = this.sql<string | null>('select role from mailboxes where account_id = ? and path = ?').pluck();
     if (edit.moveTo !== undefined) {
       // A move only changes where the message counts: in the Inbox if it's going to the Inbox. The server moves it;
       // the next sync sees it gone from here and arrived there.
       const inbox = roleOf.get(accountId, edit.moveTo) === 'inbox' ? 1 : 0;
-      const set = this.sql('update messages set in_inbox = ? where account_id = ? and mailbox = ? and uid = ? returning thread_key').pluck();
-      return [...new Set(uids.flatMap((uid) => (set.all(inbox, accountId, mailbox, uid) as string[])))];
+      const set = this.sql<string>('update messages set in_inbox = ? where account_id = ? and mailbox = ? and uid = ? returning thread_key').pluck();
+      return [...new Set(uids.flatMap((uid) => set.all(inbox, accountId, mailbox, uid)))];
     }
     const isInboxMailbox = roleOf.get(accountId, mailbox) === 'inbox';
-    const get = this.sql('select flags_json, labels_json, thread_key from messages where account_id = ? and mailbox = ? and uid = ?');
+    const get = this.sql<{ flags_json: string; labels_json: string; thread_key: string }>('select flags_json, labels_json, thread_key from messages where account_id = ? and mailbox = ? and uid = ?');
     const set = this.sql('update messages set flags_json = ?, labels_json = ?, unread = ?, starred = ?, in_inbox = ? where account_id = ? and mailbox = ? and uid = ?');
     const keys = new Set<string>();
     for (const uid of uids) {
-      const m = get.get(accountId, mailbox, uid) as { flags_json: string; labels_json: string; thread_key: string } | undefined;
-      if (!m) continue;
-      const flags = edited(JSON.parse(m.flags_json) as string[], edit.addFlags, edit.removeFlags);
-      const labels = edited(JSON.parse(m.labels_json) as string[], edit.addLabels, edit.removeLabels);
+      const m = get.get(accountId, mailbox, uid);
+      if (!m) {continue;}
+      const flags = edited(stringList(m.flags_json), edit.addFlags, edit.removeFlags);
+      const labels = edited(stringList(m.labels_json), edit.addLabels, edit.removeLabels);
       set.run(
         JSON.stringify(flags), JSON.stringify(labels), flags.includes(SEEN) ? 0 : 1, flags.includes(FLAGGED) ? 1 : 0,
         isInboxMailbox || labels.includes(INBOX_LABEL) ? 1 : 0, accountId, mailbox, uid,
@@ -807,56 +846,60 @@ export class Store {
    * Changes still to send for an Account, oldest first. Called at the start of each replay, when nothing of
    * this Account's is in flight, so it also clears out changes that were cancelled before they were sent.
    */
-  pendingChanges(accountId: AccountId, now = Date.now()): PendingChange[] {
+  pendingChanges(accountId: AccountId, now = Date.now()): Array<PendingChange> {
     this.sql(`delete from pending_changes where account_id = ? and state = 'cancelled'`).run(accountId);
     // A change still held (a fresh delete) holds back later changes to the same Thread, so they stay in order.
     const held = new Set<string>();
-    const out: PendingChange[] = [];
+    const out: Array<PendingChange> = [];
     for (const { sendAfter, ...c } of this.listPending(accountId, true)) {
-      if (sendAfter > now || held.has(c.threadKey)) held.add(c.threadKey);
-      else out.push(c);
+      if (sendAfter > now || held.has(c.threadKey)) {held.add(c.threadKey);}
+      else {out.push(c);}
     }
     return out;
   }
 
   /** When the next held change of an Account may be sent, if any. */
   nextSendAt(accountId: AccountId): number | undefined {
-    return (this.sql(`select min(send_after) from pending_changes where account_id = ? and state = 'pending' and send_after > 0`)
-      .pluck().get(accountId) as number | null) ?? undefined;
+    return this.sql<number | null>(`select min(send_after) from pending_changes where account_id = ? and state = 'pending' and send_after > 0`)
+      .pluck().get(accountId) ?? undefined;
   }
 
-  private listPending(accountId: AccountId, withSendAfter: true): (PendingChange & { sendAfter: number })[];
-  private listPending(accountId: AccountId): PendingChange[];
-  private listPending(accountId: AccountId, withSendAfter = false): (PendingChange & { sendAfter?: number })[] {
-    return (this
-      .sql(`select id, account_id, thread_key, mailbox, uids_json, edit_json, attempts, send_after from pending_changes
+  private listPending(accountId: AccountId, withSendAfter: true): Array<PendingChange & { sendAfter: number }>;
+  private listPending(accountId: AccountId): Array<PendingChange>;
+  private listPending(accountId: AccountId, withSendAfter = false): Array<PendingChange & { sendAfter?: number }> {
+    return this
+      .sql<{ id: number; account_id: string; thread_key: string; mailbox: string; uids_json: string; edit_json: string; attempts: number; send_after: number }>(`select id, account_id, thread_key, mailbox, uids_json, edit_json, attempts, send_after from pending_changes
                 where account_id = ? and state = 'pending' order by id`)
-      .all(accountId) as { id: number; account_id: string; thread_key: string; mailbox: string; uids_json: string; edit_json: string; attempts: number; send_after: number }[])
-      .map((r) => ({
-        id: r.id, accountId: r.account_id, threadKey: r.thread_key, mailbox: r.mailbox,
-        uids: JSON.parse(r.uids_json) as number[], edit: JSON.parse(r.edit_json) as MessageEdit, attempts: r.attempts,
-        ...(withSendAfter ? { sendAfter: r.send_after } : {}),
-      }));
+      .all(accountId)
+      .map((r) => {
+        const change: PendingChange & { sendAfter?: number } = {
+          id: r.id, accountId: r.account_id, threadKey: r.thread_key, mailbox: r.mailbox,
+          uids: numberList(r.uids_json), edit: parseEdit(r.edit_json), attempts: r.attempts,
+        };
+        if (withSendAfter) {change.sendAfter = r.send_after;}
+        return change;
+      });
   }
 
   private changeRow(id: number) {
-    return this.sql('select account_id, thread_key, mailbox, uids_json, edit_json, state, result_json from pending_changes where id = ?').get(id) as
-      | { account_id: string; thread_key: string; mailbox: string; uids_json: string; edit_json: string; result_json: string | null; state: 'pending' | 'applied' | 'cancelled' | 'undone' }
-      | undefined;
+    return this.sql<{ account_id: string; thread_key: string; mailbox: string; uids_json: string; edit_json: string; result_json: string | null; state: 'pending' | 'applied' | 'cancelled' | 'undone' }>(
+      'select account_id, thread_key, mailbox, uids_json, edit_json, state, result_json from pending_changes where id = ?',
+    ).get(id);
   }
 
   /**
    * The change that undoes a change the server already has: the inverse edit, where the messages are now. A move goes
    * back from its destination, by the UIDs the server gave them there; null when those aren't known.
    */
-  private inverseChange(c: { mailbox: string; uids_json: string; edit_json: string; result_json: string | null }): { mailbox: string; uids: number[]; edit: MessageEdit } | null {
-    const edit = JSON.parse(c.edit_json) as MessageEdit;
-    if (edit.moveTo === undefined) return { mailbox: c.mailbox, uids: JSON.parse(c.uids_json) as number[], edit: inverseOf(edit) };
-    const moved = ((c.result_json ? (JSON.parse(c.result_json) as ChangeResult) : {}).movedUids ?? []).filter((u) => u > 0);
+  private inverseChange(c: { mailbox: string; uids_json: string; edit_json: string; result_json: string | null }): { mailbox: string; uids: Array<number>; edit: MessageEdit } | null {
+    const edit = parseEdit(c.edit_json);
+    if (edit.moveTo === undefined) {return { mailbox: c.mailbox, uids: numberList(c.uids_json), edit: inverseOf(edit) };}
+    const result: ChangeResult = c.result_json ? parseResult(c.result_json) : {};
+    const moved = (result.movedUids ?? []).filter((u) => u > 0);
     return moved.length ? { mailbox: edit.moveTo, uids: moved, edit: { moveTo: c.mailbox } } : null;
   }
 
-  private queueChange(accountId: AccountId, threadKey: string, mailbox: string, uids: number[], edit: MessageEdit, now = Date.now(), sendAfter = 0): number {
+  private queueChange(accountId: AccountId, threadKey: string, mailbox: string, uids: Array<number>, edit: MessageEdit, now = Date.now(), sendAfter = 0): number {
     return Number(this
       .sql('insert into pending_changes(account_id, thread_key, mailbox, uids_json, edit_json, created_at, send_after) values (?, ?, ?, ?, ?, ?, ?)')
       .run(accountId, threadKey, mailbox, JSON.stringify(uids), JSON.stringify(edit), now, sendAfter).lastInsertRowid);
@@ -868,12 +911,12 @@ export class Store {
    */
   changeApplied(id: number, result?: ChangeResult): AccountId | undefined {
     const c = this.changeRow(id);
-    if (!c) return undefined;
+    if (!c) {return undefined;}
     if (c.state === 'cancelled') {
       // The local copy was already put back when it was cancelled: only the server needs the inverse.
       const inverse = this.inverseChange({ ...c, result_json: result ? JSON.stringify(result) : null });
       this.db.transaction(() => {
-        if (inverse) this.queueChange(c.account_id, c.thread_key, inverse.mailbox, inverse.uids, inverse.edit);
+        if (inverse) {this.queueChange(c.account_id, c.thread_key, inverse.mailbox, inverse.uids, inverse.edit);}
         this.sql('delete from pending_changes where id = ?').run(id);
       })();
       return inverse ? c.account_id : undefined;
@@ -894,37 +937,40 @@ export class Store {
       return 0;
     }
     this.sql('update pending_changes set attempts = attempts + ?, last_error = ? where id = ?').run(rejected ? 1 : 0, error, id);
-    return (this.sql('select attempts from pending_changes where id = ?').pluck().get(id) as number | undefined) ?? 0;
+    return this.sql<number>('select attempts from pending_changes where id = ?').pluck().get(id) ?? 0;
   }
 
   /** Put the local copy back as it was before a change. Returns whether the Inbox Split was affected. */
   private revertLocally(c: { account_id: string; mailbox: string; uids_json: string; edit_json: string; result_json?: string | null }): boolean {
-    const edit = JSON.parse(c.edit_json) as MessageEdit;
+    const edit = parseEdit(c.edit_json);
     const keys = new Set<string>();
     if (edit.moveTo === undefined) {
-      this.editMessages(c.account_id, c.mailbox, JSON.parse(c.uids_json) as number[], inverseOf(edit)).forEach((k) => keys.add(k));
+      this.editMessages(c.account_id, c.mailbox, numberList(c.uids_json), inverseOf(edit)).forEach((k) => keys.add(k));
     } else {
       // Back where they came from: wherever the messages are by now (still here, or already synced there).
       const back: MessageEdit = { moveTo: c.mailbox };
-      this.editMessages(c.account_id, c.mailbox, JSON.parse(c.uids_json) as number[], back).forEach((k) => keys.add(k));
-      const moved = (c.result_json ? (JSON.parse(c.result_json) as ChangeResult) : {}).movedUids?.filter((u) => u > 0) ?? [];
-      if (moved.length) this.editMessages(c.account_id, edit.moveTo, moved, back).forEach((k) => keys.add(k));
+      this.editMessages(c.account_id, c.mailbox, numberList(c.uids_json), back).forEach((k) => keys.add(k));
+      const result: ChangeResult = c.result_json ? parseResult(c.result_json) : {};
+      const moved = result.movedUids?.filter((u) => u > 0) ?? [];
+      if (moved.length) {this.editMessages(c.account_id, edit.moveTo, moved, back).forEach((k) => keys.add(k));}
     }
     let inboxChanged = false;
-    for (const k of keys) if (this.refreshThread(c.account_id, k)) inboxChanged = true;
+    for (const k of keys) {
+      if (this.refreshThread(c.account_id, k)) {inboxChanged = true;}
+    }
     return inboxChanged;
   }
 
   /** Give up on a change: undo its local edit and forget it. Returns the Thread's subject for telling the user. */
   rollbackChange(id: number): { subject: string; inboxChanged: boolean } | undefined {
     const c = this.changeRow(id);
-    if (!c || c.state !== 'pending') return undefined;
+    if (!c || c.state !== 'pending') {return undefined;}
     let inboxChanged = false;
     this.db.transaction(() => {
       this.sql('delete from pending_changes where id = ?').run(id);
       inboxChanged = this.revertLocally(c);
     })();
-    const subject = (this.sql('select subject from threads where account_id = ? and thread_key = ?').pluck().get(c.account_id, c.thread_key) as string | undefined) ?? '';
+    const subject = this.sql<string>('select subject from threads where account_id = ? and thread_key = ?').pluck().get(c.account_id, c.thread_key) ?? '';
     return { subject, inboxChanged };
   }
 
@@ -932,29 +978,32 @@ export class Store {
    * Undo changes (newest first). One not yet sent is cancelled and never reaches the server; one already
    * applied gets its inverse queued. Either way the local copy goes back at once. Returns the Accounts to replay.
    */
-  undo(ids: number[]): { accounts: AccountId[]; inboxChanged: boolean } {
+  undo(ids: Array<number>) {
     const accounts = new Set<AccountId>();
     let inboxChanged = false;
     // A delete Gmail already has can't come back from here: Trash is outside All Mail. Undo stops at the hold.
     // Nor can a move whose new UIDs the server never told us.
     const stuck = ids.some((id) => {
       const c = this.changeRow(id);
-      return c?.state === 'applied' && ((JSON.parse(c.edit_json) as MessageEdit).addLabels?.includes(TRASH) || !this.inverseChange(c));
+      return c?.state === 'applied' && (parseEdit(c.edit_json).addLabels?.includes(TRASH) || !this.inverseChange(c));
     });
-    if (stuck) return { accounts: [], inboxChanged: false };
+    if (stuck) {return { accounts: [], inboxChanged: false };}
     this.db.transaction(() => {
       for (const id of [...ids].sort((a, b) => b - a)) {
         const c = this.changeRow(id);
-        if (!c || c.state === 'cancelled' || c.state === 'undone') continue;
+        if (!c || c.state === 'cancelled' || c.state === 'undone') {continue;}
         if (c.state === 'pending') {
           this.sql(`update pending_changes set state = 'cancelled' where id = ?`).run(id);
         } else {
           this.sql(`update pending_changes set state = 'undone' where id = ?`).run(id);
-          const inverse = this.inverseChange(c)!;
-          this.queueChange(c.account_id, c.thread_key, inverse.mailbox, inverse.uids, inverse.edit);
-          accounts.add(c.account_id);
+          // Applied changes with no inverse stopped the undo above.
+          const inverse = this.inverseChange(c);
+          if (inverse) {
+            this.queueChange(c.account_id, c.thread_key, inverse.mailbox, inverse.uids, inverse.edit);
+            accounts.add(c.account_id);
+          }
         }
-        if (this.revertLocally(c)) inboxChanged = true;
+        if (this.revertLocally(c)) {inboxChanged = true;}
       }
     })();
     return { accounts: [...accounts], inboxChanged };
@@ -963,44 +1012,44 @@ export class Store {
   // --- Snooze
 
   /** Snoozed Threads whose time has come. */
-  dueSnoozes(now: number): { accountId: AccountId; threadKey: string }[] {
-    return (this.sql('select account_id, thread_key from snoozes where wake_at <= ? order by wake_at').all(now) as { account_id: string; thread_key: string }[])
+  dueSnoozes(now: number): Array<{ accountId: AccountId; threadKey: string }> {
+    return this.sql<{ account_id: string; thread_key: string }>('select account_id, thread_key from snoozes where wake_at <= ? order by wake_at').all(now)
       .map((r) => ({ accountId: r.account_id, threadKey: r.thread_key }));
   }
 
   nextWakeAt(): number | undefined {
-    return (this.sql('select min(wake_at) from snoozes').pluck().get() as number | null) ?? undefined;
+    return this.sql<number | null>('select min(wake_at) from snoozes').pluck().get() ?? undefined;
   }
 
   /**
    * Wake a snoozed Thread: undo the changes that snoozed it (back to the Inbox on the server too) and put it on top.
    * Returns the Accounts with changes to replay, or undefined when it wasn't snoozed.
    */
-  wake(accountId: AccountId, threadKey: string, now: number): AccountId[] | undefined {
-    const ids = this.sql('select change_ids_json from snoozes where account_id = ? and thread_key = ?').pluck().get(accountId, threadKey) as string | undefined;
-    if (ids === undefined) return undefined;
-    let accounts: AccountId[] = [];
+  wake(accountId: AccountId, threadKey: string, now: number): Array<AccountId> | undefined {
+    const ids = this.sql<string>('select change_ids_json from snoozes where account_id = ? and thread_key = ?').pluck().get(accountId, threadKey);
+    if (ids === undefined) {return undefined;}
+    let accounts: Array<AccountId> = [];
     this.db.transaction(() => {
       this.sql('delete from snoozes where account_id = ? and thread_key = ?').run(accountId, threadKey);
-      accounts = this.undo(JSON.parse(ids) as number[]).accounts;
+      accounts = this.undo(numberList(ids)).accounts;
       this.sql('update threads set woke_at = ? where account_id = ? and thread_key = ?').run(now, accountId, threadKey);
     })();
     return accounts;
   }
 
   /** Forget snoozes made by these changes (they were undone). */
-  dropSnoozesFor(changeIds: number[]) {
-    const rows = this.sql('select account_id, thread_key, change_ids_json from snoozes').all() as { account_id: string; thread_key: string; change_ids_json: string }[];
+  dropSnoozesFor(changeIds: Array<number>) {
+    const rows = this.sql<{ account_id: string; thread_key: string; change_ids_json: string }>('select account_id, thread_key, change_ids_json from snoozes').all();
     for (const r of rows) {
-      if ((JSON.parse(r.change_ids_json) as number[]).some((id) => changeIds.includes(id))) {
+      if (numberList(r.change_ids_json).some((id) => changeIds.includes(id))) {
         this.sql('delete from snoozes where account_id = ? and thread_key = ?').run(r.account_id, r.thread_key);
       }
     }
   }
 
-  pendingStatus(): { count: number; waiting: number } {
-    const r = this.sql(`select count(*) count, count(last_error) waiting from pending_changes where state = 'pending'`).get() as { count: number; waiting: number };
-    const o = this.sql(`select count(*) count, count(last_error) waiting from outbox where state in ('queued', 'sending')`).get() as { count: number; waiting: number };
+  pendingStatus() {
+    const r = expected(this.sql<{ count: number; waiting: number }>(`select count(*) count, count(last_error) waiting from pending_changes where state = 'pending'`).get(), 'a count');
+    const o = expected(this.sql<{ count: number; waiting: number }>(`select count(*) count, count(last_error) waiting from outbox where state in ('queued', 'sending')`).get(), 'a count');
     return { count: r.count + o.count, waiting: r.waiting + o.waiting };
   }
 
@@ -1008,12 +1057,12 @@ export class Store {
 
   /** My own addresses: never suggested, and what makes a message "sent". */
   private myAddresses(): Set<string> {
-    this.mine ??= new Set((this.sql('select lower(email) from accounts union select lower(address) from identities').pluck().all() as string[]));
+    this.mine ??= new Set(this.sql<string>('select lower(email) from accounts union select lower(address) from identities').pluck().all());
     return this.mine;
   }
 
   /** Count the people on a newly stored message. */
-  private noteContacts(from: Address | undefined, to: Address[], date: number) {
+  private noteContacts(from: Address | undefined, to: Array<Address>, date: number) {
     const mine = this.myAddresses();
     const sent = !!from && mine.has(from.address.toLowerCase());
     const up = this.sql(`insert into contacts(address, name, sent_count, seen_count, last_at) values (?, ?, ?, ?, ?)
@@ -1021,11 +1070,11 @@ export class Store {
         seen_count = seen_count + excluded.seen_count, last_at = max(last_at, excluded.last_at)`);
     const note = (a: Address, isSent: boolean) => {
       const address = a.address.toLowerCase();
-      if (!address.includes('@') || mine.has(address)) return;
+      if (!address.includes('@') || mine.has(address)) {return;}
       up.run(address, a.name || null, isSent ? 1 : 0, isSent ? 0 : 1, date);
     };
-    if (from) note(from, false);
-    for (const a of to) note(a, sent);
+    if (from) {note(from, false);}
+    for (const a of to) {note(a, sent);}
   }
 
   /** Rebuild the contacts from every stored message. */
@@ -1038,16 +1087,16 @@ export class Store {
    * People matching what's typed (the start of the address, or of any word of the name): people I've written to
    * first, then by how often and how recently they come up.
    */
-  contacts(query: string, limit = 8, now = Date.now()): Address[] {
-    const q = query.trim().toLowerCase().replace(/[%_\\]/g, '');
-    if (!q) return [];
-    return (this
-      .sql(`select address, name from contacts
+  contacts(query: string, limit = 8, now = Date.now()): Array<Address> {
+    const q = query.trim().toLowerCase().replaceAll(/[%_\\]/g, '');
+    if (!q) {return [];}
+    return this
+      .sql<{ address: string; name: string | null }>(`select address, name from contacts
                 where address like ? || '%' or lower(name) like ? || '%' or lower(name) like '% ' || ? || '%'
                 order by (sent_count > 0) desc,
                   (sent_count * 4 + seen_count) * (1.0 / (1 + (? - last_at) / 2592000000.0)) desc, last_at desc
                 limit ?`)
-      .all(q, q, q, now, limit) as { address: string; name: string | null }[])
+      .all(q, q, q, now, limit)
       .map((r) => (r.name ? { name: r.name, address: r.address } : { address: r.address }));
   }
 
@@ -1065,9 +1114,8 @@ export class Store {
 
   /** Delete a draft here, and queue its server copy for deletion. Returns the Account, if there's one to tidy up. */
   deleteDraft(id: number): AccountId | undefined {
-    const r = this.sql('select account_id, server_mailbox, server_uid from drafts where id = ?').get(id) as
-      | { account_id: string; server_mailbox: string | null; server_uid: number | null } | undefined;
-    if (!r) return undefined;
+    const r = this.sql<{ account_id: string; server_mailbox: string | null; server_uid: number | null }>('select account_id, server_mailbox, server_uid from drafts where id = ?').get(id);
+    if (!r) {return undefined;}
     this.db.transaction(() => {
       this.sql('delete from drafts where id = ?').run(id);
       if (r.server_mailbox && r.server_uid) {
@@ -1077,23 +1125,21 @@ export class Store {
     return r.server_uid ? r.account_id : undefined;
   }
 
-  drafts(): DraftSummary[] {
-    return (this.sql('select id, account_id, content_json, updated_at from drafts order by updated_at desc').all() as
-      { id: number; account_id: string; content_json: string; updated_at: number }[]).map((r) => {
-      const c = JSON.parse(r.content_json) as DraftContent;
-      return { id: r.id, accountId: r.account_id, subject: c.subject, to: c.to, updatedAt: r.updated_at };
+  drafts(): Array<DraftSummary> {
+    return this.sql<{ id: number; account_id: string; content_json: string; updated_at: number }>('select id, account_id, content_json, updated_at from drafts order by updated_at desc').all().map((r) => {
+      const c = parseObject(r.content_json);
+      return { id: r.id, accountId: r.account_id, subject: stringField(c, 'subject'), to: stringField(c, 'to'), updatedAt: r.updated_at };
     });
   }
 
   draft(id: number): DraftContent | null {
-    const json = this.sql('select content_json from drafts where id = ?').pluck().get(id) as string | undefined;
+    const json = this.sql<string>('select content_json from drafts where id = ?').pluck().get(id);
     return json ? decodeMessage<DraftContent>(json) : null;
   }
 
   /** Drafts whose latest version the server doesn't have. */
-  draftsToSync(accountId: AccountId): Omit<DraftToSync, 'messageId'>[] {
-    return (this.sql('select id, content_json, updated_at from drafts where account_id = ? and updated_at > synced_at').all(accountId) as
-      { id: number; content_json: string; updated_at: number }[]).map((r) => ({ id: r.id, updatedAt: r.updated_at, content: decodeMessage<DraftContent>(r.content_json) }));
+  draftsToSync(accountId: AccountId): Array<Omit<DraftToSync, 'messageId'>> {
+    return this.sql<{ id: number; content_json: string; updated_at: number }>('select id, content_json, updated_at from drafts where account_id = ? and updated_at > synced_at').all(accountId).map((r) => ({ id: r.id, updatedAt: r.updated_at, content: decodeMessage<DraftContent>(r.content_json) }));
   }
 
   /**
@@ -1103,19 +1149,18 @@ export class Store {
   draftSynced(id: number, accountId: AccountId, updatedAt: number, mailbox: string, uid: number | undefined) {
     const queue = this.sql('insert into draft_deletions(account_id, mailbox, uid) values (?, ?, ?)');
     this.db.transaction(() => {
-      const r = this.sql('select server_mailbox, server_uid from drafts where id = ?').get(id) as
-        | { server_mailbox: string | null; server_uid: number | null } | undefined;
+      const r = this.sql<{ server_mailbox: string | null; server_uid: number | null }>('select server_mailbox, server_uid from drafts where id = ?').get(id);
       if (!r) {
-        if (uid) queue.run(accountId, mailbox, uid);
+        if (uid) {queue.run(accountId, mailbox, uid);}
         return;
       }
-      if (r.server_mailbox && r.server_uid && r.server_uid !== uid) queue.run(accountId, r.server_mailbox, r.server_uid);
+      if (r.server_mailbox && r.server_uid && r.server_uid !== uid) {queue.run(accountId, r.server_mailbox, r.server_uid);}
       this.sql('update drafts set synced_at = max(synced_at, ?), server_mailbox = ?, server_uid = ? where id = ?').run(updatedAt, mailbox, uid ?? null, id);
     })();
   }
 
-  draftDeletions(accountId: AccountId): { id: number; mailbox: string; uid: number }[] {
-    return this.sql('select id, mailbox, uid from draft_deletions where account_id = ? order by id').all(accountId) as { id: number; mailbox: string; uid: number }[];
+  draftDeletions(accountId: AccountId): Array<{ id: number; mailbox: string; uid: number }> {
+    return this.sql<{ id: number; mailbox: string; uid: number }>('select id, mailbox, uid from draft_deletions where account_id = ? order by id').all(accountId);
   }
 
   draftDeleted(id: number) {
@@ -1132,8 +1177,8 @@ export class Store {
 
   /** Take a message back out of the Outbox, if it isn't on its way already. */
   cancelSend(id: number): OutgoingMessage | null {
-    const r = this.sql(`select message_json, message_id from outbox where id = ? and state in ('queued', 'failed')`).get(id) as { message_json: string; message_id: string } | undefined;
-    if (!r) return null;
+    const r = this.sql<{ message_json: string; message_id: string }>(`select message_json, message_id from outbox where id = ? and state in ('queued', 'failed')`).get(id);
+    if (!r) {return null;}
     this.sql('delete from outbox where id = ?').run(id);
     // Its Reminder goes with it; it comes back with the message if it's sent again.
     this.sql('delete from reminders where message_id = ?').run(r.message_id);
@@ -1147,7 +1192,7 @@ export class Store {
   }
 
   nextReminderAt(): number | undefined {
-    return (this.sql('select min(due_at) from reminders').pluck().get() as number | null) ?? undefined;
+    return this.sql<number | null>('select min(due_at) from reminders').pluck().get() ?? undefined;
   }
 
   /**
@@ -1156,22 +1201,24 @@ export class Store {
    * back yet waits a little. Returns whether anything changed on screen.
    */
   fireReminders(now: number): boolean {
-    const due = this.sql('select id, account_id, message_id from reminders where due_at <= ?').all(now) as { id: number; account_id: string; message_id: string }[];
+    const due = this.sql<{ id: number; account_id: string; message_id: string }>('select id, account_id, message_id from reminders where due_at <= ?').all(now);
     const mine = this.myAddresses();
     let changed = false;
     for (const r of due) {
-      const mineMsg = this.sql('select thread_key, date from messages where account_id = ? and message_id = ? order by date limit 1').get(r.account_id, r.message_id) as
-        | { thread_key: string; date: number } | undefined;
+      const mineMsg = this.sql<{ thread_key: string; date: number }>('select thread_key, date from messages where account_id = ? and message_id = ? order by date limit 1').get(r.account_id, r.message_id);
       if (!mineMsg) {
         // Still on its way (offline, or not synced back): look again in ten minutes.
         this.sql('update reminders set due_at = ? where id = ?').run(now + 10 * 60_000, r.id);
         continue;
       }
       this.sql('delete from reminders where id = ?').run(r.id);
-      const senders = this.sql('select from_json from messages where account_id = ? and thread_key = ? and date > ? and from_json is not null')
-        .pluck().all(r.account_id, mineMsg.thread_key, mineMsg.date) as string[];
-      const answered = senders.some((j) => !mine.has((JSON.parse(j) as Address).address.toLowerCase()));
-      if (answered) continue;
+      const senders = this.sql<string>('select from_json from messages where account_id = ? and thread_key = ? and date > ? and from_json is not null')
+        .pluck().all(r.account_id, mineMsg.thread_key, mineMsg.date);
+      const answered = senders.some((j) => {
+        const from = parseAddress(j);
+        return from !== undefined && !mine.has(from.address.toLowerCase());
+      });
+      if (answered) {continue;}
       this.sql('update threads set reminded_at = ?, woke_at = ? where account_id = ? and thread_key = ?').run(now, now, r.account_id, mineMsg.thread_key);
       changed = true;
     }
@@ -1180,28 +1227,27 @@ export class Store {
 
 
   /** Messages due now for an Account, marked as on their way. */
-  dueOutbox(accountId: AccountId, now: number): OutboxItem[] {
+  dueOutbox(accountId: AccountId, now: number): Array<OutboxItem> {
     return this.db.transaction(() => {
       const rows = this
-        .sql(`select id, message_id, message_json, attempts from outbox where account_id = ? and state = 'queued' and send_at <= ? order by send_at, id`)
-        .all(accountId, now) as { id: number; message_id: string; message_json: string; attempts: number }[];
+        .sql<{ id: number; message_id: string; message_json: string; attempts: number }>(`select id, message_id, message_json, attempts from outbox where account_id = ? and state = 'queued' and send_at <= ? order by send_at, id`)
+        .all(accountId, now);
       const mark = this.sql(`update outbox set state = 'sending' where id = ?`);
-      for (const r of rows) mark.run(r.id);
+      for (const r of rows) {mark.run(r.id);}
       return rows.map((r) => ({ id: r.id, messageId: r.message_id, message: decodeMessage(r.message_json), attempts: r.attempts }));
     })();
   }
 
   /** Messages set to go out later than the undo window: Send Later. */
-  scheduled(after: number): ScheduledSummary[] {
-    return (this.sql(`select id, account_id, message_json, send_at from outbox where state = 'queued' and send_at > ? order by send_at`).all(after) as
-      { id: number; account_id: string; message_json: string; send_at: number }[]).map((r) => {
-      const m = JSON.parse(r.message_json) as OutgoingMessage;
-      return { id: r.id, accountId: r.account_id, subject: m.subject, to: m.to.map((a) => a.name || a.address).join(', '), sendAt: r.send_at };
+  scheduled(after: number): Array<ScheduledSummary> {
+    return this.sql<{ id: number; account_id: string; message_json: string; send_at: number }>(`select id, account_id, message_json, send_at from outbox where state = 'queued' and send_at > ? order by send_at`).all(after).map((r) => {
+      const m = parseObject(r.message_json);
+      return { id: r.id, accountId: r.account_id, subject: stringField(m, 'subject'), to: toAddressList(m.to).map((a) => a.name || a.address).join(', '), sendAt: r.send_at };
     });
   }
 
   nextOutboxAt(accountId: AccountId): number | undefined {
-    return (this.sql(`select min(send_at) from outbox where account_id = ? and state = 'queued'`).pluck().get(accountId) as number | null) ?? undefined;
+    return this.sql<number | null>(`select min(send_at) from outbox where account_id = ? and state = 'queued'`).pluck().get(accountId) ?? undefined;
   }
 
   outboxSent(id: number) {
@@ -1211,8 +1257,8 @@ export class Store {
   /** Sending failed. Back in the queue, unless the server has refused it too often: then it's failed. Returns whether it failed. */
   outboxFailed(id: number, error: string, rejected: boolean, maxRejections: number): boolean {
     this.sql(`update outbox set attempts = attempts + ?, last_error = ?, state = 'queued' where id = ?`).run(rejected ? 1 : 0, error, id);
-    const attempts = this.sql('select attempts from outbox where id = ?').pluck().get(id) as number | undefined;
-    if (attempts === undefined || attempts < maxRejections) return false;
+    const attempts = this.sql<number>('select attempts from outbox where id = ?').pluck().get(id);
+    if (attempts === undefined || attempts < maxRejections) {return false;}
     this.sql(`update outbox set state = 'failed' where id = ?`).run(id);
     return true;
   }
@@ -1225,13 +1271,14 @@ export class Store {
    */
   private localThread(accountId: AccountId, h: RemoteHeader, touched: Set<string>): string {
     const ids = [...new Set([...(h.references ?? []), ...(h.inReplyTo ? [h.inReplyTo] : []), ...(h.messageId ? [h.messageId] : [])])];
-    if (!ids.length) return h.remoteId;
-    const keyOf = this.sql('select thread_key from thread_refs where account_id = ? and message_id = ?').pluck();
-    const known = [...new Set(ids.map((id) => keyOf.get(accountId, id) as string | undefined).filter((k): k is string => !!k))];
-    const key = known[0] ?? ids[0]!;
-    for (const other of known.slice(1)) this.mergeThreads(accountId, other, key, touched);
+    const first = ids[0];
+    if (first === undefined) {return h.remoteId;}
+    const keyOf = this.sql<string>('select thread_key from thread_refs where account_id = ? and message_id = ?').pluck();
+    const known = [...new Set(ids.flatMap((id) => keyOf.get(accountId, id) || []))];
+    const key = known[0] ?? first;
+    for (const other of known.slice(1)) {this.mergeThreads(accountId, other, key, touched);}
     const put = this.sql('insert into thread_refs(account_id, message_id, thread_key) values (?, ?, ?) on conflict(account_id, message_id) do update set thread_key = excluded.thread_key');
-    for (const id of ids) put.run(accountId, id, key);
+    for (const id of ids) {put.run(accountId, id, key);}
     return key;
   }
 
@@ -1248,21 +1295,23 @@ export class Store {
   }
 
   /** Store bodies. Returns the keys of the Threads touched and whether the Inbox Split was affected. */
-  putBodies(accountId: AccountId, mailbox: string, bodies: BodyInput[]): { keys: string[]; inboxChanged: boolean } {
-    const idOf = this.sql('select id, thread_key from messages where account_id = ? and mailbox = ? and uid = ?');
+  putBodies(accountId: AccountId, mailbox: string, bodies: Array<BodyInput>) {
+    const idOf = this.sql<{ id: number; thread_key: string }>('select id, thread_key from messages where account_id = ? and mailbox = ? and uid = ?');
     const put = this.sql('insert into bodies(message_id, raw, text) values (?, ?, ?) on conflict(message_id) do update set raw = excluded.raw, text = excluded.text, html = null');
     const mark = this.sql('update messages set has_body = 1, snippet = ? where id = ?');
     const touched = new Set<string>();
     let inboxChanged = false;
     this.db.transaction(() => {
       for (const b of bodies) {
-        const m = idOf.get(accountId, mailbox, b.uid) as { id: number; thread_key: string } | undefined;
-        if (!m) continue;
+        const m = idOf.get(accountId, mailbox, b.uid);
+        if (!m) {continue;}
         put.run(m.id, Buffer.from(b.raw), b.text);
         mark.run(snippetOf(b.text), m.id);
         touched.add(m.thread_key);
       }
-      for (const key of touched) if (this.refreshThread(accountId, key)) inboxChanged = true;
+      for (const key of touched) {
+        if (this.refreshThread(accountId, key)) {inboxChanged = true;}
+      }
     })();
     return { keys: [...touched].map((k) => threadRowKey(accountId, k)), inboxChanged };
   }
@@ -1270,32 +1319,32 @@ export class Store {
   /** Recompute one Thread's row from its messages. Returns whether the Inbox Split was affected. */
   private refreshThread(accountId: AccountId, threadKey: string): boolean {
     const wasInInbox = this.sql('select in_inbox from threads where account_id = ? and thread_key = ?').pluck().get(accountId, threadKey) === 1;
-    const agg = this
-      .sql(`select count(*) n, max(date) last_date, max(unread) unread, max(in_inbox) in_inbox, max(starred) starred,
+    const agg = expected(this
+      .sql<{ n: number; last_date: number; unread: number; in_inbox: number; starred: number; is_list: number }>(`select count(*) n, max(date) last_date, max(unread) unread, max(in_inbox) in_inbox, max(starred) starred,
                   coalesce(max(is_list), 0) is_list
                 from messages where account_id = ? and thread_key = ?`)
-      .get(accountId, threadKey) as { n: number; last_date: number; unread: number; in_inbox: number; starred: number; is_list: number };
+      .get(accountId, threadKey), 'an aggregate row');
     if (!agg.n) {
       this.sql('delete from threads where account_id = ? and thread_key = ?').run(accountId, threadKey);
       return wasInInbox;
     }
-    const latest = this
-      .sql('select subject, from_json, snippet from messages where account_id = ? and thread_key = ? order by date desc limit 1')
-      .get(accountId, threadKey) as { subject: string; from_json: string | null; snippet: string };
+    const latest = expected(this
+      .sql<{ subject: string; from_json: string | null; snippet: string }>('select subject, from_json, snippet from messages where account_id = ? and thread_key = ? order by date desc limit 1')
+      .get(accountId, threadKey), 'the thread\'s latest message');
     const first = this
-      .sql('select subject from messages where account_id = ? and thread_key = ? order by date asc limit 1')
+      .sql<string>('select subject from messages where account_id = ? and thread_key = ? order by date asc limit 1')
       .pluck()
-      .get(accountId, threadKey) as string;
+      .get(accountId, threadKey);
     // The other person: the latest sender who isn't me (so my own reply doesn't make a Thread mine).
     const mine = this.myAddresses();
-    const senders = this.sql('select from_json from messages where account_id = ? and thread_key = ? and from_json is not null order by date desc limit 20')
-      .pluck().all(accountId, threadKey) as string[];
-    const sender = senders.map((j) => (JSON.parse(j) as Address).address.toLowerCase()).find((a) => !mine.has(a)) ?? null;
+    const senders = this.sql<string>('select from_json from messages where account_id = ? and thread_key = ? and from_json is not null order by date desc limit 20')
+      .pluck().all(accountId, threadKey);
+    const sender = senders.flatMap((j) => parseAddress(j)?.address.toLowerCase() ?? []).find((a) => !mine.has(a)) ?? null;
     // Labels mean something only where messages carry several (Gmail); on folder servers they're the mailbox.
     const isGmail = !!this.sql(`select 1 from mailboxes where account_id = ? and role = 'all'`).pluck().get(accountId);
     const labels = isGmail
-      ? (this.sql(`select distinct j.value from messages m, json_each(m.labels_json) j
-                          where m.account_id = ? and m.thread_key = ? and substr(j.value, 1, 1) != '\\'`).pluck().all(accountId, threadKey) as string[])
+      ? this.sql<string>(`select distinct j.value from messages m, json_each(m.labels_json) j
+                          where m.account_id = ? and m.thread_key = ? and substr(j.value, 1, 1) != '\\'`).pluck().all(accountId, threadKey)
       : [];
     this
       .sql(`insert into threads(account_id, thread_key, subject, from_label, last_date, snippet, unread, count, in_inbox, starred, is_list, sender, labels_json)
@@ -1304,7 +1353,7 @@ export class Store {
                   last_date = excluded.last_date, snippet = excluded.snippet, unread = excluded.unread, count = excluded.count,
                   in_inbox = excluded.in_inbox, starred = excluded.starred, is_list = excluded.is_list, sender = excluded.sender,
                   labels_json = excluded.labels_json`)
-      .run(accountId, threadKey, first || latest.subject, addressLabel(latest.from_json ? JSON.parse(latest.from_json) : undefined),
+      .run(accountId, threadKey, first || latest.subject, addressLabel(parseAddress(latest.from_json)),
         agg.last_date, latest.snippet, agg.unread, agg.n, agg.in_inbox, agg.starred, agg.is_list, sender, JSON.stringify(labels));
     return wasInInbox || agg.in_inbox === 1;
   }
@@ -1312,19 +1361,19 @@ export class Store {
   // --- Queries for the renderer
 
   /** The Inbox's Threads, newest first, each tagged with what the Split rules need (the renderer splits them). */
-  rows(split: SplitId, limit = 5000): ThreadRow[] {
-    if (split !== 'inbox') return [];
+  rows(split: SplitId, limit = 5000): Array<ThreadRow> {
+    if (split !== 'inbox') {return [];}
     // Three queries that each use an index, merged here: an OR across them made SQLite scan and sort every Thread.
     // The Inbox, newest first; woken Threads (rare) are fetched apart, since waking puts an old Thread on top.
-    const inbox = this.sql(`select ${ROW_COLS} from threads t where t.in_inbox = 1 order by t.last_date desc limit ?`).all(limit) as RowData[];
-    const woken = this.sql(`select ${ROW_COLS} from threads t where t.woke_at is not null and t.woke_at > t.last_date and t.in_inbox = 1`).all() as RowData[];
-    const snoozed = this.sql(`select ${ROW_COLS}, s.wake_at from snoozes s join threads t on t.account_id = s.account_id and t.thread_key = s.thread_key`).all() as RowData[];
-    const reminded = this.sql(`select ${ROW_COLS}, 1 reminded from threads t where t.reminded_at is not null`).all() as RowData[];
+    const inbox = this.sql<RowData>(`select ${ROW_COLS} from threads t where t.in_inbox = 1 order by t.last_date desc limit ?`).all(limit);
+    const woken = this.sql<RowData>(`select ${ROW_COLS} from threads t where t.woke_at is not null and t.woke_at > t.last_date and t.in_inbox = 1`).all();
+    const snoozed = this.sql<RowData>(`select ${ROW_COLS}, s.wake_at from snoozes s join threads t on t.account_id = s.account_id and t.thread_key = s.thread_key`).all();
+    const reminded = this.sql<RowData>(`select ${ROW_COLS}, 1 reminded from threads t where t.reminded_at is not null`).all();
     const seen = new Set<string>();
-    const all: RowData[] = [];
+    const all: Array<RowData> = [];
     for (const r of [...snoozed, ...reminded, ...woken, ...inbox]) {
       const k = `${r.account_id}\u0000${r.thread_key}`;
-      if (seen.has(k)) continue;
+      if (seen.has(k)) {continue;}
       seen.add(k);
       all.push(r);
     }
@@ -1339,16 +1388,16 @@ export class Store {
    * Threads with a message matching the query (see search-query.ts), newest first. Any mailbox: archived and
    * old mail too. The index covers what's stored; the server is searched for the rest (#81).
    */
-  search(query: string, limit = 200): ThreadRow[] {
+  search(query: string, limit = 200): Array<ThreadRow> {
     const match = ftsQuery(query);
-    if (!match) return [];
-    const hits = this.sql(`select m.account_id, m.thread_key, max(m.date) d from search s join messages m on m.id = s.rowid
-                            where search match ? group by m.account_id, m.thread_key order by d desc limit ?`).all(match, limit) as { account_id: string; thread_key: string }[];
-    const one = this.sql(`select ${ROW_COLS}, (select wake_at from snoozes s where s.account_id = t.account_id and s.thread_key = t.thread_key) wake_at
+    if (!match) {return [];}
+    const hits = this.sql<{ account_id: string; thread_key: string }>(`select m.account_id, m.thread_key, max(m.date) d from search s join messages m on m.id = s.rowid
+                            where search match ? group by m.account_id, m.thread_key order by d desc limit ?`).all(match, limit);
+    const one = this.sql<RowData & { wake_at: number | null }>(`select ${ROW_COLS}, (select wake_at from snoozes s where s.account_id = t.account_id and s.thread_key = t.thread_key) wake_at
                           from threads t where t.account_id = ? and t.thread_key = ?`);
     return hits.flatMap((h) => {
-      const r = one.get(h.account_id, h.thread_key) as (RowData & { wake_at: number | null }) | undefined;
-      if (!r) return [];
+      const r = one.get(h.account_id, h.thread_key);
+      if (!r) {return [];}
       const { wake_at, ...rest } = r;
       return [toThreadRow(wake_at === null ? rest : { ...rest, wake_at })];
     });
@@ -1360,13 +1409,13 @@ export class Store {
    */
   indexSearchBatch(batch = 2000): number {
     const below = Number(this.sql(`select value from meta where key = 'search_backfill_below'`).pluck().get() ?? 0);
-    if (below <= 1) return 0;
-    const ids = this.sql('select id from messages where id < ? order by id desc limit ?').pluck().all(below, batch) as number[];
-    if (!ids.length) {
+    if (below <= 1) {return 0;}
+    const ids = this.sql<number>('select id from messages where id < ? order by id desc limit ?').pluck().all(below, batch);
+    const lo = ids.at(-1);
+    if (lo === undefined) {
       this.sql(`update meta set value = '0' where key = 'search_backfill_below'`).run();
       return 0;
     }
-    const lo = ids.at(-1)!;
     this.db.transaction(() => {
       this.sql(`insert into search(rowid, subject, sender, recipients, body)
                 select m.id, m.subject, ${PEOPLE('m.from_json', 'single')}, ${PEOPLE('m.to_json', 'list')}, coalesce(b.text, '')
@@ -1382,8 +1431,8 @@ export class Store {
   /** Mark a sender as VIP, or not. */
   setVip(address: string, on: boolean) {
     const a = address.toLowerCase();
-    if (on) this.sql('insert or ignore into vip(address) values (?)').run(a);
-    else this.sql('delete from vip where address = ?').run(a);
+    if (on) {this.sql('insert or ignore into vip(address) values (?)').run(a);}
+    else {this.sql('delete from vip where address = ?').run(a);}
   }
 
   /**
@@ -1391,73 +1440,75 @@ export class Store {
    * process stays responsive. Returns how many were done (0 when finished).
    */
   backfillListFlags(batch = 1000): number {
-    const rows = this.sql(`select m.id, m.account_id, m.thread_key, substr(b.raw, 1, 16384) head from messages m join bodies b on b.message_id = m.id
-                                  where m.is_list is null limit ?`).all(batch) as { id: number; account_id: string; thread_key: string; head: Buffer }[];
+    const rows = this.sql<{ id: number; account_id: string; thread_key: string; head: Buffer }>(`select m.id, m.account_id, m.thread_key, substr(b.raw, 1, 16384) head from messages m join bodies b on b.message_id = m.id
+                                  where m.is_list is null limit ?`).all(batch);
     if (!rows.length) {
       // Headers-only mail has nothing to read: it stays "not a list".
       this.sql('update messages set is_list = 0 where is_list is null').run();
       return 0;
     }
     const set = this.sql('update messages set is_list = ? where id = ?');
-    const lists = new Set<string>();
+    const lists = new Map<string, [string, string]>();
     this.db.transaction(() => {
       for (const r of rows) {
-        const head = Buffer.from(r.head).toString('latin1').split(/\r?\n\r?\n/)[0]!.replace(/\r?\n[ \t]+/g, ' ');
+        const head = (Buffer.from(r.head).toString('latin1').split(/\r?\n\r?\n/)[0] ?? '').replaceAll(/\r?\n[ \t]+/g, ' ');
         const isList = /^(list-unsubscribe|list-id):/im.test(head) || /^precedence:\s*(bulk|list|junk)\b/im.test(head);
         set.run(isList ? 1 : 0, r.id);
-        if (isList) lists.add(`${r.account_id}\u0000${r.thread_key}`);
+        if (isList) {lists.set(`${r.account_id}\u0000${r.thread_key}`, [r.account_id, r.thread_key]);}
       }
       const mark = this.sql('update threads set is_list = 1 where account_id = ? and thread_key = ?');
-      for (const k of lists) mark.run(...(k.split('\u0000') as [string, string]));
+      for (const [account, thread] of lists.values()) {mark.run(account, thread);}
     })();
     return rows.length;
   }
 
-  thread(key: string): ThreadMessage[] {
+  thread(key: string): Array<ThreadMessage> {
     const { accountId, threadKey } = parseThreadKey(key);
-    return (this
-      .sql(`select m.id, m.from_json, m.to_json, m.date, m.subject, b.text, b.html, b.attachments_json,
+    return this
+      .sql<{
+        id: number; from_json: string | null; to_json: string; date: number; subject: string; text: string | null; html: string | null;
+        attachments_json: string | null; images_allowed: number;
+      }>(`select m.id, m.from_json, m.to_json, m.date, m.subject, b.text, b.html, b.attachments_json,
                 exists (select 1 from image_senders s where s.address = lower(json_extract(m.from_json, '$.address'))) images_allowed
                 from messages m left join bodies b on b.message_id = m.id
                 where m.account_id = ? and m.thread_key = ? order by m.date asc, m.id asc`)
-      .all(accountId, threadKey) as {
-        id: number; from_json: string | null; to_json: string; date: number; subject: string; text: string | null; html: string | null;
-        attachments_json: string | null; images_allowed: number;
-      }[])
-      .map((r) => ({
-        id: r.id, from: r.from_json ? JSON.parse(r.from_json) : undefined, to: JSON.parse(r.to_json), date: r.date,
+      .all(accountId, threadKey)
+      .map((r): ThreadMessage => ({
+        id: r.id, from: parseAddress(r.from_json), to: parseAddressList(r.to_json), date: r.date,
         subject: r.subject, text: r.text, html: r.html || null, imagesAllowed: r.images_allowed === 1,
-        attachments: r.attachments_json ? (JSON.parse(r.attachments_json) as AttachmentInfo[]) : [],
+        attachments: parseAttachmentInfos(r.attachments_json),
       }));
   }
 
   /** Stored bodies among these messages whose HTML part hasn't been extracted yet. */
-  bodiesWithoutHtml(ids: number[]): { id: number; raw: Uint8Array }[] {
-    if (!ids.length) return [];
-    return (this
-      .sql(`select message_id id, raw from bodies where html is null and message_id in (${ids.map(() => '?').join(',')})`)
-      .all(...ids) as { id: number; raw: Buffer }[]).map((r) => ({ id: r.id, raw: new Uint8Array(r.raw) }));
+  bodiesWithoutHtml(ids: Array<number>): Array<{ id: number; raw: Uint8Array }> {
+    if (!ids.length) {return [];}
+    return this
+      .sql<{ id: number; raw: Buffer }>(`select message_id id, raw from bodies where html is null and message_id in (${ids.map(() => '?').join(',')})`)
+      .all(...ids).map((r) => ({ id: r.id, raw: new Uint8Array(r.raw) }));
   }
 
   /** Store what was read from a message: its HTML part ('' for none) and its attachments. */
-  putRead(id: number, html: string, attachments: AttachmentInfo[]) {
+  putRead(id: number, html: string, attachments: Array<AttachmentInfo>) {
     this.sql('update bodies set html = ?, attachments_json = ? where message_id = ?').run(html, JSON.stringify(attachments), id);
   }
 
-  /** A message as the store knows it, for replying when its body isn't downloaded. */
-  messageSummary(id: number): { messageId?: string; from?: Address; to: Address[]; subject: string; date: number; text: string | null } | undefined {
-    const r = this.sql('select m.message_id, m.from_json, m.to_json, m.subject, m.date, b.text from messages m left join bodies b on b.message_id = m.id where m.id = ?')
-      .get(id) as { message_id: string | null; from_json: string | null; to_json: string; subject: string; date: number; text: string | null } | undefined;
-    if (!r) return undefined;
-    return {
-      ...(r.message_id ? { messageId: r.message_id } : {}), ...(r.from_json ? { from: JSON.parse(r.from_json) as Address } : {}),
-      to: JSON.parse(r.to_json) as Address[], subject: r.subject, date: r.date, text: r.text,
+  messageSummary(id: number): MessageSummary | undefined {
+    const r = this.sql<{ message_id: string | null; from_json: string | null; to_json: string; subject: string; date: number; text: string | null }>('select m.message_id, m.from_json, m.to_json, m.subject, m.date, b.text from messages m left join bodies b on b.message_id = m.id where m.id = ?')
+      .get(id);
+    if (!r) {return undefined;}
+    const summary: MessageSummary = {
+      to: parseAddressList(r.to_json), subject: r.subject, date: r.date, text: r.text,
     };
+    if (r.message_id) {summary.messageId = r.message_id;}
+    const from = parseAddress(r.from_json);
+    if (from) {summary.from = from;}
+    return summary;
   }
 
   /** A stored message's raw bytes, for reading an attachment out of it. */
   rawOf(id: number): Uint8Array | undefined {
-    const raw = this.sql('select raw from bodies where message_id = ?').pluck().get(id) as Buffer | undefined;
+    const raw = this.sql<Buffer>('select raw from bodies where message_id = ?').pluck().get(id);
     return raw ? new Uint8Array(raw) : undefined;
   }
 
@@ -1468,7 +1519,7 @@ export class Store {
 
   /** Where a message lives, so the sync process can fetch its body on demand. */
   messageLocation(id: number): { accountId: AccountId; mailbox: string; uid: number } | undefined {
-    const r = this.sql('select account_id, mailbox, uid from messages where id = ?').get(id) as { account_id: string; mailbox: string; uid: number } | undefined;
+    const r = this.sql<{ account_id: string; mailbox: string; uid: number }>('select account_id, mailbox, uid from messages where id = ?').get(id);
     return r && { accountId: r.account_id, mailbox: r.mailbox, uid: r.uid };
   }
 }
@@ -1478,7 +1529,7 @@ export function snippetOf(text: string): string {
     .split('\n')
     .filter((l) => !l.startsWith('>'))
     .join(' ')
-    .replace(/\s+/g, ' ')
+    .replaceAll(/\s+/g, ' ')
     .trim()
     .slice(0, 200);
 }

@@ -1,10 +1,12 @@
 // Shows which Accounts are signed in, and a quiet way to sign in again when one has expired.
 import { useEffect, useState } from 'react';
-import { AddPasswordAccount, type PasswordProvider } from './AddAccount';
+import { errorMessage } from '../core/errors';
+import { AddPasswordAccount } from './AddAccount';
+import type { PasswordProvider } from './AddAccount';
 import { IdentitiesEditor } from './Identities';
 
 export function useAccounts() {
-  const [accounts, setAccounts] = useState<AccountRecord[] | null>(null);
+  const [accounts, setAccounts] = useState<Array<AccountRecord> | null>(null);
   useEffect(() => {
     void window.normie.accounts.list().then(setAccounts);
     return window.normie.accounts.onChanged(setAccounts);
@@ -20,8 +22,8 @@ export function useAddGmail() {
     setError(null);
     try {
       await window.normie.accounts.addGmail(loginHint);
-    } catch (e) {
-      setError((e as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+    } catch (error_) {
+      setError(errorMessage(error_).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
     } finally {
       setBusy(false);
     }
@@ -29,7 +31,7 @@ export function useAddGmail() {
   return { add, busy, error };
 }
 
-export function AccountBar({ accounts }: { accounts: AccountRecord[] }) {
+export function AccountBar({ accounts }: { accounts: Array<AccountRecord> }) {
   const { add, busy, error } = useAddGmail();
   const [menu, setMenu] = useState(false);
   const [form, setForm] = useState<PasswordProvider | null>(null);
@@ -44,7 +46,7 @@ export function AccountBar({ accounts }: { accounts: AccountRecord[] }) {
       {accounts.map((a) =>
         a.status === 'ok' ? (
           <span key={a.id} className="account-wrap">
-            <button className="account" title={`Signed in as ${a.email}`} onClick={() => {
+            <button type="button" className="account" title={`Signed in as ${a.email}`} onClick={() => {
               setSelected((s) => (s === a.id ? null : a.id));
               setConfirming(false);
             }}>{a.email}</button>
@@ -53,20 +55,20 @@ export function AccountBar({ accounts }: { accounts: AccountRecord[] }) {
                 {confirming ? (
                   <>
                     <span>Remove {a.email}? Its mail on this Mac is deleted; the server keeps it.</span>
-                    <button className="danger" onClick={() => void window.normie.accounts.remove(a.id).then(() => setSelected(null))}>Remove</button>
-                    <button className="quiet" onClick={() => setConfirming(false)}>Cancel</button>
+                    <button type="button" className="danger" onClick={() => void window.normie.accounts.remove(a.id).then(() => setSelected(null))}>Remove</button>
+                    <button type="button" className="quiet" onClick={() => setConfirming(false)}>Cancel</button>
                   </>
                 ) : (
                   <>
-                    <button className="quiet" onClick={() => { setSelected(null); setEditing(a); }}>Identities…</button>
-                    <button className="quiet" onClick={() => setConfirming(true)}>Remove Account…</button>
+                    <button type="button" className="quiet" onClick={() => { setSelected(null); setEditing(a); }}>Identities…</button>
+                    <button type="button" className="quiet" onClick={() => setConfirming(true)}>Remove Account…</button>
                   </>
                 )}
               </span>
             )}
           </span>
         ) : (
-          <button key={a.id} className="account needs-sign-in" disabled={busy} onClick={() => (a.kind === 'imap' ? setReauth(a) : void add(a.email))}
+          <button type="button" key={a.id} className="account needs-sign-in" disabled={busy} onClick={() => (a.kind === 'imap' ? setReauth(a) : void add(a.email))}
             title={a.kind === 'gmail' ? 'Google sign-in expired or was revoked' : 'The password stopped working'}>
             {a.email} · Sign in again
           </button>
@@ -74,14 +76,14 @@ export function AccountBar({ accounts }: { accounts: AccountRecord[] }) {
       )}
       {(
         <span className="account-wrap">
-          <button className="account add" disabled={busy} onClick={() => setMenu((m) => !m)} title="Add an Account">
+          <button type="button" className="account add" disabled={busy} onClick={() => setMenu((m) => !m)} title="Add an Account">
             {busy ? 'Waiting for Google…' : '+ Add Account'}
           </button>
           {menu && (
             <span className="popover" onMouseLeave={() => setMenu(false)}>
-              <button className="quiet" onClick={() => { setMenu(false); void add(); }}>Gmail…</button>
-              <button className="quiet" onClick={() => { setMenu(false); setForm('icloud'); }}>iCloud…</button>
-              <button className="quiet" onClick={() => { setMenu(false); setForm('imap'); }}>Other IMAP…</button>
+              <button type="button" className="quiet" onClick={() => { setMenu(false); void add(); }}>Gmail…</button>
+              <button type="button" className="quiet" onClick={() => { setMenu(false); setForm('icloud'); }}>iCloud…</button>
+              <button type="button" className="quiet" onClick={() => { setMenu(false); setForm('imap'); }}>Other IMAP…</button>
             </span>
           )}
         </span>
@@ -100,11 +102,11 @@ export function EmptyState() {
   return (
     <div className="empty">
       <p>No Accounts yet.</p>
-      <button className="primary" disabled={busy} onClick={() => void add()}>
+      <button type="button" className="primary" disabled={busy} onClick={() => void add()}>
         {busy ? 'Waiting for Google in your browser…' : 'Add Gmail Account'}
       </button>
       <span className="or">
-        <button className="link" onClick={() => setForm('icloud')}>Add iCloud</button> · <button className="link" onClick={() => setForm('imap')}>Other IMAP</button>
+        <button type="button" className="link" onClick={() => setForm('icloud')}>Add iCloud</button> · <button type="button" className="link" onClick={() => setForm('imap')}>Other IMAP</button>
       </span>
       {form && <AddPasswordAccount provider={form} onDone={() => setForm(null)} />}
       {error && <p className="account-error">{error}</p>}

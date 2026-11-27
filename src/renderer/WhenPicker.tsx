@@ -1,6 +1,6 @@
 // Picking a time in plain words: suggestions to start, and whatever is typed read back as a time.
 // Used by Snooze, Send Later and Reminders.
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { describeWhen, parseWhen, suggestions } from '../core/when';
 
@@ -9,18 +9,19 @@ export function WhenPicker({ title, onPick, onClose }: { title: string; onPick: 
   const [index, setIndex] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => input.current?.focus(), []);
-  const now = useMemo(() => new Date(), []);
-  const typed = text.trim() ? parseWhen(text, new Date()) : null;
+  // "Now" as of the mount and each keystroke: the clock isn't read while rendering.
+  const [now, setNow] = useState(() => new Date());
+  const typed = text.trim() ? parseWhen(text, now) : null;
   const choices = text.trim()
-    ? typed ? [{ label: describeWhen(typed, new Date()), at: typed }] : []
+    ? typed ? [{ label: describeWhen(typed, now), at: typed }] : []
     : suggestions(now).map((s) => ({ label: `${s.label} · ${describeWhen(s.at, now)}`, at: s.at }));
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') onClose();
-    else if (e.key === 'ArrowDown') setIndex((i) => Math.min(choices.length - 1, i + 1));
-    else if (e.key === 'ArrowUp') setIndex((i) => Math.max(0, i - 1));
-    else if (e.key === 'Enter' && choices[index]) onPick(choices[index]!.at.getTime());
-    else return;
+    if (e.key === 'Escape') {onClose();}
+    else if (e.key === 'ArrowDown') {setIndex((i) => Math.min(choices.length - 1, i + 1));}
+    else if (e.key === 'ArrowUp') {setIndex((i) => Math.max(0, i - 1));}
+    else if (e.key === 'Enter' && choices[index]) {onPick(choices[index].at.getTime());}
+    else {return;}
     e.preventDefault();
     e.stopPropagation();
   };
@@ -29,7 +30,7 @@ export function WhenPicker({ title, onPick, onClose }: { title: string; onPick: 
     <div className="palette-backdrop" onMouseDown={onClose}>
       <div className="palette" role="dialog" aria-label={title} onMouseDown={(e) => e.stopPropagation()}>
         <input ref={input} value={text} placeholder={`${title}: tomorrow 9, monday, in 2 hours…`} spellCheck={false}
-          onChange={(e) => { setText(e.target.value); setIndex(0); }} onKeyDown={onKeyDown} onBlur={onClose} />
+          onChange={(e) => { setText(e.target.value); setIndex(0); setNow(new Date()); }} onKeyDown={onKeyDown} onBlur={onClose} />
         <ul role="listbox">
           {choices.map((c, i) => (
             <li key={c.at.getTime()} role="option" aria-selected={i === index} className={i === index ? 'selected' : ''} onMouseDown={() => onPick(c.at.getTime())}>

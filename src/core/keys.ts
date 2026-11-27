@@ -10,7 +10,7 @@ export function threadRowKey(accountId: AccountId, threadKey: string): string {
 }
 
 /** Splits a key made by threadRowKey into its parts. */
-export function parseThreadKey(key: string): { accountId: AccountId; threadKey: string } {
+export function parseThreadKey(key: string) {
   const i = key.indexOf(':');
   return { accountId: decodeURIComponent(key.slice(0, i)), threadKey: key.slice(i + 1) };
 }

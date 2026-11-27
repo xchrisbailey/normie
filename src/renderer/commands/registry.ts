@@ -53,6 +53,11 @@ export const ACTIONS = [
   { id: 'theme.system', name: 'Theme: Follow the System', keys: [], contexts: ['list', 'reader'] },
   { id: 'app.loginItem', name: 'Start at Login: On or Off', keys: [], contexts: ['list', 'reader'] },
   { id: 'dev.overlay', name: 'Toggle Performance Overlay', keys: ['Cmd-Shift-D'], contexts: ['list', 'reader', 'composer'] },
-] as const satisfies readonly ActionDef[];
+] as const satisfies ReadonlyArray<ActionDef>;
 
 export type ActionId = (typeof ACTIONS)[number]['id'];
+
+const ACTION_IDS: ReadonlySet<string> = new Set(ACTIONS.map((a) => a.id));
+
+/** Whether an id from a key resolution or a menu is one of the registry's actions. */
+export const isActionId = (id: string): id is ActionId => ACTION_IDS.has(id);

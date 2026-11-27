@@ -1,6 +1,7 @@
 // Done, delete and Labels as moves on folder servers (#57). At the core seam over iCloud-like fakes.
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCore, type TestCore } from '../src/core/core';
+import { createCore } from '../src/core/core';
+import type { TestCore } from '../src/core/core';
 import { FakeProvider, fakeExtractText, ICLOUD_CAPS } from '../src/core/fake-provider';
 import type { Mailbox } from '../src/core/types';
 
@@ -13,8 +14,10 @@ afterEach(async () => {
   core = undefined;
 });
 
-function server(opts: { move?: boolean; mailboxes?: Mailbox[] } = {}) {
-  const p = new FakeProvider({ caps: { ...ICLOUD_CAPS, move: !!opts.move }, ...(opts.mailboxes ? { mailboxes: opts.mailboxes } : {}) });
+function server(opts: { move?: boolean; mailboxes?: Array<Mailbox> } = {}) {
+  const options: ConstructorParameters<typeof FakeProvider>[0] = { caps: { ...ICLOUD_CAPS, move: !!opts.move } };
+  if (opts.mailboxes) {options.mailboxes = opts.mailboxes;}
+  const p = new FakeProvider(options);
   const trip = p.deliver({ subject: 'Trip', messageId: '<a@x>', date: NOW - 3 * HOUR }, 'INBOX');
   const reply = p.deliver({ subject: 'Re: Trip', messageId: '<b@x>', inReplyTo: '<a@x>', date: NOW - 2 * HOUR }, 'Sent Messages');
   p.deliver({ subject: 'Lunch', messageId: '<c@x>', date: NOW - HOUR }, 'INBOX');

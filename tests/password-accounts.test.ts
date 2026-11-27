@@ -1,7 +1,9 @@
 // iCloud and IMAP Accounts (#54): settings, checks, error wording, saving, removal.
 import { describe, expect, it } from 'vitest';
-import { Accounts, type AccountList, type AccountRecord, type SecretStore } from '../src/main/auth/accounts';
-import { AccountSetupError, explainFailure, settingsFrom } from '../src/main/auth/password-accounts';
+import { Accounts } from '../src/main/auth/accounts';
+import type { AccountList, AccountRecord, SecretStore } from '../src/main/auth/accounts';
+import { explainFailure, settingsFrom } from '../src/main/auth/password-accounts';
+import { errorMessage } from '../src/core/errors';
 
 class MemSecrets implements SecretStore {
   m = new Map<string, string>();
@@ -10,9 +12,9 @@ class MemSecrets implements SecretStore {
   async delete(id: string) { this.m.delete(id); }
 }
 class MemList implements AccountList {
-  saved: AccountRecord[] = [];
+  saved: Array<AccountRecord> = [];
   load() { return this.saved; }
-  save(a: AccountRecord[]) { this.saved = JSON.parse(JSON.stringify(a)); }
+  save(a: Array<AccountRecord>) { this.saved = structuredClone(a); }
 }
 const setup = () => {
   const secrets = new MemSecrets();
@@ -20,11 +22,12 @@ const setup = () => {
   const accounts = new Accounts({ secrets, list, googleClient: () => { throw new Error('no Google here'); }, openUrl: () => {} });
   return { secrets, list, accounts };
 };
-const fieldOf = (f: () => unknown) => {
+const fieldOf = (f: () => void): [string | undefined, string] | undefined => {
   try {
     f();
-  } catch (e) {
-    return [(e as AccountSetupError).field, (e as Error).message];
+  } catch (error) {
+    const field = typeof error === 'object' && error !== null && 'field' in error && typeof error.field === 'string' ? error.field : undefined;
+    return [field, errorMessage(error)];
   }
   return undefined;
 };
@@ -60,7 +63,7 @@ describe('IMAP settings', () => {
     expect(fieldOf(() => settingsFrom({ ...base, email: 'nope' }))![0]).toBe('email');
     expect(fieldOf(() => settingsFrom({ ...base, password: '' }))![0]).toBe('password');
     expect(fieldOf(() => settingsFrom({ ...base, imap: { host: 'not a host' } }))![0]).toBe('imap.host');
-    expect(fieldOf(() => settingsFrom({ ...base, smtp: { host: 'smtp.example.com', port: 70000 } }))![0]).toBe('smtp.port');
+    expect(fieldOf(() => settingsFrom({ ...base, smtp: { host: 'smtp.example.com', port: 70_000 } }))![0]).toBe('smtp.port');
     expect(fieldOf(() => settingsFrom({ ...base, imap: { host: 'imap.example.com', security: 'none' } }))).toEqual(['imap.security', expect.stringMatching(/unencrypted/)]);
   });
 

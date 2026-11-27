@@ -3,15 +3,16 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createCore, type TestCore } from '../src/core/core';
+import { createCore } from '../src/core/core';
+import type { TestCore } from '../src/core/core';
 import { FakeProvider, FakeTransport, fakeExtractText } from '../src/core/fake-provider';
 import type { DraftContent } from '../src/core/types';
 
-const cores: TestCore[] = [];
-const dirs: string[] = [];
+const cores: Array<TestCore> = [];
+const dirs: Array<string> = [];
 afterEach(async () => {
-  for (const c of cores.splice(0)) await c.close();
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const c of cores.splice(0)) {await c.close();}
+  for (const d of dirs.splice(0)) {rmSync(d, { recursive: true, force: true });}
 });
 
 let now = Date.UTC(2026, 10, 27, 12);
@@ -40,12 +41,12 @@ describe('drafts', () => {
     const { c, provider } = await start();
     const id = await c.saveDraft(null, draft());
     await c.engine.syncDrafts();
-    expect(provider.contents('[Gmail]/Drafts')).toEqual([{ uid: 1, subject: 'Plans', flags: ['\\Draft', '\\Seen'] }]);
+    expect(provider.contents('[Gmail]/Drafts')).toEqual([{ uid: 1, subject: 'Plans', flags: [String.raw`\Draft`, String.raw`\Seen`] }]);
     expect(provider.appends[0]!.raw).toMatch(/^To: Ada <ada@example\.com>$/m);
 
     await c.saveDraft(id, draft({ subject: 'Plans for Friday' }));
     await c.engine.syncDrafts();
-    expect(provider.contents('[Gmail]/Drafts')).toEqual([{ uid: 2, subject: 'Plans for Friday', flags: ['\\Draft', '\\Seen'] }]);
+    expect(provider.contents('[Gmail]/Drafts')).toEqual([{ uid: 2, subject: 'Plans for Friday', flags: [String.raw`\Draft`, String.raw`\Seen`] }]);
 
     // Nothing new: nothing sent.
     await c.engine.syncDrafts();
@@ -110,6 +111,6 @@ describe('removing an Account', () => {
     expect(await c.drafts()).toEqual([]);
     expect(await c.pending()).toEqual({ count: 0, waiting: 0 });
     const left = (t: string) => c.data.store.db.prepare(`select count(*) from ${t}`).pluck().get();
-    for (const t of ['messages', 'threads', 'mailboxes', 'pending_changes', 'outbox', 'drafts', 'bodies']) expect(left(t), t).toBe(0);
+    for (const t of ['messages', 'threads', 'mailboxes', 'pending_changes', 'outbox', 'drafts', 'bodies']) {expect(left(t), t).toBe(0);}
   });
 });
