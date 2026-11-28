@@ -3,7 +3,7 @@
 // drive.ts: real key presses, clicks checked with elementFromPoint, menu commands. A step for a bug fix should fail on
 // the old code first.
 import type { BrowserWindow } from 'electron';
-import { app } from 'electron';
+import { app, nativeTheme } from 'electron';
 import { writeFileSync } from 'node:fs';
 import { sleep } from '../core/sleep';
 import { drive } from './drive';
@@ -327,7 +327,9 @@ async function smokeSettings(w: BrowserWindow) {
   const spotAfter = await spot();
   const [x1, y1] = spotAfter.split(',').map(Number);
   const rowUp = x0 === x1 && (y1 ?? 0) < (y0 ?? 0);
-  const picked = hit && clicked === 'solarized-light' && arrowed !== chosenBefore && rowUp && tiles.count > 1 && tiles.looks > 1;
+  // Following a dark system, the light pick is the light half of the pair and the dark one stays on screen.
+  const lightPicked = nativeTheme.shouldUseDarkColors ? clicked === before && chosenBefore.includes('solarized-light') : clicked === 'solarized-light';
+  const picked = hit && lightPicked && arrowed !== chosenBefore && rowUp && tiles.count > 1 && tiles.looks > 1;
   // Back to the pair it started with.
   await pickTheme('normie-dark');
   await pickTheme(before);
@@ -374,7 +376,8 @@ async function smokeSettings(w: BrowserWindow) {
 
 /**
  * Settings > Appearance, text and layout: serif, a larger size, compact rows, a wide column and reduced motion each
- * take at once (the list checked behind Settings), then everything goes back to the defaults.
+ * take at once (the list checked behind Settings), then everything goes back to the defaults. Then Katagami Round,
+ * and back to Geist.
  */
 async function smokeLook(d: ReturnType<typeof drive>) {
   const pick = pickChoice(d);
@@ -401,6 +404,17 @@ async function smokeLook(d: ReturnType<typeof drive>) {
   await sleep(200);
   const back = [await pick('sans'), await pick('13'), await pick('comfortable'), await pick('standard'), (await motion()).hit];
   const reset = await page();
+  // Katagami: its Round face takes, drawn from the bundled file; back to Geist, the face is Sans again.
+  const kat = [await pick('katagami'), await pick('round')];
+  await sleep(200);
+  const face = (name: string) =>
+    d.js<{ family: string; loaded: number; mono: string }>(
+      `document.fonts.load('13px "${name}"').then((f) => ({ family: getComputedStyle(document.body).fontFamily, loaded: f.length, mono: getComputedStyle(document.documentElement).getPropertyValue('--font-mono') })).catch((e) => ({ family: String(e), loaded: 0, mono: '' }))`,
+    );
+  const katagami = await face('Katagami Round');
+  await d.shot('settings-katagami');
+  kat.push(await pick('geist'));
+  const geist = await face('Geist Variable');
   const ok =
     hits.every(Boolean) &&
     back.every(Boolean) &&
@@ -412,8 +426,14 @@ async function smokeLook(d: ReturnType<typeof drive>) {
     laidOut.column === 900 &&
     reset.family.startsWith('"Geist Variable"') &&
     reset.size === '13px' &&
-    reset.motion === undefined;
-  return { ok, hits, back, changed, laidOut, reset };
+    reset.motion === undefined &&
+    kat.every(Boolean) &&
+    katagami.family.startsWith('"Katagami Round"') &&
+    katagami.loaded > 0 &&
+    katagami.mono.includes('Katagami Mono') &&
+    geist.family.startsWith('"Geist Variable"') &&
+    !geist.mono.includes('Katagami');
+  return { ok, hits, back, changed, laidOut, reset, kat, katagami, geist };
 }
 
 /** Click a choice in the Settings tab on screen, by its value; whether it's now the checked one. */

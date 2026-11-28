@@ -7,6 +7,81 @@
   font-weight: 100 900;
   font-display: block;
 }
+/*
+ * Katagami, by Kevin Liu (SIL OFL, fonts/katagami/OFL.txt): five members, each a variable roman and Italic. Sans,
+ * Round, Text and Serif are cut to Latin, Greek and Cyrillic (and the symbols, arrows and box drawing beside them);
+ * other scripts fall back to the system's fonts. Mono is whole.
+ */
+@font-face {
+  font-family: 'Katagami Sans';
+  src: url('./fonts/katagami/KatagamiSans.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Katagami Sans';
+  src: url('./fonts/katagami/KatagamiSans-Italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Katagami Round';
+  src: url('./fonts/katagami/KatagamiRound.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Katagami Round';
+  src: url('./fonts/katagami/KatagamiRound-Italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Katagami Text';
+  src: url('./fonts/katagami/KatagamiText.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Katagami Text';
+  src: url('./fonts/katagami/KatagamiText-Italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Katagami Serif';
+  src: url('./fonts/katagami/KatagamiSerif.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Katagami Serif';
+  src: url('./fonts/katagami/KatagamiSerif-Italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Katagami Mono';
+  src: url('./fonts/katagami/KatagamiMono.woff2') format('woff2');
+  font-weight: 100 700;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: 'Katagami Mono';
+  src: url('./fonts/katagami/KatagamiMono-Italic.woff2') format('woff2');
+  font-weight: 100 700;
+  font-style: italic;
+  font-display: block;
+}
 
 /*
  * Colors come from the theme on screen (theme.ts sets these variables on the root from a VS Code color theme, before
@@ -53,6 +128,22 @@
   --column: 720px;
   color-scheme: dark;
   font: calc(13px * var(--fs))/1.4 var(--font-text);
+}
+:root[data-family='katagami'] {
+  --font-sans: 'Katagami Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-serif: 'Katagami Serif', ui-serif, 'New York', Georgia, serif;
+  --font-mono: 'Katagami Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+/* Katagami's Round and Text have no Geist twin. */
+:root {
+  --font-round: 'Katagami Round', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-reading: 'Katagami Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+:root[data-font='round'] {
+  --font-text: var(--font-round);
+}
+:root[data-font='text'] {
+  --font-text: var(--font-reading);
 }
 :root[data-font='serif'] {
   --font-text: var(--font-serif);
@@ -1609,6 +1700,18 @@ button.primary:disabled {
 }
 .segmented-item.font-mono {
   font-family: var(--font-mono);
+}
+.segmented-item.font-round {
+  font-family: var(--font-round);
+}
+.segmented-item.font-text {
+  font-family: var(--font-reading);
+}
+.segmented-item.family-geist {
+  font-family: 'Geist Variable', sans-serif;
+}
+.segmented-item.family-katagami {
+  font-family: 'Katagami Sans', sans-serif;
 }
 /* Text size choices show an A at each size (fixed, so they don't grow with the setting). */
 .size-glyph {

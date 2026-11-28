@@ -1,7 +1,15 @@
 // How the app looks besides its colors: the text's face and size, how tall rows are, how wide the column is, and
 // whether it moves. Kept in settings.json next to the theme. Pure.
-export const FONTS = ['sans', 'serif', 'mono'] as const;
+/** The typefaces bundled with the app: Geist (Sans, Serif, Mono) and Katagami (Sans, Round, Text, Serif, Mono). */
+export const FAMILIES = ['geist', 'katagami'] as const;
+export type FontFamily = (typeof FAMILIES)[number];
+export const FONTS = ['sans', 'round', 'text', 'serif', 'mono'] as const;
 export type FontChoice = (typeof FONTS)[number];
+/** The faces each family draws; the text's face is one of its family's. */
+export const FAMILY_FONTS: Record<FontFamily, ReadonlyArray<FontChoice>> = {
+  geist: ['sans', 'serif', 'mono'],
+  katagami: ['sans', 'round', 'text', 'serif', 'mono'],
+};
 /** Text sizes in px; 13 is the size the app is drawn at. */
 export const TEXT_SIZES = [12, 13, 14, 15, 16] as const;
 export type TextSize = (typeof TEXT_SIZES)[number];
@@ -15,6 +23,7 @@ export type ColumnWidth = (typeof WIDTHS)[number];
 export const COLUMN_WIDTH: Record<ColumnWidth, number> = { narrow: 600, standard: 720, wide: 900 };
 
 export interface Appearance {
+  family: FontFamily;
   font: FontChoice;
   size: TextSize;
   density: Density;
@@ -23,7 +32,7 @@ export interface Appearance {
   reduceMotion: boolean;
 }
 
-export const DEFAULT_APPEARANCE: Appearance = { font: 'sans', size: 13, density: 'comfortable', width: 'standard', reduceMotion: false };
+export const DEFAULT_APPEARANCE: Appearance = { family: 'geist', font: 'sans', size: 13, density: 'comfortable', width: 'standard', reduceMotion: false };
 
 const oneOf = <T extends string | number>(options: ReadonlyArray<T>, v: unknown, fallback: T): T => options.find((o) => o === v) ?? fallback;
 
@@ -33,8 +42,10 @@ export function appearanceFrom(v: unknown): Appearance {
   if (typeof v !== 'object' || v === null) {
     return d;
   }
+  const family = oneOf(FAMILIES, 'family' in v ? v.family : undefined, d.family);
   return {
-    font: oneOf(FONTS, 'font' in v ? v.font : undefined, d.font),
+    family,
+    font: oneOf(FAMILY_FONTS[family], 'font' in v ? v.font : undefined, d.font),
     size: oneOf(TEXT_SIZES, 'size' in v ? v.size : undefined, d.size),
     density: oneOf(DENSITIES, 'density' in v ? v.density : undefined, d.density),
     width: oneOf(WIDTHS, 'width' in v ? v.width : undefined, d.width),

@@ -12,6 +12,7 @@ const listeners = new Set<() => void>();
 export function applyAppearance(a: Appearance) {
   current = a;
   const root = document.documentElement;
+  root.dataset.family = a.family;
   root.dataset.font = a.font;
   root.style.setProperty('--fs', String(a.size / 13));
   root.style.setProperty('--column', `${COLUMN_WIDTH[a.width]}px`);
