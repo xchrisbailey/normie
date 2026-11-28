@@ -3,7 +3,7 @@
 // drive.ts: real key presses, clicks checked with elementFromPoint, menu commands. A step for a bug fix should fail on
 // the old code first.
 import type { BrowserWindow } from 'electron';
-import { app } from 'electron';
+import { app, nativeTheme } from 'electron';
 import { writeFileSync } from 'node:fs';
 import { sleep } from '../core/sleep';
 import { drive } from './drive';
@@ -327,7 +327,9 @@ async function smokeSettings(w: BrowserWindow) {
   const spotAfter = await spot();
   const [x1, y1] = spotAfter.split(',').map(Number);
   const rowUp = x0 === x1 && (y1 ?? 0) < (y0 ?? 0);
-  const picked = hit && clicked === 'solarized-light' && arrowed !== chosenBefore && rowUp && tiles.count > 1 && tiles.looks > 1;
+  // Following a dark system, the light pick is the light half of the pair and the dark one stays on screen.
+  const lightPicked = nativeTheme.shouldUseDarkColors ? clicked === before && chosenBefore.includes('solarized-light') : clicked === 'solarized-light';
+  const picked = hit && lightPicked && arrowed !== chosenBefore && rowUp && tiles.count > 1 && tiles.looks > 1;
   // Back to the pair it started with.
   await pickTheme('normie-dark');
   await pickTheme(before);
