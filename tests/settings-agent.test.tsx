@@ -121,7 +121,19 @@ test('an agent can find and change every setting', async () => {
     '900px',
     '36px',
   ]);
-  expect(saveAppearance).toHaveBeenLastCalledWith({ font: 'serif', size: 15, density: 'compact', width: 'wide', reduceMotion: true });
+  expect(saveAppearance).toHaveBeenLastCalledWith({ family: 'geist', font: 'serif', size: 15, density: 'compact', width: 'wide', reduceMotion: true });
+
+  // Katagami: its own faces appear, and Serif carries over; back to Geist, Round becomes Sans.
+  result = await act(async () => agent.act({ steps: [{ ref: 'Typeface', action: 'setValue', args: ['katagami'] }] }));
+  expect(result.ok, result.error?.message).toBe(true);
+  expect([page.dataset.family, page.dataset.font]).toEqual(['katagami', 'serif']);
+  result = await act(async () => agent.act({ steps: [{ ref: 'Font', action: 'setValue', args: ['round'] }] }));
+  expect(result.ok, result.error?.message).toBe(true);
+  expect(page.dataset.font).toBe('round');
+  result = await act(async () => agent.act({ steps: [{ ref: 'Typeface', action: 'setValue', args: ['geist'] }] }));
+  expect(result.ok, result.error?.message).toBe(true);
+  expect([page.dataset.family, page.dataset.font]).toEqual(['geist', 'sans']);
+  expect(saveAppearance).toHaveBeenLastCalledWith({ family: 'geist', font: 'sans', size: 15, density: 'compact', width: 'wide', reduceMotion: true });
 
   // Mail and General: each choice takes at once and is saved.
   result = await act(async () => agent.act({ steps: [{ ref: 'Settings', action: 'setValue', args: ['mail'] }] }));

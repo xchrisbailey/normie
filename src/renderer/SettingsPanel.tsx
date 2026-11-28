@@ -8,7 +8,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/react/tabs';
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
-import { DENSITIES, FONTS, TEXT_SIZES, WIDTHS } from '../core/appearance';
+import { DENSITIES, FAMILIES, FAMILY_FONTS, TEXT_SIZES, WIDTHS } from '../core/appearance';
 import type { Appearance } from '../core/appearance';
 import { AFTER_TRIAGE, CLOCK, fromKey, MARK_READ, MENU_COUNT, NOTIFY, REMOTE_IMAGES, UNDO_SEND } from '../core/prefs';
 import type { Prefs } from '../core/prefs';
@@ -153,7 +153,8 @@ function AccountSettings({ accounts }: { accounts: Array<AccountRecord> }) {
   );
 }
 
-const FONT_NAMES: Record<Appearance['font'], string> = { sans: 'Sans', serif: 'Serif', mono: 'Mono' };
+const FAMILY_NAMES: Record<Appearance['family'], string> = { geist: 'Geist', katagami: 'Katagami' };
+const FONT_NAMES: Record<Appearance['font'], string> = { sans: 'Sans', round: 'Round', text: 'Text', serif: 'Serif', mono: 'Mono' };
 const SIZE_NAMES: Record<Appearance['size'], string> = { 12: 'Small', 13: 'Default', 14: 'Large', 15: 'Larger', 16: 'Largest' };
 const DENSITY_NAMES: Record<Appearance['density'], string> = { compact: 'Compact', comfortable: 'Comfortable', roomy: 'Roomy' };
 const WIDTH_NAMES: Record<Appearance['width'], string> = { narrow: 'Narrow', standard: 'Standard', wide: 'Wide' };
@@ -168,7 +169,23 @@ function LookSettings() {
       <h3 className="settings-heading" id={heading}>
         Text and layout
       </h3>
-      <Choice label="Font" value={a.font} options={FONTS} names={FONT_NAMES} onChange={(font) => setAppearance({ font })} itemClass={(f) => `font-${f}`} />
+      <Choice
+        label="Typeface"
+        value={a.family}
+        options={FAMILIES}
+        names={FAMILY_NAMES}
+        // A face the new family doesn't draw (Katagami's Round or Text, in Geist) becomes its Sans.
+        onChange={(family) => setAppearance({ family, font: FAMILY_FONTS[family].includes(a.font) ? a.font : 'sans' })}
+        itemClass={(f) => `family-${f}`}
+      />
+      <Choice
+        label="Font"
+        value={a.font}
+        options={FAMILY_FONTS[a.family]}
+        names={FONT_NAMES}
+        onChange={(font) => setAppearance({ font })}
+        itemClass={(f) => `font-${f}`}
+      />
       <Choice
         label="Text size"
         value={String(a.size)}

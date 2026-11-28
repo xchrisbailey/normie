@@ -374,7 +374,8 @@ async function smokeSettings(w: BrowserWindow) {
 
 /**
  * Settings > Appearance, text and layout: serif, a larger size, compact rows, a wide column and reduced motion each
- * take at once (the list checked behind Settings), then everything goes back to the defaults.
+ * take at once (the list checked behind Settings), then everything goes back to the defaults. Then Katagami Round,
+ * and back to Geist.
  */
 async function smokeLook(d: ReturnType<typeof drive>) {
   const pick = pickChoice(d);
@@ -401,6 +402,17 @@ async function smokeLook(d: ReturnType<typeof drive>) {
   await sleep(200);
   const back = [await pick('sans'), await pick('13'), await pick('comfortable'), await pick('standard'), (await motion()).hit];
   const reset = await page();
+  // Katagami: its Round face takes, drawn from the bundled file; back to Geist, the face is Sans again.
+  const kat = [await pick('katagami'), await pick('round')];
+  await sleep(200);
+  const face = (name: string) =>
+    d.js<{ family: string; loaded: number; mono: string }>(
+      `document.fonts.load('13px "${name}"').then((f) => ({ family: getComputedStyle(document.body).fontFamily, loaded: f.length, mono: getComputedStyle(document.documentElement).getPropertyValue('--font-mono') })).catch((e) => ({ family: String(e), loaded: 0, mono: '' }))`,
+    );
+  const katagami = await face('Katagami Round');
+  await d.shot('settings-katagami');
+  kat.push(await pick('geist'));
+  const geist = await face('Geist Variable');
   const ok =
     hits.every(Boolean) &&
     back.every(Boolean) &&
@@ -412,8 +424,14 @@ async function smokeLook(d: ReturnType<typeof drive>) {
     laidOut.column === 900 &&
     reset.family.startsWith('"Geist Variable"') &&
     reset.size === '13px' &&
-    reset.motion === undefined;
-  return { ok, hits, back, changed, laidOut, reset };
+    reset.motion === undefined &&
+    kat.every(Boolean) &&
+    katagami.family.startsWith('"Katagami Round"') &&
+    katagami.loaded > 0 &&
+    katagami.mono.includes('Katagami Mono') &&
+    geist.family.startsWith('"Geist Variable"') &&
+    !geist.mono.includes('Katagami');
+  return { ok, hits, back, changed, laidOut, reset, kat, katagami, geist };
 }
 
 /** Click a choice in the Settings tab on screen, by its value; whether it's now the checked one. */
